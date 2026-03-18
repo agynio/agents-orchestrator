@@ -1,0 +1,74 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: e2e-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # --- Provision cluster ---
+
+      - name: Checkout bootstrap
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/bootstrap
+          path: bootstrap
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.28.7
+
+      - name: Install k3d
+        run: |
+          curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+          terraform_wrapper: false
+
+      - name: Provision cluster
+        working-directory: bootstrap
+        run: ./apply.sh -y
+
+      - name: Verify platform health
+        working-directory: bootstrap
+        run: ./.github/scripts/verify_platform_health.sh
+
+      - name: Merge kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          cp bootstrap/stacks/k8s/.kube/agyn-local-kubeconfig.yaml "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          kubectl cluster-info
+          kubectl get pods -n platform
+
+      # --- Install DevSpace ---
+
+      - name: Install DevSpace
+        run: |
+          curl -fsSL https://github.com/devspace-sh/devspace/releases/latest/download/devspace-linux-amd64 \
+            -o /usr/local/bin/devspace
+          chmod +x /usr/local/bin/devspace
+          devspace version
+
+      # --- Run E2E tests ---
+
+      - name: Checkout service
+        uses: actions/checkout@v4
+        with:
+          path: service
+
+      - name: Run E2E tests
+        working-directory: service
+        run: devspace run test:e2e
