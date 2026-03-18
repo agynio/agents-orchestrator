@@ -103,6 +103,13 @@ deployments:
                 value: "threads:50051"
               - name: RUNNER_ADDRESS
                 value: "runner:50051"
+            volumeMounts:
+              - containerPath: /opt/app/data
+                volume:
+                  name: data
+        volumes:
+          - name: data
+            emptyDir: {}
         labels:
           app.kubernetes.io/name: agents-orchestrator-e2e
 
