@@ -105,7 +105,7 @@ deployments:
 
 commands:
   test-e2e: |-
-    devspace run-pipeline test-e2e $@
+    devspace run-pipeline test-e2e -n ${DEVSPACE_NAMESPACE} $@
 
 pipelines:
   dev:
