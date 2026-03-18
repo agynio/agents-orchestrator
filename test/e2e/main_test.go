@@ -31,7 +31,7 @@ const (
 var (
 	teamsAddr   = envOrDefault("TEAMS_ADDRESS", "teams:50051")
 	threadsAddr = envOrDefault("THREADS_ADDRESS", "threads:50051")
-	runnerAddr  = envOrDefault("RUNNER_ADDRESS", "runner:50051")
+	runnerAddr  = envOrDefault("RUNNER_ADDRESS", "docker-runner:50051")
 )
 
 func envOrDefault(key, fallback string) string {

@@ -102,7 +102,7 @@ deployments:
               - name: THREADS_ADDRESS
                 value: "threads:50051"
               - name: RUNNER_ADDRESS
-                value: "runner:50051"
+                value: "docker-runner:50051"
             volumeMounts:
               - containerPath: /opt/app/data
                 volume:
