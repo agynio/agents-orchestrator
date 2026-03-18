@@ -130,11 +130,17 @@ pipelines:
       create_deployments e2e-runner
       start_dev e2e-runner &
       echo "Waiting for e2e-runner sync to complete..."
+      ELAPSED=0
       until exec_container \
         --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
         -n ${ORCHESTRATOR_NAMESPACE} \
         -- test -f /opt/app/data/buf.gen.yaml 2>/dev/null; do
         sleep 3
+        ELAPSED=$((ELAPSED + 3))
+        if [ "$ELAPSED" -ge 120 ]; then
+          echo "ERROR: e2e-runner sync timeout" >&2
+          exit 1
+        fi
       done
       echo "Sync complete."
       exec_container \
