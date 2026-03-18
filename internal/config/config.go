@@ -56,11 +56,11 @@ func FromEnv() (Config, error) {
 	}
 	cfg.AgentThreadsAddress = os.Getenv("AGENT_THREADS_ADDRESS")
 	if cfg.AgentThreadsAddress == "" {
-		return Config{}, fmt.Errorf("AGENT_THREADS_ADDRESS must be set")
+		cfg.AgentThreadsAddress = "threads:50051"
 	}
 	cfg.AgentNotificationsAddress = os.Getenv("AGENT_NOTIFICATIONS_ADDRESS")
 	if cfg.AgentNotificationsAddress == "" {
-		return Config{}, fmt.Errorf("AGENT_NOTIFICATIONS_ADDRESS must be set")
+		cfg.AgentNotificationsAddress = "notifications:50051"
 	}
 
 	pollInterval := os.Getenv("POLL_INTERVAL")
