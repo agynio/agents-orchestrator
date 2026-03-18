@@ -104,8 +104,8 @@ deployments:
           app.kubernetes.io/name: agents-orchestrator-e2e
 
 commands:
-  test:e2e: |-
-    devspace run-pipeline test:e2e $@
+  test-e2e: |-
+    devspace run-pipeline test-e2e $@
 
 pipelines:
   dev:
@@ -125,7 +125,7 @@ pipelines:
         stop_dev agents-orchestrator
       fi
 
-  test:e2e:
+  test-e2e:
     run: |-
       create_deployments e2e-runner
       start_dev e2e-runner &
