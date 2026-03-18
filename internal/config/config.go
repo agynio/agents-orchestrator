@@ -32,23 +32,23 @@ func FromEnv() (Config, error) {
 	}
 	cfg.ThreadsAddress = os.Getenv("THREADS_ADDRESS")
 	if cfg.ThreadsAddress == "" {
-		return Config{}, fmt.Errorf("THREADS_ADDRESS must be set")
+		cfg.ThreadsAddress = "threads:50051"
 	}
 	cfg.NotificationsAddress = os.Getenv("NOTIFICATIONS_ADDRESS")
 	if cfg.NotificationsAddress == "" {
-		return Config{}, fmt.Errorf("NOTIFICATIONS_ADDRESS must be set")
+		cfg.NotificationsAddress = "notifications:50051"
 	}
 	cfg.TeamsAddress = os.Getenv("TEAMS_ADDRESS")
 	if cfg.TeamsAddress == "" {
-		return Config{}, fmt.Errorf("TEAMS_ADDRESS must be set")
+		cfg.TeamsAddress = "teams:50051"
 	}
 	cfg.SecretsAddress = os.Getenv("SECRETS_ADDRESS")
 	if cfg.SecretsAddress == "" {
-		return Config{}, fmt.Errorf("SECRETS_ADDRESS must be set")
+		cfg.SecretsAddress = "secrets:50051"
 	}
 	cfg.RunnerAddress = os.Getenv("RUNNER_ADDRESS")
 	if cfg.RunnerAddress == "" {
-		return Config{}, fmt.Errorf("RUNNER_ADDRESS must be set")
+		cfg.RunnerAddress = "docker-runner:50051"
 	}
 	cfg.DefaultAgentImage = os.Getenv("DEFAULT_AGENT_IMAGE")
 	if cfg.DefaultAgentImage == "" {
