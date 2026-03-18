@@ -137,7 +137,7 @@ pipelines:
       until exec_container \
         --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
         -n ${ORCHESTRATOR_NAMESPACE} \
-        -- test -f /opt/app/data/buf.gen.yaml 2>/dev/null; do
+        -- test -f /opt/app/data/buf.gen.yaml; do
         sleep 3
         ELAPSED=$((ELAPSED + 3))
         if [ "$ELAPSED" -ge 120 ]; then
