@@ -2,23 +2,19 @@ package reconciler
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
-	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/store"
-	"github.com/google/uuid"
 )
 
 type Reconciler struct {
 	threads   threadsv1.ThreadsServiceClient
 	teams     teamsv1.TeamsServiceClient
-	secrets   secretsv1.SecretsServiceClient
 	runner    runnerv1.RunnerServiceClient
 	store     *store.Store
 	assembler *assembler.Assembler
@@ -28,11 +24,10 @@ type Reconciler struct {
 	stopSec   uint32
 }
 
-func New(threads threadsv1.ThreadsServiceClient, teams teamsv1.TeamsServiceClient, secrets secretsv1.SecretsServiceClient, runner runnerv1.RunnerServiceClient, store *store.Store, assembler *assembler.Assembler, wake <-chan struct{}, poll, idle time.Duration, stopSec uint32) *Reconciler {
+func New(threads threadsv1.ThreadsServiceClient, teams teamsv1.TeamsServiceClient, runner runnerv1.RunnerServiceClient, store *store.Store, assembler *assembler.Assembler, wake <-chan struct{}, poll, idle time.Duration, stopSec uint32) *Reconciler {
 	return &Reconciler{
 		threads:   threads,
 		teams:     teams,
-		secrets:   secrets,
 		runner:    runner,
 		store:     store,
 		assembler: assembler,
@@ -132,15 +127,4 @@ func failureSummary(failure *runnerv1.WorkloadFailure) string {
 		return failure.GetMessage()
 	}
 	return failure.GetCode()
-}
-
-func parseUUID(value, field string) (uuid.UUID, error) {
-	if value == "" {
-		return uuid.UUID{}, fmt.Errorf("%s is empty", field)
-	}
-	parsed, err := uuid.Parse(value)
-	if err != nil {
-		return uuid.UUID{}, fmt.Errorf("parse %s: %w", field, err)
-	}
-	return parsed, nil
 }

@@ -12,6 +12,7 @@ import (
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
+	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
 )
 
@@ -140,7 +141,7 @@ func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*teamsv1
 	if meta == nil {
 		return nil, fmt.Errorf("agent meta missing")
 	}
-	metaID, err := parseUUID(meta.GetId(), "agent.meta.id")
+	metaID, err := uuidutil.ParseUUID(meta.GetId(), "agent.meta.id")
 	if err != nil {
 		return nil, err
 	}
@@ -214,9 +215,13 @@ func (a *Assembler) listEnvs(ctx context.Context, req *teamsv1.ListEnvsRequest) 
 	resp := []*teamsv1.Env{}
 	token := ""
 	for {
-		req.PageSize = listPageSize
-		req.PageToken = token
-		page, err := a.teams.ListEnvs(ctx, req)
+		page, err := a.teams.ListEnvs(ctx, &teamsv1.ListEnvsRequest{
+			AgentId:   req.GetAgentId(),
+			McpId:     req.GetMcpId(),
+			HookId:    req.GetHookId(),
+			PageSize:  listPageSize,
+			PageToken: token,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -232,9 +237,13 @@ func (a *Assembler) listInitScripts(ctx context.Context, req *teamsv1.ListInitSc
 	resp := []*teamsv1.InitScript{}
 	token := ""
 	for {
-		req.PageSize = listPageSize
-		req.PageToken = token
-		page, err := a.teams.ListInitScripts(ctx, req)
+		page, err := a.teams.ListInitScripts(ctx, &teamsv1.ListInitScriptsRequest{
+			AgentId:   req.GetAgentId(),
+			McpId:     req.GetMcpId(),
+			HookId:    req.GetHookId(),
+			PageSize:  listPageSize,
+			PageToken: token,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -250,9 +259,14 @@ func (a *Assembler) listVolumeAttachments(ctx context.Context, req *teamsv1.List
 	resp := []*teamsv1.VolumeAttachment{}
 	token := ""
 	for {
-		req.PageSize = listPageSize
-		req.PageToken = token
-		page, err := a.teams.ListVolumeAttachments(ctx, req)
+		page, err := a.teams.ListVolumeAttachments(ctx, &teamsv1.ListVolumeAttachmentsRequest{
+			VolumeId:  req.GetVolumeId(),
+			AgentId:   req.GetAgentId(),
+			McpId:     req.GetMcpId(),
+			HookId:    req.GetHookId(),
+			PageSize:  listPageSize,
+			PageToken: token,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -272,33 +286,20 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	if meta == nil {
 		return nil, fmt.Errorf("mcp meta missing")
 	}
-	mcpID, err := parseUUID(meta.GetId(), "mcp.meta.id")
+	mcpID, err := uuidutil.ParseUUID(meta.GetId(), "mcp.meta.id")
 	if err != nil {
 		return nil, err
 	}
-	vars, err := a.listEnvs(ctx, &teamsv1.ListEnvsRequest{McpId: mcpID.String()})
+	envVars, mounts, err := a.resolveSidecarResources(
+		ctx,
+		resolver,
+		volumeResolver,
+		&teamsv1.ListEnvsRequest{McpId: mcpID.String()},
+		&teamsv1.ListInitScriptsRequest{McpId: mcpID.String()},
+		&teamsv1.ListVolumeAttachmentsRequest{McpId: mcpID.String()},
+	)
 	if err != nil {
-		return nil, fmt.Errorf("list mcp envs: %w", err)
-	}
-	envVars, err := resolver.ResolveEnvVars(ctx, vars)
-	if err != nil {
-		return nil, fmt.Errorf("resolve mcp envs: %w", err)
-	}
-	scripts, err := a.listInitScripts(ctx, &teamsv1.ListInitScriptsRequest{McpId: mcpID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("list mcp init scripts: %w", err)
-	}
-	initScript := concatInitScripts(scripts)
-	if initScript != "" {
-		envVars = append(envVars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
-	}
-	attachments, err := a.listVolumeAttachments(ctx, &teamsv1.ListVolumeAttachmentsRequest{McpId: mcpID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("list mcp volume attachments: %w", err)
-	}
-	mounts, err := volumeResolver.mountsFor(ctx, attachments)
-	if err != nil {
-		return nil, fmt.Errorf("resolve mcp mounts: %w", err)
+		return nil, err
 	}
 	return &runnerv1.ContainerSpec{
 		Image:  mcp.GetImage(),
@@ -317,33 +318,20 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 	if meta == nil {
 		return nil, fmt.Errorf("hook meta missing")
 	}
-	hookID, err := parseUUID(meta.GetId(), "hook.meta.id")
+	hookID, err := uuidutil.ParseUUID(meta.GetId(), "hook.meta.id")
 	if err != nil {
 		return nil, err
 	}
-	vars, err := a.listEnvs(ctx, &teamsv1.ListEnvsRequest{HookId: hookID.String()})
+	envVars, mounts, err := a.resolveSidecarResources(
+		ctx,
+		resolver,
+		volumeResolver,
+		&teamsv1.ListEnvsRequest{HookId: hookID.String()},
+		&teamsv1.ListInitScriptsRequest{HookId: hookID.String()},
+		&teamsv1.ListVolumeAttachmentsRequest{HookId: hookID.String()},
+	)
 	if err != nil {
-		return nil, fmt.Errorf("list hook envs: %w", err)
-	}
-	envVars, err := resolver.ResolveEnvVars(ctx, vars)
-	if err != nil {
-		return nil, fmt.Errorf("resolve hook envs: %w", err)
-	}
-	scripts, err := a.listInitScripts(ctx, &teamsv1.ListInitScriptsRequest{HookId: hookID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("list hook init scripts: %w", err)
-	}
-	initScript := concatInitScripts(scripts)
-	if initScript != "" {
-		envVars = append(envVars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
-	}
-	attachments, err := a.listVolumeAttachments(ctx, &teamsv1.ListVolumeAttachmentsRequest{HookId: hookID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("list hook volume attachments: %w", err)
-	}
-	mounts, err := volumeResolver.mountsFor(ctx, attachments)
-	if err != nil {
-		return nil, fmt.Errorf("resolve hook mounts: %w", err)
+		return nil, err
 	}
 	return &runnerv1.ContainerSpec{
 		Image:  hook.GetImage(),
@@ -437,17 +425,6 @@ func initScriptID(script *teamsv1.InitScript) string {
 	return meta.GetId()
 }
 
-func parseUUID(value, field string) (uuid.UUID, error) {
-	if value == "" {
-		return uuid.UUID{}, fmt.Errorf("%s is empty", field)
-	}
-	id, err := uuid.Parse(value)
-	if err != nil {
-		return uuid.UUID{}, fmt.Errorf("parse %s: %w", field, err)
-	}
-	return id, nil
-}
-
 type volumeResolver struct {
 	teams   teamsv1.TeamsServiceClient
 	agentID uuid.UUID
@@ -471,7 +448,7 @@ func (v *volumeResolver) mountsFor(ctx context.Context, attachments []*teamsv1.V
 			return nil, fmt.Errorf("volume attachment is nil")
 		}
 		volumeIDRaw := attachment.GetVolumeId()
-		volumeID, err := parseUUID(volumeIDRaw, "volume_attachment.volume_id")
+		volumeID, err := uuidutil.ParseUUID(volumeIDRaw, "volume_attachment.volume_id")
 		if err != nil {
 			return nil, err
 		}
@@ -516,6 +493,34 @@ func (v *volumeResolver) getVolume(ctx context.Context, volumeID uuid.UUID) (*te
 	}
 	v.cache[key] = volume
 	return volume, nil
+}
+
+func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, envReq *teamsv1.ListEnvsRequest, initReq *teamsv1.ListInitScriptsRequest, attachmentReq *teamsv1.ListVolumeAttachmentsRequest) ([]*runnerv1.EnvVar, []*runnerv1.VolumeMount, error) {
+	vars, err := a.listEnvs(ctx, envReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list sidecar envs: %w", err)
+	}
+	envVars, err := resolver.ResolveEnvVars(ctx, vars)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve sidecar envs: %w", err)
+	}
+	scripts, err := a.listInitScripts(ctx, initReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list sidecar init scripts: %w", err)
+	}
+	initScript := concatInitScripts(scripts)
+	if initScript != "" {
+		envVars = append(envVars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
+	}
+	attachments, err := a.listVolumeAttachments(ctx, attachmentReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list sidecar volume attachments: %w", err)
+	}
+	mounts, err := volumeResolver.mountsFor(ctx, attachments)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve sidecar mounts: %w", err)
+	}
+	return envVars, mounts, nil
 }
 
 func (v *volumeResolver) ensureSpec(volumeID uuid.UUID, volume *teamsv1.Volume) *runnerv1.VolumeSpec {

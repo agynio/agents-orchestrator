@@ -88,6 +88,8 @@ env:
     value: ""
   - name: IDLE_TIMEOUT
     value: ""
+  - name: STOP_TIMEOUT_SEC
+    value: ""
   - name: LEASE_NAME
     value: ""
 envFrom: []

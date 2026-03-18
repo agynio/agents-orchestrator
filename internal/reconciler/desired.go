@@ -6,6 +6,7 @@ import (
 
 	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
+	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
 )
 
@@ -30,7 +31,7 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, error) {
 		if meta == nil {
 			return nil, fmt.Errorf("agent meta missing")
 		}
-		agentID, err := parseUUID(meta.GetId(), "agent.meta.id")
+		agentID, err := uuidutil.ParseUUID(meta.GetId(), "agent.meta.id")
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +82,7 @@ func (r *Reconciler) listUnackedThreads(ctx context.Context, agentID uuid.UUID) 
 			return nil, fmt.Errorf("get unacked messages for agent %s: %w", agentID.String(), err)
 		}
 		for _, message := range page.GetMessages() {
-			threadID, err := parseUUID(message.GetThreadId(), "message.thread_id")
+			threadID, err := uuidutil.ParseUUID(message.GetThreadId(), "message.thread_id")
 			if err != nil {
 				return nil, err
 			}

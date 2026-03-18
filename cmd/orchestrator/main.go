@@ -95,7 +95,7 @@ func run() error {
 	store := store.NewStore(pool)
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(teamsClient, secretsClient, &cfg)
-	reconciler := reconciler.New(threadsClient, teamsClient, secretsClient, runnerClient, store, assembler, subscriber.Wake(), cfg.PollInterval, cfg.IdleTimeout, cfg.StopTimeoutSec)
+	reconciler := reconciler.New(threadsClient, teamsClient, runnerClient, store, assembler, subscriber.Wake(), cfg.PollInterval, cfg.IdleTimeout, cfg.StopTimeoutSec)
 
 	start := func(leadCtx context.Context) {
 		group, groupCtx := errgroup.WithContext(leadCtx)
