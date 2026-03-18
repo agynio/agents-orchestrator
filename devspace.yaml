@@ -1,0 +1,140 @@
+version: v2beta1
+
+vars:
+  ORCHESTRATOR_NAMESPACE: platform
+  DEV_IMAGE: ghcr.io/agynio/devcontainer-go:1
+
+functions:
+  disable_argocd_sync: |-
+    if kubectl get application agents-orchestrator -n argocd >/dev/null 2>&1; then
+      echo "Disabling ArgoCD auto-sync for agents-orchestrator..."
+      kubectl patch application agents-orchestrator -n argocd \
+        --type merge \
+        -p '{"spec":{"syncPolicy":{"automated":null}}}'
+      echo "ArgoCD auto-sync disabled."
+    else
+      echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
+    fi
+  restore_argocd_sync: &restore_argocd_sync |-
+    if kubectl get application agents-orchestrator -n argocd >/dev/null 2>&1; then
+      echo "Re-enabling ArgoCD auto-sync for agents-orchestrator..."
+      kubectl patch application agents-orchestrator -n argocd \
+        --type merge \
+        -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+      echo "ArgoCD auto-sync restored."
+    else
+      echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
+    fi
+  patch_deployment: |-
+    echo "Patching agents-orchestrator deployment for DevSpace..."
+    kubectl patch deployment agents-orchestrator-agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsUser: 1000
+            fsGroup: 1000
+          initContainers: []
+          volumes:
+            - name: data
+              emptyDir: {}
+          containers:
+            - name: agents-orchestrator
+              image: ghcr.io/agynio/devcontainer-go:1 # keep in sync with DEV_IMAGE
+              workingDir: /opt/app/data
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  elapsed=0
+                  while [ ! -f /opt/app/data/go.mod ]; do
+                    sleep 1; elapsed=$((elapsed + 1))
+                    [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
+                  done
+                  buf generate buf.build/agynio/api \
+                    --path agynio/api/runner/v1 \
+                    --path agynio/api/threads/v1 \
+                    --path agynio/api/notifications/v1 \
+                    --path agynio/api/teams/v1 \
+                    --path agynio/api/secrets/v1
+                  exec go run ./cmd/orchestrator
+              volumeMounts:
+                - name: data
+                  mountPath: /opt/app/data
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                readOnlyRootFilesystem: false
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
+    EOF
+    )"
+
+pipelines:
+  dev:
+    flags:
+      - name: watch
+        short: w
+        description: "Keep DevSpace running and stream logs"
+    run: |-
+      disable_argocd_sync
+      patch_deployment
+      if [ "$(get_flag "watch")" == "true" ]; then
+        start_dev --disable-pod-replace agents-orchestrator
+      else
+        start_dev --disable-pod-replace agents-orchestrator
+        sleep 10
+        echo "Dev environment ready. Stopping dev session."
+        stop_dev agents-orchestrator
+      fi
+
+hooks:
+  - name: restore-argocd-auto-sync
+    events:
+      - after:dev:agents-orchestrator
+    command: bash
+    args:
+      - -c
+      - *restore_argocd_sync
+
+dev:
+  agents-orchestrator:
+    namespace: ${ORCHESTRATOR_NAMESPACE}
+    labelSelector:
+      app.kubernetes.io/name: agents-orchestrator
+      app.kubernetes.io/instance: agents-orchestrator
+    containers:
+      agents-orchestrator:
+        container: agents-orchestrator
+        sync:
+          - path: ./:/opt/app/data
+            excludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+            uploadExcludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+            downloadExcludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+        logs:
+          enabled: true
+          lastLines: 200
