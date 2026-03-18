@@ -91,7 +91,7 @@ deployments:
         name: component-chart
         repo: https://charts.devspace.sh
       values:
-        podSecurityContext:
+        securityContext:
           runAsUser: 1000
           fsGroup: 1000
         containers:
