@@ -103,6 +103,8 @@ deployments:
                 value: "threads:50051"
               - name: RUNNER_ADDRESS
                 value: "docker-runner:50051"
+              - name: DOCKER_RUNNER_SHARED_SECRET
+                value: "e2e-test-secret"
             volumeMounts:
               - containerPath: /opt/app/data
                 volume:

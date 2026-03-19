@@ -29,9 +29,10 @@ const (
 )
 
 var (
-	teamsAddr   = envOrDefault("TEAMS_ADDRESS", "teams:50051")
-	threadsAddr = envOrDefault("THREADS_ADDRESS", "threads:50051")
-	runnerAddr  = envOrDefault("RUNNER_ADDRESS", "docker-runner:50051")
+	teamsAddr          = envOrDefault("TEAMS_ADDRESS", "teams:50051")
+	threadsAddr        = envOrDefault("THREADS_ADDRESS", "threads:50051")
+	runnerAddr         = envOrDefault("RUNNER_ADDRESS", "docker-runner:50051")
+	runnerSharedSecret string
 )
 
 func envOrDefault(key, fallback string) string {
@@ -47,18 +48,25 @@ func envOrDefault(key, fallback string) string {
 }
 
 func TestMain(m *testing.M) {
+	runnerSharedSecret = strings.TrimSpace(os.Getenv("DOCKER_RUNNER_SHARED_SECRET"))
+	if runnerSharedSecret == "" {
+		fmt.Fprintln(os.Stderr, "DOCKER_RUNNER_SHARED_SECRET must be set")
+		os.Exit(1)
+	}
 	os.Exit(m.Run())
 }
 
 // dialGRPC creates an insecure gRPC connection. The test fails immediately on error.
-func dialGRPC(t *testing.T, addr string) *grpc.ClientConn {
+func dialGRPC(t *testing.T, addr string, opts ...grpc.DialOption) *grpc.ClientConn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	conn, err := grpc.DialContext(ctx, addr,
+	options := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
-	)
+	}
+	options = append(options, opts...)
+	conn, err := grpc.DialContext(ctx, addr, options...)
 	if err != nil {
 		t.Fatalf("dial %s: %v", addr, err)
 	}
