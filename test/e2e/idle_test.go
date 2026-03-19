@@ -20,7 +20,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 
 	teamsConn := dialGRPC(t, teamsAddr)
 	threadsConn := dialGRPC(t, threadsAddr)
-	runnerConn := dialGRPC(t, runnerAddr)
+	runnerConn := dialRunnerGRPC(t, runnerAddr)
 
 	teamsClient := teamsv1.NewTeamsServiceClient(teamsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
