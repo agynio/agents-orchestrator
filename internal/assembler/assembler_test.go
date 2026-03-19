@@ -89,6 +89,10 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if request.Main.Image != cfg.DefaultAgentImage {
 		t.Fatalf("expected default image %q, got %q", cfg.DefaultAgentImage, request.Main.Image)
 	}
+	expectedName := "agent-" + agentID.String()[:8] + "-" + threadID.String()[:8]
+	if request.Main.Name != expectedName {
+		t.Fatalf("expected main name %q, got %q", expectedName, request.Main.Name)
+	}
 	expectedCmd := []string{"/bin/sh", "-c", "exec sleep infinity"}
 	if !equalStringSlice(request.Main.Cmd, expectedCmd) {
 		t.Fatalf("unexpected main cmd: %+v", request.Main.Cmd)
