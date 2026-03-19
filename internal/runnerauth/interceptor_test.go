@@ -12,7 +12,7 @@ func TestHashBodyEmpty(t *testing.T) {
 func TestBuildSignaturePayloadAndSign(t *testing.T) {
 	secret := "test-secret"
 	method := "post"
-	path := "/agynio.runner.v1.RunnerService/FindWorkloadsByLabels"
+	path := "/agynio.api.runner.v1.RunnerService/FindWorkloadsByLabels"
 	timestamp := "1700000000000"
 	nonce := "6f9a2b7d-9b45-4bba-8e10-8e7cce8072b6"
 	bodyHash := "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
@@ -23,7 +23,7 @@ func TestBuildSignaturePayloadAndSign(t *testing.T) {
 		t.Fatalf("expected payload %q, got %q", expectedPayload, payload)
 	}
 
-	expectedSignature := "4ETIVMCQlIaQtqa4IRwOmcVnHlpUowqYgfWOnRdCiBU="
+	expectedSignature := "6o4jXSgpjQhHtHR9dmfqTqj+YlGpGSLfSMDklO0Ovac="
 	signature := signPayload([]byte(secret), payload)
 	if signature != expectedSignature {
 		t.Fatalf("expected signature %q, got %q", expectedSignature, signature)
