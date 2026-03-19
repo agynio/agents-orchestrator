@@ -89,6 +89,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	main := &runnerv1.ContainerSpec{
 		Image:  image,
 		Name:   fmt.Sprintf("agent-%s", agentID.String()),
+		Cmd:    []string{"/bin/sh", "-c", "exec sleep infinity"},
 		Env:    mainEnv,
 		Mounts: agentMounts,
 		AdditionalProperties: map[string]string{
