@@ -11,9 +11,6 @@ import (
 
 func dialRunnerGRPC(t *testing.T, addr string) *grpc.ClientConn {
 	t.Helper()
-	if runnerSharedSecret == "" {
-		t.Fatal("DOCKER_RUNNER_SHARED_SECRET must be set")
-	}
 	unaryInterceptor, streamInterceptor, err := runnerauth.NewClientInterceptors(runnerSharedSecret)
 	if err != nil {
 		t.Fatalf("create runner auth interceptors: %v", err)
