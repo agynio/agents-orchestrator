@@ -4,11 +4,6 @@ vars:
   ORCHESTRATOR_NAMESPACE: platform
   DEV_IMAGE: ghcr.io/agynio/devcontainer-go:1
   E2E_IMAGE: ghcr.io/agynio/devcontainer-go:1
-  RUNNER_SHARED_SECRET:
-    command: bash
-    args:
-      - -c
-      - kubectl get deployment docker-runner -n ${ORCHESTRATOR_NAMESPACE} -o jsonpath='{.spec.template.spec.containers[?(@.name=="docker-runner")].env[?(@.name=="DOCKER_RUNNER_SHARED_SECRET")].value}'
 
 functions:
   disable_argocd_sync: |-
@@ -107,9 +102,7 @@ deployments:
               - name: THREADS_ADDRESS
                 value: "threads:50051"
               - name: RUNNER_ADDRESS
-                value: "docker-runner:50051"
-              - name: DOCKER_RUNNER_SHARED_SECRET
-                value: "${RUNNER_SHARED_SECRET}"
+                value: "k8s-runner:50051"
             volumeMounts:
               - containerPath: /opt/app/data
                 volume:

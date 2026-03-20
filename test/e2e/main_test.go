@@ -29,10 +29,9 @@ const (
 )
 
 var (
-	agentsAddr         = envOrDefault("AGENTS_ADDRESS", "agents:50051")
-	threadsAddr        = envOrDefault("THREADS_ADDRESS", "threads:50051")
-	runnerAddr         = envOrDefault("RUNNER_ADDRESS", "docker-runner:50051")
-	runnerSharedSecret string
+	agentsAddr  = envOrDefault("AGENTS_ADDRESS", "agents:50051")
+	threadsAddr = envOrDefault("THREADS_ADDRESS", "threads:50051")
+	runnerAddr  = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 )
 
 func envOrDefault(key, fallback string) string {
@@ -45,15 +44,6 @@ func envOrDefault(key, fallback string) string {
 		return fallback
 	}
 	return trimmed
-}
-
-func TestMain(m *testing.M) {
-	runnerSharedSecret = strings.TrimSpace(os.Getenv("DOCKER_RUNNER_SHARED_SECRET"))
-	if runnerSharedSecret == "" {
-		fmt.Fprintln(os.Stderr, "DOCKER_RUNNER_SHARED_SECRET must be set")
-		os.Exit(1)
-	}
-	os.Exit(m.Run())
 }
 
 // dialGRPC creates an insecure gRPC connection. The test fails immediately on error.
