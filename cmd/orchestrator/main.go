@@ -9,10 +9,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
-	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/config"
@@ -69,11 +69,11 @@ func run() error {
 	}
 	defer notificationsConn.Close()
 
-	teamsConn, err := grpc.DialContext(ctx, cfg.TeamsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	agentsConn, err := grpc.DialContext(ctx, cfg.AgentsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return fmt.Errorf("dial teams: %w", err)
+		return fmt.Errorf("dial agents: %w", err)
 	}
-	defer teamsConn.Close()
+	defer agentsConn.Close()
 
 	secretsConn, err := grpc.DialContext(ctx, cfg.SecretsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -97,14 +97,14 @@ func run() error {
 
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	notificationsClient := notificationsv1.NewNotificationsServiceClient(notificationsConn)
-	teamsClient := teamsv1.NewTeamsServiceClient(teamsConn)
+	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
 	store := store.NewStore(pool)
 	subscriber := subscriber.New(notificationsClient)
-	assembler := assembler.New(teamsClient, secretsClient, &cfg)
-	reconciler := reconciler.New(threadsClient, teamsClient, runnerClient, store, assembler, subscriber.Wake(), cfg.PollInterval, cfg.IdleTimeout, cfg.StopTimeoutSec)
+	assembler := assembler.New(agentsClient, secretsClient, &cfg)
+	reconciler := reconciler.New(threadsClient, agentsClient, runnerClient, store, assembler, subscriber.Wake(), cfg.PollInterval, cfg.IdleTimeout, cfg.StopTimeoutSec)
 
 	start := func(leadCtx context.Context) {
 		group, groupCtx := errgroup.WithContext(leadCtx)

@@ -11,7 +11,7 @@ type Config struct {
 	DatabaseURL               string
 	ThreadsAddress            string
 	NotificationsAddress      string
-	TeamsAddress              string
+	AgentsAddress             string
 	SecretsAddress            string
 	RunnerAddress             string
 	RunnerSharedSecret        string
@@ -39,9 +39,9 @@ func FromEnv() (Config, error) {
 	if cfg.NotificationsAddress == "" {
 		cfg.NotificationsAddress = "notifications:50051"
 	}
-	cfg.TeamsAddress = os.Getenv("TEAMS_ADDRESS")
-	if cfg.TeamsAddress == "" {
-		cfg.TeamsAddress = "teams:50051"
+	cfg.AgentsAddress = os.Getenv("AGENTS_ADDRESS")
+	if cfg.AgentsAddress == "" {
+		cfg.AgentsAddress = "agents:50051"
 	}
 	cfg.SecretsAddress = os.Getenv("SECRETS_ADDRESS")
 	if cfg.SecretsAddress == "" {

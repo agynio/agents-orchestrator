@@ -26,7 +26,7 @@ RUN buf generate buf.build/agynio/api \
     --path agynio/api/runner/v1 \
     --path agynio/api/threads/v1 \
     --path agynio/api/notifications/v1 \
-    --path agynio/api/teams/v1 \
+    --path agynio/api/agents/v1 \
     --path agynio/api/secrets/v1
 
 COPY . .

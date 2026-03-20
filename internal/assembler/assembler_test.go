@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
-	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -21,8 +21,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 	agentID := uuid.New()
 	threadID := uuid.New()
 
-	agent := &teamsv1.Agent{
-		Meta:          &teamsv1.EntityMeta{Id: agentID.String()},
+	agent := &agentsv1.Agent{
+		Meta:          &agentsv1.EntityMeta{Id: agentID.String()},
 		Name:          "assistant",
 		Role:          "ops",
 		Model:         "gpt-test",
@@ -30,45 +30,45 @@ func TestAssemblerMainContainer(t *testing.T) {
 		Configuration: "{\"mode\":\"test\"}",
 	}
 
-	skills := []*teamsv1.Skill{{Name: "skill-a", Body: "do-a"}}
+	skills := []*agentsv1.Skill{{Name: "skill-a", Body: "do-a"}}
 
-	teamsClient := &fakeTeamsClient{
-		getAgent: func(_ context.Context, req *teamsv1.GetAgentRequest, _ ...grpc.CallOption) (*teamsv1.GetAgentResponse, error) {
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
 			if req.GetId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
-			return &teamsv1.GetAgentResponse{Agent: agent}, nil
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
 		},
-		listSkills: func(_ context.Context, req *teamsv1.ListSkillsRequest, _ ...grpc.CallOption) (*teamsv1.ListSkillsResponse, error) {
+		listSkills: func(_ context.Context, req *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			if req.GetAgentId() != agentID.String() {
 				return nil, errors.New("unexpected skills agent id")
 			}
-			return &teamsv1.ListSkillsResponse{Skills: skills}, nil
+			return &agentsv1.ListSkillsResponse{Skills: skills}, nil
 		},
-		listEnvs: func(_ context.Context, req *teamsv1.ListEnvsRequest, _ ...grpc.CallOption) (*teamsv1.ListEnvsResponse, error) {
+		listEnvs: func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			if req.GetAgentId() == agentID.String() {
-				return &teamsv1.ListEnvsResponse{Envs: []*teamsv1.Env{
-					{Meta: &teamsv1.EntityMeta{Id: uuid.NewString()}, Name: "CUSTOM_ENV", Source: &teamsv1.Env_Value{Value: "custom"}},
+				return &agentsv1.ListEnvsResponse{Envs: []*agentsv1.Env{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "CUSTOM_ENV", Source: &agentsv1.Env_Value{Value: "custom"}},
 				}}, nil
 			}
-			return &teamsv1.ListEnvsResponse{}, nil
+			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		listInitScripts: func(_ context.Context, req *teamsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*teamsv1.ListInitScriptsResponse, error) {
+		listInitScripts: func(_ context.Context, req *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			if req.GetAgentId() != agentID.String() {
-				return &teamsv1.ListInitScriptsResponse{}, nil
+				return &agentsv1.ListInitScriptsResponse{}, nil
 			}
-			return &teamsv1.ListInitScriptsResponse{InitScripts: []*teamsv1.InitScript{
-				{Meta: &teamsv1.EntityMeta{Id: uuid.NewString()}, Script: "echo ready"},
+			return &agentsv1.ListInitScriptsResponse{InitScripts: []*agentsv1.InitScript{
+				{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Script: "echo ready"},
 			}}, nil
 		},
-		listVolumeAttachments: func(_ context.Context, _ *teamsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*teamsv1.ListVolumeAttachmentsResponse, error) {
-			return &teamsv1.ListVolumeAttachmentsResponse{}, nil
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
-		listMcps: func(_ context.Context, _ *teamsv1.ListMcpsRequest, _ ...grpc.CallOption) (*teamsv1.ListMcpsResponse, error) {
-			return &teamsv1.ListMcpsResponse{}, nil
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
 		},
-		listHooks: func(_ context.Context, _ *teamsv1.ListHooksRequest, _ ...grpc.CallOption) (*teamsv1.ListHooksResponse, error) {
-			return &teamsv1.ListHooksResponse{}, nil
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
 		},
 	}
 
@@ -78,7 +78,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 		AgentNotificationsAddress: "notifications:50052",
 	}
 
-	assembler := New(teamsClient, &fakeSecretsClient{}, &cfg)
+	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
 	request, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -149,37 +149,37 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		},
 	}
 
-	teamsClient := &fakeTeamsClient{
-		getAgent: func(_ context.Context, _ *teamsv1.GetAgentRequest, _ ...grpc.CallOption) (*teamsv1.GetAgentResponse, error) {
-			return &teamsv1.GetAgentResponse{Agent: &teamsv1.Agent{Meta: &teamsv1.EntityMeta{Id: agentID.String()}}}, nil
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}}}, nil
 		},
-		listSkills: func(_ context.Context, _ *teamsv1.ListSkillsRequest, _ ...grpc.CallOption) (*teamsv1.ListSkillsResponse, error) {
-			return &teamsv1.ListSkillsResponse{}, nil
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
 		},
-		listEnvs: func(_ context.Context, req *teamsv1.ListEnvsRequest, _ ...grpc.CallOption) (*teamsv1.ListEnvsResponse, error) {
+		listEnvs: func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			if req.GetAgentId() == agentID.String() {
-				return &teamsv1.ListEnvsResponse{Envs: []*teamsv1.Env{
-					{Meta: &teamsv1.EntityMeta{Id: uuid.NewString()}, Name: "SECRET_ENV", Source: &teamsv1.Env_SecretId{SecretId: "secret-1"}},
-					{Meta: &teamsv1.EntityMeta{Id: uuid.NewString()}, Name: "SECRET_ENV_TWO", Source: &teamsv1.Env_SecretId{SecretId: "secret-1"}},
+				return &agentsv1.ListEnvsResponse{Envs: []*agentsv1.Env{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "SECRET_ENV", Source: &agentsv1.Env_SecretId{SecretId: "secret-1"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "SECRET_ENV_TWO", Source: &agentsv1.Env_SecretId{SecretId: "secret-1"}},
 				}}, nil
 			}
-			return &teamsv1.ListEnvsResponse{}, nil
+			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		listInitScripts: func(_ context.Context, _ *teamsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*teamsv1.ListInitScriptsResponse, error) {
-			return &teamsv1.ListInitScriptsResponse{}, nil
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		listVolumeAttachments: func(_ context.Context, _ *teamsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*teamsv1.ListVolumeAttachmentsResponse, error) {
-			return &teamsv1.ListVolumeAttachmentsResponse{}, nil
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
-		listMcps: func(_ context.Context, _ *teamsv1.ListMcpsRequest, _ ...grpc.CallOption) (*teamsv1.ListMcpsResponse, error) {
-			return &teamsv1.ListMcpsResponse{}, nil
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
 		},
-		listHooks: func(_ context.Context, _ *teamsv1.ListHooksRequest, _ ...grpc.CallOption) (*teamsv1.ListHooksResponse, error) {
-			return &teamsv1.ListHooksResponse{}, nil
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
 		},
 	}
 
-	assembler := New(teamsClient, secretsClient, &config.Config{})
+	assembler := New(agentsClient, secretsClient, &config.Config{})
 	request, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -199,58 +199,58 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	mcpID := uuid.New()
 	volumeID := uuid.New()
 
-	teamsClient := &fakeTeamsClient{
-		getAgent: func(_ context.Context, _ *teamsv1.GetAgentRequest, _ ...grpc.CallOption) (*teamsv1.GetAgentResponse, error) {
-			return &teamsv1.GetAgentResponse{Agent: &teamsv1.Agent{Meta: &teamsv1.EntityMeta{Id: agentID.String()}}}, nil
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}}}, nil
 		},
-		listSkills: func(_ context.Context, _ *teamsv1.ListSkillsRequest, _ ...grpc.CallOption) (*teamsv1.ListSkillsResponse, error) {
-			return &teamsv1.ListSkillsResponse{}, nil
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
 		},
-		listMcps: func(_ context.Context, _ *teamsv1.ListMcpsRequest, _ ...grpc.CallOption) (*teamsv1.ListMcpsResponse, error) {
-			return &teamsv1.ListMcpsResponse{Mcps: []*teamsv1.Mcp{
-				{Meta: &teamsv1.EntityMeta{Id: mcpID.String()}, Image: "mcp-image", Command: "run-mcp"},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{
+				{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Image: "mcp-image", Command: "run-mcp"},
 			}}, nil
 		},
-		listEnvs: func(_ context.Context, req *teamsv1.ListEnvsRequest, _ ...grpc.CallOption) (*teamsv1.ListEnvsResponse, error) {
+		listEnvs: func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			if req.GetMcpId() == mcpID.String() {
-				return &teamsv1.ListEnvsResponse{Envs: []*teamsv1.Env{
-					{Meta: &teamsv1.EntityMeta{Id: uuid.NewString()}, Name: "MCP_ENV", Source: &teamsv1.Env_Value{Value: "enabled"}},
+				return &agentsv1.ListEnvsResponse{Envs: []*agentsv1.Env{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "MCP_ENV", Source: &agentsv1.Env_Value{Value: "enabled"}},
 				}}, nil
 			}
-			return &teamsv1.ListEnvsResponse{}, nil
+			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		listInitScripts: func(_ context.Context, req *teamsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*teamsv1.ListInitScriptsResponse, error) {
+		listInitScripts: func(_ context.Context, req *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			if req.GetMcpId() == mcpID.String() {
-				return &teamsv1.ListInitScriptsResponse{InitScripts: []*teamsv1.InitScript{
-					{Meta: &teamsv1.EntityMeta{Id: uuid.NewString(), CreatedAt: timestamppb.New(time.Unix(5, 0))}, Script: "echo mcp"},
+				return &agentsv1.ListInitScriptsResponse{InitScripts: []*agentsv1.InitScript{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString(), CreatedAt: timestamppb.New(time.Unix(5, 0))}, Script: "echo mcp"},
 				}}, nil
 			}
-			return &teamsv1.ListInitScriptsResponse{}, nil
+			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		listVolumeAttachments: func(_ context.Context, req *teamsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*teamsv1.ListVolumeAttachmentsResponse, error) {
+		listVolumeAttachments: func(_ context.Context, req *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			if req.GetMcpId() == mcpID.String() {
-				return &teamsv1.ListVolumeAttachmentsResponse{VolumeAttachments: []*teamsv1.VolumeAttachment{
-					{Meta: &teamsv1.EntityMeta{Id: uuid.NewString()}, VolumeId: volumeID.String()},
+				return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: []*agentsv1.VolumeAttachment{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, VolumeId: volumeID.String()},
 				}}, nil
 			}
-			return &teamsv1.ListVolumeAttachmentsResponse{}, nil
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
-		getVolume: func(_ context.Context, req *teamsv1.GetVolumeRequest, _ ...grpc.CallOption) (*teamsv1.GetVolumeResponse, error) {
+		getVolume: func(_ context.Context, req *agentsv1.GetVolumeRequest, _ ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
 			if req.GetId() != volumeID.String() {
 				return nil, errors.New("unexpected volume id")
 			}
-			return &teamsv1.GetVolumeResponse{Volume: &teamsv1.Volume{
-				Meta:       &teamsv1.EntityMeta{Id: volumeID.String()},
+			return &agentsv1.GetVolumeResponse{Volume: &agentsv1.Volume{
+				Meta:       &agentsv1.EntityMeta{Id: volumeID.String()},
 				Persistent: true,
 				MountPath:  "/data",
 			}}, nil
 		},
-		listHooks: func(_ context.Context, _ *teamsv1.ListHooksRequest, _ ...grpc.CallOption) (*teamsv1.ListHooksResponse, error) {
-			return &teamsv1.ListHooksResponse{}, nil
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
 		},
 	}
 
-	assembler := New(teamsClient, &fakeSecretsClient{}, &config.Config{})
+	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{})
 	request, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -345,193 +345,193 @@ func equalStringSlice(left, right []string) bool {
 	return true
 }
 
-type fakeTeamsClient struct {
-	getAgent              func(context.Context, *teamsv1.GetAgentRequest, ...grpc.CallOption) (*teamsv1.GetAgentResponse, error)
-	listSkills            func(context.Context, *teamsv1.ListSkillsRequest, ...grpc.CallOption) (*teamsv1.ListSkillsResponse, error)
-	listEnvs              func(context.Context, *teamsv1.ListEnvsRequest, ...grpc.CallOption) (*teamsv1.ListEnvsResponse, error)
-	listInitScripts       func(context.Context, *teamsv1.ListInitScriptsRequest, ...grpc.CallOption) (*teamsv1.ListInitScriptsResponse, error)
-	listVolumeAttachments func(context.Context, *teamsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*teamsv1.ListVolumeAttachmentsResponse, error)
-	listMcps              func(context.Context, *teamsv1.ListMcpsRequest, ...grpc.CallOption) (*teamsv1.ListMcpsResponse, error)
-	listHooks             func(context.Context, *teamsv1.ListHooksRequest, ...grpc.CallOption) (*teamsv1.ListHooksResponse, error)
-	getVolume             func(context.Context, *teamsv1.GetVolumeRequest, ...grpc.CallOption) (*teamsv1.GetVolumeResponse, error)
+type fakeAgentsClient struct {
+	getAgent              func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
+	listSkills            func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
+	listEnvs              func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
+	listInitScripts       func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
+	listVolumeAttachments func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error)
+	listMcps              func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
+	listHooks             func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error)
+	getVolume             func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
 }
 
 var errNotImplemented = errors.New("not implemented")
 
-func (f *fakeTeamsClient) CreateAgent(context.Context, *teamsv1.CreateAgentRequest, ...grpc.CallOption) (*teamsv1.CreateAgentResponse, error) {
+func (f *fakeAgentsClient) CreateAgent(context.Context, *agentsv1.CreateAgentRequest, ...grpc.CallOption) (*agentsv1.CreateAgentResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) GetAgent(ctx context.Context, req *teamsv1.GetAgentRequest, opts ...grpc.CallOption) (*teamsv1.GetAgentResponse, error) {
+func (f *fakeAgentsClient) GetAgent(ctx context.Context, req *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
 	if f.getAgent != nil {
 		return f.getAgent(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) UpdateAgent(context.Context, *teamsv1.UpdateAgentRequest, ...grpc.CallOption) (*teamsv1.UpdateAgentResponse, error) {
+func (f *fakeAgentsClient) UpdateAgent(context.Context, *agentsv1.UpdateAgentRequest, ...grpc.CallOption) (*agentsv1.UpdateAgentResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) DeleteAgent(context.Context, *teamsv1.DeleteAgentRequest, ...grpc.CallOption) (*teamsv1.DeleteAgentResponse, error) {
+func (f *fakeAgentsClient) DeleteAgent(context.Context, *agentsv1.DeleteAgentRequest, ...grpc.CallOption) (*agentsv1.DeleteAgentResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) ListAgents(context.Context, *teamsv1.ListAgentsRequest, ...grpc.CallOption) (*teamsv1.ListAgentsResponse, error) {
+func (f *fakeAgentsClient) ListAgents(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) CreateVolume(context.Context, *teamsv1.CreateVolumeRequest, ...grpc.CallOption) (*teamsv1.CreateVolumeResponse, error) {
+func (f *fakeAgentsClient) CreateVolume(context.Context, *agentsv1.CreateVolumeRequest, ...grpc.CallOption) (*agentsv1.CreateVolumeResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) GetVolume(ctx context.Context, req *teamsv1.GetVolumeRequest, opts ...grpc.CallOption) (*teamsv1.GetVolumeResponse, error) {
+func (f *fakeAgentsClient) GetVolume(ctx context.Context, req *agentsv1.GetVolumeRequest, opts ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
 	if f.getVolume != nil {
 		return f.getVolume(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) UpdateVolume(context.Context, *teamsv1.UpdateVolumeRequest, ...grpc.CallOption) (*teamsv1.UpdateVolumeResponse, error) {
+func (f *fakeAgentsClient) UpdateVolume(context.Context, *agentsv1.UpdateVolumeRequest, ...grpc.CallOption) (*agentsv1.UpdateVolumeResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) DeleteVolume(context.Context, *teamsv1.DeleteVolumeRequest, ...grpc.CallOption) (*teamsv1.DeleteVolumeResponse, error) {
+func (f *fakeAgentsClient) DeleteVolume(context.Context, *agentsv1.DeleteVolumeRequest, ...grpc.CallOption) (*agentsv1.DeleteVolumeResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) ListVolumes(context.Context, *teamsv1.ListVolumesRequest, ...grpc.CallOption) (*teamsv1.ListVolumesResponse, error) {
+func (f *fakeAgentsClient) ListVolumes(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) CreateVolumeAttachment(context.Context, *teamsv1.CreateVolumeAttachmentRequest, ...grpc.CallOption) (*teamsv1.CreateVolumeAttachmentResponse, error) {
+func (f *fakeAgentsClient) CreateVolumeAttachment(context.Context, *agentsv1.CreateVolumeAttachmentRequest, ...grpc.CallOption) (*agentsv1.CreateVolumeAttachmentResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) GetVolumeAttachment(context.Context, *teamsv1.GetVolumeAttachmentRequest, ...grpc.CallOption) (*teamsv1.GetVolumeAttachmentResponse, error) {
+func (f *fakeAgentsClient) GetVolumeAttachment(context.Context, *agentsv1.GetVolumeAttachmentRequest, ...grpc.CallOption) (*agentsv1.GetVolumeAttachmentResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) DeleteVolumeAttachment(context.Context, *teamsv1.DeleteVolumeAttachmentRequest, ...grpc.CallOption) (*teamsv1.DeleteVolumeAttachmentResponse, error) {
+func (f *fakeAgentsClient) DeleteVolumeAttachment(context.Context, *agentsv1.DeleteVolumeAttachmentRequest, ...grpc.CallOption) (*agentsv1.DeleteVolumeAttachmentResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) ListVolumeAttachments(ctx context.Context, req *teamsv1.ListVolumeAttachmentsRequest, opts ...grpc.CallOption) (*teamsv1.ListVolumeAttachmentsResponse, error) {
+func (f *fakeAgentsClient) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVolumeAttachmentsRequest, opts ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 	if f.listVolumeAttachments != nil {
 		return f.listVolumeAttachments(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) CreateMcp(context.Context, *teamsv1.CreateMcpRequest, ...grpc.CallOption) (*teamsv1.CreateMcpResponse, error) {
+func (f *fakeAgentsClient) CreateMcp(context.Context, *agentsv1.CreateMcpRequest, ...grpc.CallOption) (*agentsv1.CreateMcpResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) GetMcp(context.Context, *teamsv1.GetMcpRequest, ...grpc.CallOption) (*teamsv1.GetMcpResponse, error) {
+func (f *fakeAgentsClient) GetMcp(context.Context, *agentsv1.GetMcpRequest, ...grpc.CallOption) (*agentsv1.GetMcpResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) UpdateMcp(context.Context, *teamsv1.UpdateMcpRequest, ...grpc.CallOption) (*teamsv1.UpdateMcpResponse, error) {
+func (f *fakeAgentsClient) UpdateMcp(context.Context, *agentsv1.UpdateMcpRequest, ...grpc.CallOption) (*agentsv1.UpdateMcpResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) DeleteMcp(context.Context, *teamsv1.DeleteMcpRequest, ...grpc.CallOption) (*teamsv1.DeleteMcpResponse, error) {
+func (f *fakeAgentsClient) DeleteMcp(context.Context, *agentsv1.DeleteMcpRequest, ...grpc.CallOption) (*agentsv1.DeleteMcpResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) ListMcps(ctx context.Context, req *teamsv1.ListMcpsRequest, opts ...grpc.CallOption) (*teamsv1.ListMcpsResponse, error) {
+func (f *fakeAgentsClient) ListMcps(ctx context.Context, req *agentsv1.ListMcpsRequest, opts ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 	if f.listMcps != nil {
 		return f.listMcps(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) CreateSkill(context.Context, *teamsv1.CreateSkillRequest, ...grpc.CallOption) (*teamsv1.CreateSkillResponse, error) {
+func (f *fakeAgentsClient) CreateSkill(context.Context, *agentsv1.CreateSkillRequest, ...grpc.CallOption) (*agentsv1.CreateSkillResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) GetSkill(context.Context, *teamsv1.GetSkillRequest, ...grpc.CallOption) (*teamsv1.GetSkillResponse, error) {
+func (f *fakeAgentsClient) GetSkill(context.Context, *agentsv1.GetSkillRequest, ...grpc.CallOption) (*agentsv1.GetSkillResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) UpdateSkill(context.Context, *teamsv1.UpdateSkillRequest, ...grpc.CallOption) (*teamsv1.UpdateSkillResponse, error) {
+func (f *fakeAgentsClient) UpdateSkill(context.Context, *agentsv1.UpdateSkillRequest, ...grpc.CallOption) (*agentsv1.UpdateSkillResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) DeleteSkill(context.Context, *teamsv1.DeleteSkillRequest, ...grpc.CallOption) (*teamsv1.DeleteSkillResponse, error) {
+func (f *fakeAgentsClient) DeleteSkill(context.Context, *agentsv1.DeleteSkillRequest, ...grpc.CallOption) (*agentsv1.DeleteSkillResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) ListSkills(ctx context.Context, req *teamsv1.ListSkillsRequest, opts ...grpc.CallOption) (*teamsv1.ListSkillsResponse, error) {
+func (f *fakeAgentsClient) ListSkills(ctx context.Context, req *agentsv1.ListSkillsRequest, opts ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 	if f.listSkills != nil {
 		return f.listSkills(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) CreateHook(context.Context, *teamsv1.CreateHookRequest, ...grpc.CallOption) (*teamsv1.CreateHookResponse, error) {
+func (f *fakeAgentsClient) CreateHook(context.Context, *agentsv1.CreateHookRequest, ...grpc.CallOption) (*agentsv1.CreateHookResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) GetHook(context.Context, *teamsv1.GetHookRequest, ...grpc.CallOption) (*teamsv1.GetHookResponse, error) {
+func (f *fakeAgentsClient) GetHook(context.Context, *agentsv1.GetHookRequest, ...grpc.CallOption) (*agentsv1.GetHookResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) UpdateHook(context.Context, *teamsv1.UpdateHookRequest, ...grpc.CallOption) (*teamsv1.UpdateHookResponse, error) {
+func (f *fakeAgentsClient) UpdateHook(context.Context, *agentsv1.UpdateHookRequest, ...grpc.CallOption) (*agentsv1.UpdateHookResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) DeleteHook(context.Context, *teamsv1.DeleteHookRequest, ...grpc.CallOption) (*teamsv1.DeleteHookResponse, error) {
+func (f *fakeAgentsClient) DeleteHook(context.Context, *agentsv1.DeleteHookRequest, ...grpc.CallOption) (*agentsv1.DeleteHookResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) ListHooks(ctx context.Context, req *teamsv1.ListHooksRequest, opts ...grpc.CallOption) (*teamsv1.ListHooksResponse, error) {
+func (f *fakeAgentsClient) ListHooks(ctx context.Context, req *agentsv1.ListHooksRequest, opts ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
 	if f.listHooks != nil {
 		return f.listHooks(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) CreateEnv(context.Context, *teamsv1.CreateEnvRequest, ...grpc.CallOption) (*teamsv1.CreateEnvResponse, error) {
+func (f *fakeAgentsClient) CreateEnv(context.Context, *agentsv1.CreateEnvRequest, ...grpc.CallOption) (*agentsv1.CreateEnvResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) GetEnv(context.Context, *teamsv1.GetEnvRequest, ...grpc.CallOption) (*teamsv1.GetEnvResponse, error) {
+func (f *fakeAgentsClient) GetEnv(context.Context, *agentsv1.GetEnvRequest, ...grpc.CallOption) (*agentsv1.GetEnvResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) UpdateEnv(context.Context, *teamsv1.UpdateEnvRequest, ...grpc.CallOption) (*teamsv1.UpdateEnvResponse, error) {
+func (f *fakeAgentsClient) UpdateEnv(context.Context, *agentsv1.UpdateEnvRequest, ...grpc.CallOption) (*agentsv1.UpdateEnvResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) DeleteEnv(context.Context, *teamsv1.DeleteEnvRequest, ...grpc.CallOption) (*teamsv1.DeleteEnvResponse, error) {
+func (f *fakeAgentsClient) DeleteEnv(context.Context, *agentsv1.DeleteEnvRequest, ...grpc.CallOption) (*agentsv1.DeleteEnvResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) ListEnvs(ctx context.Context, req *teamsv1.ListEnvsRequest, opts ...grpc.CallOption) (*teamsv1.ListEnvsResponse, error) {
+func (f *fakeAgentsClient) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest, opts ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 	if f.listEnvs != nil {
 		return f.listEnvs(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) CreateInitScript(context.Context, *teamsv1.CreateInitScriptRequest, ...grpc.CallOption) (*teamsv1.CreateInitScriptResponse, error) {
+func (f *fakeAgentsClient) CreateInitScript(context.Context, *agentsv1.CreateInitScriptRequest, ...grpc.CallOption) (*agentsv1.CreateInitScriptResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) GetInitScript(context.Context, *teamsv1.GetInitScriptRequest, ...grpc.CallOption) (*teamsv1.GetInitScriptResponse, error) {
+func (f *fakeAgentsClient) GetInitScript(context.Context, *agentsv1.GetInitScriptRequest, ...grpc.CallOption) (*agentsv1.GetInitScriptResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) UpdateInitScript(context.Context, *teamsv1.UpdateInitScriptRequest, ...grpc.CallOption) (*teamsv1.UpdateInitScriptResponse, error) {
+func (f *fakeAgentsClient) UpdateInitScript(context.Context, *agentsv1.UpdateInitScriptRequest, ...grpc.CallOption) (*agentsv1.UpdateInitScriptResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) DeleteInitScript(context.Context, *teamsv1.DeleteInitScriptRequest, ...grpc.CallOption) (*teamsv1.DeleteInitScriptResponse, error) {
+func (f *fakeAgentsClient) DeleteInitScript(context.Context, *agentsv1.DeleteInitScriptRequest, ...grpc.CallOption) (*agentsv1.DeleteInitScriptResponse, error) {
 	return nil, errNotImplemented
 }
 
-func (f *fakeTeamsClient) ListInitScripts(ctx context.Context, req *teamsv1.ListInitScriptsRequest, opts ...grpc.CallOption) (*teamsv1.ListInitScriptsResponse, error) {
+func (f *fakeAgentsClient) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScriptsRequest, opts ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 	if f.listInitScripts != nil {
 		return f.listInitScripts(ctx, req, opts...)
 	}

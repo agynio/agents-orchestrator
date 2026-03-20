@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
-	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/store"
@@ -14,7 +14,7 @@ import (
 
 type Reconciler struct {
 	threads   threadsv1.ThreadsServiceClient
-	teams     teamsv1.TeamsServiceClient
+	agents    agentsv1.AgentsServiceClient
 	runner    runnerv1.RunnerServiceClient
 	store     *store.Store
 	assembler *assembler.Assembler
@@ -24,10 +24,10 @@ type Reconciler struct {
 	stopSec   uint32
 }
 
-func New(threads threadsv1.ThreadsServiceClient, teams teamsv1.TeamsServiceClient, runner runnerv1.RunnerServiceClient, store *store.Store, assembler *assembler.Assembler, wake <-chan struct{}, poll, idle time.Duration, stopSec uint32) *Reconciler {
+func New(threads threadsv1.ThreadsServiceClient, agents agentsv1.AgentsServiceClient, runner runnerv1.RunnerServiceClient, store *store.Store, assembler *assembler.Assembler, wake <-chan struct{}, poll, idle time.Duration, stopSec uint32) *Reconciler {
 	return &Reconciler{
 		threads:   threads,
-		teams:     teams,
+		agents:    agents,
 		runner:    runner,
 		store:     store,
 		assembler: assembler,

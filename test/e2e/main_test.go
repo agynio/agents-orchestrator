@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
-	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -29,7 +29,7 @@ const (
 )
 
 var (
-	teamsAddr          = envOrDefault("TEAMS_ADDRESS", "teams:50051")
+	agentsAddr         = envOrDefault("AGENTS_ADDRESS", "agents:50051")
 	threadsAddr        = envOrDefault("THREADS_ADDRESS", "threads:50051")
 	runnerAddr         = envOrDefault("RUNNER_ADDRESS", "docker-runner:50051")
 	runnerSharedSecret string
@@ -103,9 +103,9 @@ func newUserID() string {
 
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client teamsv1.TeamsServiceClient, name string) *teamsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {
 	t.Helper()
-	resp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:  name,
 		Role:  "assistant",
 		Model: uuid.New().String(),
@@ -121,9 +121,9 @@ func createAgent(t *testing.T, ctx context.Context, client teamsv1.TeamsServiceC
 	return agent
 }
 
-func deleteAgent(t *testing.T, ctx context.Context, client teamsv1.TeamsServiceClient, agentID string) {
+func deleteAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, agentID string) {
 	t.Helper()
-	_, err := client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+	_, err := client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 	if err != nil {
 		t.Logf("cleanup: delete agent %s: %v", agentID, err)
 	}

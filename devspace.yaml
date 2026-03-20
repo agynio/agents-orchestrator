@@ -62,7 +62,7 @@ functions:
                     --path agynio/api/runner/v1 \
                     --path agynio/api/threads/v1 \
                     --path agynio/api/notifications/v1 \
-                    --path agynio/api/teams/v1 \
+                    --path agynio/api/agents/v1 \
                     --path agynio/api/secrets/v1
                   exec go run ./cmd/orchestrator
               volumeMounts:
@@ -102,8 +102,8 @@ deployments:
         containers:
           - image: ${E2E_IMAGE}
             env:
-              - name: TEAMS_ADDRESS
-                value: "teams:50051"
+              - name: AGENTS_ADDRESS
+                value: "agents:50051"
               - name: THREADS_ADDRESS
                 value: "threads:50051"
               - name: RUNNER_ADDRESS
@@ -163,7 +163,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
         -n ${ORCHESTRATOR_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --path agynio/api/runner/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/teams/v1 --path agynio/api/secrets/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
+        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --path agynio/api/runner/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
       EXIT_CODE=$?
       stop_dev e2e-runner
       purge_deployments e2e-runner
