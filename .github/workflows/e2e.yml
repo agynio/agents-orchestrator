@@ -80,10 +80,6 @@ jobs:
           kubectl logs -n platform -l app.kubernetes.io/name=agents-orchestrator \
             --tail=500 --timestamps 2>&1 || echo "Failed to fetch orchestrator logs"
           echo ""
-          echo "=== Docker-runner pod logs ==="
-          kubectl logs -n platform -l app.kubernetes.io/name=docker-runner \
-            -c docker-runner --tail=200 --timestamps 2>&1 || echo "Failed to fetch docker-runner logs"
-          echo ""
-          echo "=== Docker-runner DinD sidecar logs ==="
-          kubectl logs -n platform -l app.kubernetes.io/name=docker-runner \
-            -c docker-daemon --tail=200 --timestamps 2>&1 || echo "Failed to fetch DinD logs"
+          echo "=== K8s-runner pod logs ==="
+          kubectl logs -n platform -l app.kubernetes.io/name=k8s-runner \
+            --tail=200 --timestamps 2>&1 || echo "Failed to fetch k8s-runner logs"
