@@ -70,15 +70,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, fmt.Errorf("resolve agent mounts: %w", err)
 	}
 
-	labelsJSON, err := json.Marshal(map[string]string{
-		LabelManagedBy: ManagedByValue,
-		LabelAgentID:   agentID.String(),
-		LabelThreadID:  threadID.String(),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("encode labels: %w", err)
-	}
-
 	mainEnv := baseAgentEnvVars(a.cfg, agent, agentID, threadID, skillsJSON, agentInitScript)
 	mainEnv = append(mainEnv, agentEnvVars...)
 
@@ -92,9 +83,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Cmd:    []string{"/bin/sh", "-c", "exec sleep infinity"},
 		Env:    mainEnv,
 		Mounts: agentMounts,
-		AdditionalProperties: map[string]string{
-			"labels_json": string(labelsJSON),
-		},
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -126,6 +114,11 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Main:     main,
 		Sidecars: sidecars,
 		Volumes:  volumeResolver.Specs(),
+		AdditionalProperties: map[string]string{
+			"label." + LabelManagedBy: ManagedByValue,
+			"label." + LabelAgentID:   agentID.String(),
+			"label." + LabelThreadID:  threadID.String(),
+		},
 	}, nil
 }
 
