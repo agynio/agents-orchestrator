@@ -14,7 +14,6 @@ type Config struct {
 	AgentsAddress             string
 	SecretsAddress            string
 	RunnerAddress             string
-	RunnerSharedSecret        string
 	DefaultAgentImage         string
 	AgentThreadsAddress       string
 	AgentNotificationsAddress string
@@ -49,11 +48,7 @@ func FromEnv() (Config, error) {
 	}
 	cfg.RunnerAddress = os.Getenv("RUNNER_ADDRESS")
 	if cfg.RunnerAddress == "" {
-		cfg.RunnerAddress = "docker-runner:50051"
-	}
-	cfg.RunnerSharedSecret = os.Getenv("DOCKER_RUNNER_SHARED_SECRET")
-	if cfg.RunnerSharedSecret == "" {
-		return Config{}, fmt.Errorf("DOCKER_RUNNER_SHARED_SECRET must be set")
+		cfg.RunnerAddress = "k8s-runner:50051"
 	}
 	cfg.DefaultAgentImage = os.Getenv("DEFAULT_AGENT_IMAGE")
 	if cfg.DefaultAgentImage == "" {

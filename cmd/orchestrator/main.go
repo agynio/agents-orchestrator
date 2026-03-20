@@ -19,7 +19,6 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/db"
 	"github.com/agynio/agents-orchestrator/internal/leader"
 	"github.com/agynio/agents-orchestrator/internal/reconciler"
-	"github.com/agynio/agents-orchestrator/internal/runnerauth"
 	"github.com/agynio/agents-orchestrator/internal/store"
 	"github.com/agynio/agents-orchestrator/internal/subscriber"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,15 +80,7 @@ func run() error {
 	}
 	defer secretsConn.Close()
 
-	runnerUnaryInterceptor, runnerStreamInterceptor, err := runnerauth.NewClientInterceptors(cfg.RunnerSharedSecret)
-	if err != nil {
-		return fmt.Errorf("create runner auth interceptors: %w", err)
-	}
-	runnerConn, err := grpc.DialContext(ctx, cfg.RunnerAddress,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(runnerUnaryInterceptor),
-		grpc.WithStreamInterceptor(runnerStreamInterceptor),
-	)
+	runnerConn, err := grpc.DialContext(ctx, cfg.RunnerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial runner: %w", err)
 	}
