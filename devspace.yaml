@@ -98,7 +98,7 @@ deployments:
           - image: ${E2E_IMAGE}
             env:
               - name: AGENTS_ADDRESS
-                value: "agents:50051"
+                value: "teams:50051"
               - name: THREADS_ADDRESS
                 value: "threads:50051"
               - name: RUNNER_ADDRESS
