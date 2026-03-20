@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
-	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 )
 
 type envResolver struct {
@@ -18,7 +18,7 @@ func newEnvResolver(secrets secretsv1.SecretsServiceClient) *envResolver {
 	return &envResolver{secrets: secrets, cache: map[string]string{}}
 }
 
-func (r *envResolver) ResolveEnvVars(ctx context.Context, envs []*teamsv1.Env) ([]*runnerv1.EnvVar, error) {
+func (r *envResolver) ResolveEnvVars(ctx context.Context, envs []*agentsv1.Env) ([]*runnerv1.EnvVar, error) {
 	vars := make([]*runnerv1.EnvVar, 0, len(envs))
 	for _, env := range envs {
 		if env == nil {
@@ -37,11 +37,11 @@ func (r *envResolver) ResolveEnvVars(ctx context.Context, envs []*teamsv1.Env) (
 	return vars, nil
 }
 
-func (r *envResolver) resolveValue(ctx context.Context, env *teamsv1.Env) (string, error) {
+func (r *envResolver) resolveValue(ctx context.Context, env *agentsv1.Env) (string, error) {
 	switch source := env.GetSource().(type) {
-	case *teamsv1.Env_Value:
+	case *agentsv1.Env_Value:
 		return source.Value, nil
-	case *teamsv1.Env_SecretId:
+	case *agentsv1.Env_SecretId:
 		if source.SecretId == "" {
 			return "", fmt.Errorf("env %s secret_id is empty", envID(env))
 		}
@@ -60,7 +60,7 @@ func (r *envResolver) resolveValue(ctx context.Context, env *teamsv1.Env) (strin
 	}
 }
 
-func envID(env *teamsv1.Env) string {
+func envID(env *agentsv1.Env) string {
 	if env == nil {
 		return ""
 	}

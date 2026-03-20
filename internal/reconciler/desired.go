@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
@@ -50,11 +50,11 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, error) {
 	return result, nil
 }
 
-func (r *Reconciler) listAgents(ctx context.Context) ([]*teamsv1.Agent, error) {
-	resp := []*teamsv1.Agent{}
+func (r *Reconciler) listAgents(ctx context.Context) ([]*agentsv1.Agent, error) {
+	resp := []*agentsv1.Agent{}
 	token := ""
 	for {
-		page, err := r.teams.ListAgents(ctx, &teamsv1.ListAgentsRequest{
+		page, err := r.agents.ListAgents(ctx, &agentsv1.ListAgentsRequest{
 			PageSize:  desiredPageSize,
 			PageToken: token,
 		})

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
-	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
 )
@@ -18,20 +18,20 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	t.Cleanup(cancel)
 
-	teamsConn := dialGRPC(t, teamsAddr)
+	agentsConn := dialGRPC(t, agentsAddr)
 	threadsConn := dialGRPC(t, threadsAddr)
 	runnerConn := dialRunnerGRPC(t, runnerAddr)
 
-	teamsClient := teamsv1.NewTeamsServiceClient(teamsConn)
+	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, teamsClient, fmt.Sprintf("e2e-test-agent-idle-%s", uuid.NewString()))
+	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-idle-%s", uuid.NewString()))
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
 	}
-	t.Cleanup(func() { deleteAgent(t, ctx, teamsClient, agentID) })
+	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 
 	userID := newUserID()
 	thread := createThread(t, ctx, threadsClient, []string{userID, agentID})

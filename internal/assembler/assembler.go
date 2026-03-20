@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
-	teamsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/teams/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
@@ -19,13 +19,13 @@ import (
 const listPageSize int32 = 100
 
 type Assembler struct {
-	teams   teamsv1.TeamsServiceClient
+	agents  agentsv1.AgentsServiceClient
 	secrets secretsv1.SecretsServiceClient
 	cfg     *config.Config
 }
 
-func New(teams teamsv1.TeamsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
-	return &Assembler{teams: teams, secrets: secrets, cfg: cfg}
+func New(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
+	return &Assembler{agents: agents, secrets: secrets, cfg: cfg}
 }
 
 func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (*runnerv1.StartWorkloadRequest, error) {
@@ -35,9 +35,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 
 	resolver := newEnvResolver(a.secrets)
-	volumeResolver := newVolumeResolver(a.teams, agentID)
+	volumeResolver := newVolumeResolver(a.agents, agentID)
 
-	agentEnvs, err := a.listEnvs(ctx, &teamsv1.ListEnvsRequest{AgentId: agentID.String()})
+	agentEnvs, err := a.listEnvs(ctx, &agentsv1.ListEnvsRequest{AgentId: agentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list agent envs: %w", err)
 	}
@@ -46,7 +46,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, fmt.Errorf("resolve agent envs: %w", err)
 	}
 
-	agentScripts, err := a.listInitScripts(ctx, &teamsv1.ListInitScriptsRequest{AgentId: agentID.String()})
+	agentScripts, err := a.listInitScripts(ctx, &agentsv1.ListInitScriptsRequest{AgentId: agentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list agent init scripts: %w", err)
 	}
@@ -61,7 +61,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, fmt.Errorf("encode skills: %w", err)
 	}
 
-	agentAttachments, err := a.listVolumeAttachments(ctx, &teamsv1.ListVolumeAttachmentsRequest{AgentId: agentID.String()})
+	agentAttachments, err := a.listVolumeAttachments(ctx, &agentsv1.ListVolumeAttachmentsRequest{AgentId: agentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list agent volume attachments: %w", err)
 	}
@@ -129,8 +129,8 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}, nil
 }
 
-func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*teamsv1.Agent, error) {
-	resp, err := a.teams.GetAgent(ctx, &teamsv1.GetAgentRequest{Id: agentID.String()})
+func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {
+	resp, err := a.agents.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: agentID.String()})
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +152,11 @@ func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*teamsv1
 	return agent, nil
 }
 
-func (a *Assembler) listMcps(ctx context.Context, agentID uuid.UUID) ([]*teamsv1.Mcp, error) {
-	resp := []*teamsv1.Mcp{}
+func (a *Assembler) listMcps(ctx context.Context, agentID uuid.UUID) ([]*agentsv1.Mcp, error) {
+	resp := []*agentsv1.Mcp{}
 	token := ""
 	for {
-		page, err := a.teams.ListMcps(ctx, &teamsv1.ListMcpsRequest{
+		page, err := a.agents.ListMcps(ctx, &agentsv1.ListMcpsRequest{
 			AgentId:   agentID.String(),
 			PageSize:  listPageSize,
 			PageToken: token,
@@ -172,11 +172,11 @@ func (a *Assembler) listMcps(ctx context.Context, agentID uuid.UUID) ([]*teamsv1
 	}
 }
 
-func (a *Assembler) listHooks(ctx context.Context, agentID uuid.UUID) ([]*teamsv1.Hook, error) {
-	resp := []*teamsv1.Hook{}
+func (a *Assembler) listHooks(ctx context.Context, agentID uuid.UUID) ([]*agentsv1.Hook, error) {
+	resp := []*agentsv1.Hook{}
 	token := ""
 	for {
-		page, err := a.teams.ListHooks(ctx, &teamsv1.ListHooksRequest{
+		page, err := a.agents.ListHooks(ctx, &agentsv1.ListHooksRequest{
 			AgentId:   agentID.String(),
 			PageSize:  listPageSize,
 			PageToken: token,
@@ -192,11 +192,11 @@ func (a *Assembler) listHooks(ctx context.Context, agentID uuid.UUID) ([]*teamsv
 	}
 }
 
-func (a *Assembler) listSkills(ctx context.Context, agentID uuid.UUID) ([]*teamsv1.Skill, error) {
-	resp := []*teamsv1.Skill{}
+func (a *Assembler) listSkills(ctx context.Context, agentID uuid.UUID) ([]*agentsv1.Skill, error) {
+	resp := []*agentsv1.Skill{}
 	token := ""
 	for {
-		page, err := a.teams.ListSkills(ctx, &teamsv1.ListSkillsRequest{
+		page, err := a.agents.ListSkills(ctx, &agentsv1.ListSkillsRequest{
 			AgentId:   agentID.String(),
 			PageSize:  listPageSize,
 			PageToken: token,
@@ -212,11 +212,11 @@ func (a *Assembler) listSkills(ctx context.Context, agentID uuid.UUID) ([]*teams
 	}
 }
 
-func (a *Assembler) listEnvs(ctx context.Context, req *teamsv1.ListEnvsRequest) ([]*teamsv1.Env, error) {
-	resp := []*teamsv1.Env{}
+func (a *Assembler) listEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) ([]*agentsv1.Env, error) {
+	resp := []*agentsv1.Env{}
 	token := ""
 	for {
-		page, err := a.teams.ListEnvs(ctx, &teamsv1.ListEnvsRequest{
+		page, err := a.agents.ListEnvs(ctx, &agentsv1.ListEnvsRequest{
 			AgentId:   req.GetAgentId(),
 			McpId:     req.GetMcpId(),
 			HookId:    req.GetHookId(),
@@ -234,11 +234,11 @@ func (a *Assembler) listEnvs(ctx context.Context, req *teamsv1.ListEnvsRequest) 
 	}
 }
 
-func (a *Assembler) listInitScripts(ctx context.Context, req *teamsv1.ListInitScriptsRequest) ([]*teamsv1.InitScript, error) {
-	resp := []*teamsv1.InitScript{}
+func (a *Assembler) listInitScripts(ctx context.Context, req *agentsv1.ListInitScriptsRequest) ([]*agentsv1.InitScript, error) {
+	resp := []*agentsv1.InitScript{}
 	token := ""
 	for {
-		page, err := a.teams.ListInitScripts(ctx, &teamsv1.ListInitScriptsRequest{
+		page, err := a.agents.ListInitScripts(ctx, &agentsv1.ListInitScriptsRequest{
 			AgentId:   req.GetAgentId(),
 			McpId:     req.GetMcpId(),
 			HookId:    req.GetHookId(),
@@ -256,11 +256,11 @@ func (a *Assembler) listInitScripts(ctx context.Context, req *teamsv1.ListInitSc
 	}
 }
 
-func (a *Assembler) listVolumeAttachments(ctx context.Context, req *teamsv1.ListVolumeAttachmentsRequest) ([]*teamsv1.VolumeAttachment, error) {
-	resp := []*teamsv1.VolumeAttachment{}
+func (a *Assembler) listVolumeAttachments(ctx context.Context, req *agentsv1.ListVolumeAttachmentsRequest) ([]*agentsv1.VolumeAttachment, error) {
+	resp := []*agentsv1.VolumeAttachment{}
 	token := ""
 	for {
-		page, err := a.teams.ListVolumeAttachments(ctx, &teamsv1.ListVolumeAttachmentsRequest{
+		page, err := a.agents.ListVolumeAttachments(ctx, &agentsv1.ListVolumeAttachmentsRequest{
 			VolumeId:  req.GetVolumeId(),
 			AgentId:   req.GetAgentId(),
 			McpId:     req.GetMcpId(),
@@ -279,7 +279,7 @@ func (a *Assembler) listVolumeAttachments(ctx context.Context, req *teamsv1.List
 	}
 }
 
-func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, mcp *teamsv1.Mcp) (*runnerv1.ContainerSpec, error) {
+func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, mcp *agentsv1.Mcp) (*runnerv1.ContainerSpec, error) {
 	if mcp == nil {
 		return nil, fmt.Errorf("mcp is nil")
 	}
@@ -295,9 +295,9 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		ctx,
 		resolver,
 		volumeResolver,
-		&teamsv1.ListEnvsRequest{McpId: mcpID.String()},
-		&teamsv1.ListInitScriptsRequest{McpId: mcpID.String()},
-		&teamsv1.ListVolumeAttachmentsRequest{McpId: mcpID.String()},
+		&agentsv1.ListEnvsRequest{McpId: mcpID.String()},
+		&agentsv1.ListInitScriptsRequest{McpId: mcpID.String()},
+		&agentsv1.ListVolumeAttachmentsRequest{McpId: mcpID.String()},
 	)
 	if err != nil {
 		return nil, err
@@ -311,7 +311,7 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	}, nil
 }
 
-func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, hook *teamsv1.Hook) (*runnerv1.ContainerSpec, error) {
+func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, hook *agentsv1.Hook) (*runnerv1.ContainerSpec, error) {
 	if hook == nil {
 		return nil, fmt.Errorf("hook is nil")
 	}
@@ -327,9 +327,9 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 		ctx,
 		resolver,
 		volumeResolver,
-		&teamsv1.ListEnvsRequest{HookId: hookID.String()},
-		&teamsv1.ListInitScriptsRequest{HookId: hookID.String()},
-		&teamsv1.ListVolumeAttachmentsRequest{HookId: hookID.String()},
+		&agentsv1.ListEnvsRequest{HookId: hookID.String()},
+		&agentsv1.ListInitScriptsRequest{HookId: hookID.String()},
+		&agentsv1.ListVolumeAttachmentsRequest{HookId: hookID.String()},
 	)
 	if err != nil {
 		return nil, err
@@ -343,7 +343,7 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 	}, nil
 }
 
-func baseAgentEnvVars(cfg *config.Config, agent *teamsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
+func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_ID", Value: agentID.String()},
 		{Name: "AGENT_NAME", Value: agent.GetName()},
@@ -366,7 +366,7 @@ type skillPayload struct {
 	Body string `json:"body"`
 }
 
-func buildSkillsJSON(skills []*teamsv1.Skill) (string, error) {
+func buildSkillsJSON(skills []*agentsv1.Skill) (string, error) {
 	payload := make([]skillPayload, len(skills))
 	for i, skill := range skills {
 		payload[i] = skillPayload{Name: skill.GetName(), Body: skill.GetBody()}
@@ -378,11 +378,11 @@ func buildSkillsJSON(skills []*teamsv1.Skill) (string, error) {
 	return string(data), nil
 }
 
-func concatInitScripts(scripts []*teamsv1.InitScript) string {
+func concatInitScripts(scripts []*agentsv1.InitScript) string {
 	if len(scripts) == 0 {
 		return ""
 	}
-	sorted := append([]*teamsv1.InitScript(nil), scripts...)
+	sorted := append([]*agentsv1.InitScript(nil), scripts...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		itime := initScriptTime(sorted[i])
 		jtime := initScriptTime(sorted[j])
@@ -401,7 +401,7 @@ func concatInitScripts(scripts []*teamsv1.InitScript) string {
 	return builder.String()
 }
 
-func initScriptTime(script *teamsv1.InitScript) time.Time {
+func initScriptTime(script *agentsv1.InitScript) time.Time {
 	if script == nil {
 		return time.Time{}
 	}
@@ -415,7 +415,7 @@ func initScriptTime(script *teamsv1.InitScript) time.Time {
 	return meta.GetCreatedAt().AsTime()
 }
 
-func initScriptID(script *teamsv1.InitScript) string {
+func initScriptID(script *agentsv1.InitScript) string {
 	if script == nil {
 		return ""
 	}
@@ -427,22 +427,22 @@ func initScriptID(script *teamsv1.InitScript) string {
 }
 
 type volumeResolver struct {
-	teams   teamsv1.TeamsServiceClient
+	agents  agentsv1.AgentsServiceClient
 	agentID uuid.UUID
-	cache   map[string]*teamsv1.Volume
+	cache   map[string]*agentsv1.Volume
 	specs   map[string]*runnerv1.VolumeSpec
 }
 
-func newVolumeResolver(teams teamsv1.TeamsServiceClient, agentID uuid.UUID) *volumeResolver {
+func newVolumeResolver(agents agentsv1.AgentsServiceClient, agentID uuid.UUID) *volumeResolver {
 	return &volumeResolver{
-		teams:   teams,
+		agents:  agents,
 		agentID: agentID,
-		cache:   map[string]*teamsv1.Volume{},
+		cache:   map[string]*agentsv1.Volume{},
 		specs:   map[string]*runnerv1.VolumeSpec{},
 	}
 }
 
-func (v *volumeResolver) mountsFor(ctx context.Context, attachments []*teamsv1.VolumeAttachment) ([]*runnerv1.VolumeMount, error) {
+func (v *volumeResolver) mountsFor(ctx context.Context, attachments []*agentsv1.VolumeAttachment) ([]*runnerv1.VolumeMount, error) {
 	mounts := make([]*runnerv1.VolumeMount, 0, len(attachments))
 	for _, attachment := range attachments {
 		if attachment == nil {
@@ -479,12 +479,12 @@ func (v *volumeResolver) Specs() []*runnerv1.VolumeSpec {
 	return specs
 }
 
-func (v *volumeResolver) getVolume(ctx context.Context, volumeID uuid.UUID) (*teamsv1.Volume, error) {
+func (v *volumeResolver) getVolume(ctx context.Context, volumeID uuid.UUID) (*agentsv1.Volume, error) {
 	key := volumeID.String()
 	if cached, ok := v.cache[key]; ok {
 		return cached, nil
 	}
-	resp, err := v.teams.GetVolume(ctx, &teamsv1.GetVolumeRequest{Id: key})
+	resp, err := v.agents.GetVolume(ctx, &agentsv1.GetVolumeRequest{Id: key})
 	if err != nil {
 		return nil, fmt.Errorf("get volume %s: %w", key, err)
 	}
@@ -496,7 +496,7 @@ func (v *volumeResolver) getVolume(ctx context.Context, volumeID uuid.UUID) (*te
 	return volume, nil
 }
 
-func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, envReq *teamsv1.ListEnvsRequest, initReq *teamsv1.ListInitScriptsRequest, attachmentReq *teamsv1.ListVolumeAttachmentsRequest) ([]*runnerv1.EnvVar, []*runnerv1.VolumeMount, error) {
+func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, envReq *agentsv1.ListEnvsRequest, initReq *agentsv1.ListInitScriptsRequest, attachmentReq *agentsv1.ListVolumeAttachmentsRequest) ([]*runnerv1.EnvVar, []*runnerv1.VolumeMount, error) {
 	vars, err := a.listEnvs(ctx, envReq)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list sidecar envs: %w", err)
@@ -524,7 +524,7 @@ func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envRe
 	return envVars, mounts, nil
 }
 
-func (v *volumeResolver) ensureSpec(volumeID uuid.UUID, volume *teamsv1.Volume) *runnerv1.VolumeSpec {
+func (v *volumeResolver) ensureSpec(volumeID uuid.UUID, volume *agentsv1.Volume) *runnerv1.VolumeSpec {
 	key := volumeID.String()
 	if spec, ok := v.specs[key]; ok {
 		return spec

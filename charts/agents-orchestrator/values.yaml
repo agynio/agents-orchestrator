@@ -72,7 +72,7 @@ env:
     value: ""
   - name: NOTIFICATIONS_ADDRESS
     value: ""
-  - name: TEAMS_ADDRESS
+  - name: AGENTS_ADDRESS
     value: ""
   - name: SECRETS_ADDRESS
     value: ""
