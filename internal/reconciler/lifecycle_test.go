@@ -71,7 +71,12 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, zitiMgmt, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		ZitiMgmt:  zitiMgmt,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
 	if !reflect.DeepEqual(calls, []string{"create", "start", "insert"}) {
@@ -117,7 +122,11 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, nil, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
 	if !reflect.DeepEqual(calls, []string{"start", "insert"}) {
@@ -160,7 +169,12 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, zitiMgmt, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		ZitiMgmt:  zitiMgmt,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
 	if !reflect.DeepEqual(calls, []string{"create", "start", "delete"}) {
@@ -212,7 +226,12 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, zitiMgmt, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		ZitiMgmt:  zitiMgmt,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
 	if !reflect.DeepEqual(calls, []string{"create", "start", "insert", "stop", "delete"}) {
@@ -248,7 +267,12 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, zitiMgmt, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		ZitiMgmt:  zitiMgmt,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	reconciler.stopWorkload(ctx, store.Workload{WorkloadID: "workload-1", ZitiIdentityID: &zitiID})
 
 	if len(calls) < 2 || calls[0] != "stop" || calls[1] != "delete" {
@@ -281,7 +305,12 @@ func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, zitiMgmt, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		ZitiMgmt:  zitiMgmt,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	reconciler.stopWorkload(ctx, store.Workload{WorkloadID: "workload-1"})
 
 	if deleteCalled {
@@ -310,7 +339,11 @@ func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, nil, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	reconciler.stopWorkload(ctx, store.Workload{WorkloadID: "workload-1", ZitiIdentityID: &zitiID})
 
 	if !reflect.DeepEqual(calls, []string{"stop", "store-delete"}) {
@@ -353,30 +386,18 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, &fakeRunnerClient{}, zitiMgmt, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    &fakeRunnerClient{},
+		ZitiMgmt:  zitiMgmt,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	if err := reconciler.reconcileOrphanIdentities(ctx); err != nil {
 		t.Fatalf("reconcile orphan identities: %v", err)
 	}
 
 	if !reflect.DeepEqual(deleteCalls, []string{orphanID}) {
 		t.Fatalf("unexpected delete calls: %v", deleteCalls)
-	}
-}
-
-func TestReconcileOrphanIdentitiesNoopWhenZitiMgmtNil(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	assembler := newTestAssembler(agentID)
-
-	workloadStore := &fakeWorkloadStore{
-		listAll: func(context.Context) ([]store.Workload, error) {
-			return nil, errors.New("unexpected list")
-		},
-	}
-
-	reconciler := New(nil, nil, &fakeRunnerClient{}, nil, workloadStore, assembler, nil, time.Second, time.Minute, 30)
-	if err := reconciler.reconcileOrphanIdentities(ctx); err != nil {
-		t.Fatalf("reconcile orphan identities: %v", err)
 	}
 }
 
@@ -412,7 +433,12 @@ func TestFetchActualDeletesIdentityForStaleWorkload(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, zitiMgmt, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		ZitiMgmt:  zitiMgmt,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	if _, err := reconciler.fetchActual(ctx); err != nil {
 		t.Fatalf("fetch actual: %v", err)
 	}
@@ -444,13 +470,30 @@ func TestFetchActualSkipsIdentityCleanupWhenZitiMgmtNil(t *testing.T) {
 		},
 	}
 
-	reconciler := New(nil, nil, runner, nil, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler := newTestReconciler(Config{
+		Runner:    runner,
+		Store:     workloadStore,
+		Assembler: assembler,
+	})
 	if _, err := reconciler.fetchActual(ctx); err != nil {
 		t.Fatalf("fetch actual: %v", err)
 	}
 	if !deleted {
 		t.Fatal("expected stale workload delete")
 	}
+}
+
+func newTestReconciler(cfg Config) *Reconciler {
+	if cfg.Poll == 0 {
+		cfg.Poll = time.Second
+	}
+	if cfg.Idle == 0 {
+		cfg.Idle = time.Minute
+	}
+	if cfg.StopSec == 0 {
+		cfg.StopSec = 30
+	}
+	return New(cfg)
 }
 
 func newTestAssembler(agentID uuid.UUID) *assembler.Assembler {

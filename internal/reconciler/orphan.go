@@ -8,12 +8,10 @@ import (
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 )
 
+// managedIdentityPageSize bounds each list call to keep pagination reasonable.
 const managedIdentityPageSize int32 = 100
 
 func (r *Reconciler) reconcileOrphanIdentities(ctx context.Context) error {
-	if r.zitiMgmt == nil {
-		return nil
-	}
 	tracked, err := r.store.ListAll(ctx)
 	if err != nil {
 		return err
