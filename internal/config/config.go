@@ -14,6 +14,8 @@ type Config struct {
 	AgentsAddress             string
 	SecretsAddress            string
 	RunnerAddress             string
+	ZitiIdentityFile          string
+	ZitiManagementAddress     string
 	DefaultAgentImage         string
 	AgentThreadsAddress       string
 	AgentNotificationsAddress string
@@ -49,6 +51,11 @@ func FromEnv() (Config, error) {
 	cfg.RunnerAddress = os.Getenv("RUNNER_ADDRESS")
 	if cfg.RunnerAddress == "" {
 		cfg.RunnerAddress = "k8s-runner:50051"
+	}
+	cfg.ZitiIdentityFile = os.Getenv("ZITI_IDENTITY_FILE")
+	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
+	if cfg.ZitiManagementAddress == "" {
+		cfg.ZitiManagementAddress = "ziti-management:50051"
 	}
 	cfg.DefaultAgentImage = os.Getenv("DEFAULT_AGENT_IMAGE")
 	if cfg.DefaultAgentImage == "" {

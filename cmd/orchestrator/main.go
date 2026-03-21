@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
+	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/db"
@@ -22,6 +24,7 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/store"
 	"github.com/agynio/agents-orchestrator/internal/subscriber"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openziti/sdk-golang/ziti"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -56,35 +59,73 @@ func run() error {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
 
+	closeConn := func(conn *grpc.ClientConn) {
+		if conn == nil {
+			return
+		}
+		_ = conn.Close()
+	}
+
 	threadsConn, err := grpc.DialContext(ctx, cfg.ThreadsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial threads: %w", err)
 	}
-	defer threadsConn.Close()
+	defer closeConn(threadsConn)
 
 	notificationsConn, err := grpc.DialContext(ctx, cfg.NotificationsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial notifications: %w", err)
 	}
-	defer notificationsConn.Close()
+	defer closeConn(notificationsConn)
 
 	agentsConn, err := grpc.DialContext(ctx, cfg.AgentsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial agents: %w", err)
 	}
-	defer agentsConn.Close()
+	defer closeConn(agentsConn)
 
 	secretsConn, err := grpc.DialContext(ctx, cfg.SecretsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial secrets: %w", err)
 	}
-	defer secretsConn.Close()
+	defer closeConn(secretsConn)
 
-	runnerConn, err := grpc.DialContext(ctx, cfg.RunnerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("dial runner: %w", err)
+	var (
+		runnerConn     *grpc.ClientConn
+		zitiMgmtConn   *grpc.ClientConn
+		zitiMgmtClient zitimgmtv1.ZitiManagementServiceClient
+	)
+	// TODO: The E2E cluster does not yet deploy ziti-management or identities,
+	// so we support a direct runner dial path for now. Remove this fallback
+	// once ziti-management is part of the platform stack.
+	if cfg.ZitiIdentityFile != "" {
+		zitiCtx, err := ziti.NewContextFromFile(cfg.ZitiIdentityFile)
+		if err != nil {
+			return fmt.Errorf("load ziti identity: %w", err)
+		}
+		zitiMgmtConn, err = grpc.NewClient(cfg.ZitiManagementAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial ziti management: %w", err)
+		}
+		zitiMgmtClient = zitimgmtv1.NewZitiManagementServiceClient(zitiMgmtConn)
+		runnerConn, err = grpc.NewClient(
+			"passthrough:///runner",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+				return zitiCtx.Dial("runner")
+			}),
+		)
+		if err != nil {
+			return fmt.Errorf("dial runner: %w", err)
+		}
+	} else {
+		runnerConn, err = grpc.NewClient(cfg.RunnerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial runner: %w", err)
+		}
 	}
-	defer runnerConn.Close()
+	defer closeConn(runnerConn)
+	defer closeConn(zitiMgmtConn)
 
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	notificationsClient := notificationsv1.NewNotificationsServiceClient(notificationsConn)
@@ -95,7 +136,18 @@ func run() error {
 	store := store.NewStore(pool)
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
-	reconciler := reconciler.New(threadsClient, agentsClient, runnerClient, store, assembler, subscriber.Wake(), cfg.PollInterval, cfg.IdleTimeout, cfg.StopTimeoutSec)
+	reconciler := reconciler.New(reconciler.Config{
+		Threads:   threadsClient,
+		Agents:    agentsClient,
+		Runner:    runnerClient,
+		ZitiMgmt:  zitiMgmtClient,
+		Store:     store,
+		Assembler: assembler,
+		Wake:      subscriber.Wake(),
+		Poll:      cfg.PollInterval,
+		Idle:      cfg.IdleTimeout,
+		StopSec:   cfg.StopTimeoutSec,
+	})
 
 	start := func(leadCtx context.Context) {
 		group, groupCtx := errgroup.WithContext(leadCtx)

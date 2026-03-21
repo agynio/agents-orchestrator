@@ -36,8 +36,13 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]store.Workload, error) 
 			log.Printf("reconciler: warn: delete stale workload %s: %v", workload.WorkloadID, err)
 			continue
 		}
-		if deleted {
+		if deleted != nil {
 			log.Printf("reconciler: warn: removed stale workload %s", workload.WorkloadID)
+			if r.zitiMgmt != nil && workload.ZitiIdentityID != nil {
+				if err := r.deleteIdentity(ctx, *workload.ZitiIdentityID); err != nil {
+					log.Printf("reconciler: warn: delete ziti identity %s for stale workload %s: %v", *workload.ZitiIdentityID, workload.WorkloadID, err)
+				}
+			}
 		}
 	}
 	return actual, nil
