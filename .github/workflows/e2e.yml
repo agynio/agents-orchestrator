@@ -69,9 +69,18 @@ jobs:
         with:
           path: service
 
+      - name: Deploy orchestrator from source
+        working-directory: service
+        run: devspace run deploy -n platform
+
       - name: Run E2E tests
         working-directory: service
         run: devspace run test-e2e -n platform
+
+      - name: Restore ArgoCD sync
+        if: always()
+        working-directory: service
+        run: devspace run restore-argocd -n platform
 
       - name: Capture platform logs
         if: always()
