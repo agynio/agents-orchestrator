@@ -28,7 +28,7 @@ functions:
     fi
   patch_deployment: |-
     echo "Patching agents-orchestrator deployment for DevSpace..."
-    kubectl patch deployment agents-orchestrator-agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
+    kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
     spec:
       template:
         spec:
@@ -84,7 +84,7 @@ functions:
     )"
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."
-    kubectl rollout status deployment/agents-orchestrator-agents-orchestrator \
+    kubectl rollout status deployment/agents-orchestrator \
       -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s
 
     echo "Waiting for orchestrator source sync and process start..."
