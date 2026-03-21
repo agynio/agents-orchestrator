@@ -16,7 +16,7 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]store.Workload, error) 
 	}
 	resp, err := r.runner.FindWorkloadsByLabels(ctx, &runnerv1.FindWorkloadsByLabelsRequest{
 		Labels: map[string]string{assembler.LabelManagedBy: assembler.ManagedByValue},
-		All:    false,
+		All:    true,
 	})
 	if err != nil {
 		return nil, err
