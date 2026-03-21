@@ -14,9 +14,6 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/store"
 )
 
-// TODO: resolve real tenant_id when multi-tenancy is implemented across all services.
-const placeholderTenantID = "00000000-0000-0000-0000-000000000000"
-
 type Reconciler struct {
 	threads   threadsv1.ThreadsServiceClient
 	agents    agentsv1.AgentsServiceClient
@@ -123,8 +120,7 @@ func (r *Reconciler) createIdentity(ctx context.Context, target AgentThread) (*i
 		return nil, nil
 	}
 	identityResp, err := r.zitiMgmt.CreateAgentIdentity(ctx, &zitimgmtv1.CreateAgentIdentityRequest{
-		AgentId:  target.AgentID.String(),
-		TenantId: placeholderTenantID,
+		AgentId: target.AgentID.String(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create ziti identity for agent %s thread %s: %w", target.AgentID.String(), target.ThreadID.String(), err)

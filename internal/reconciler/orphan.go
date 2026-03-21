@@ -32,7 +32,6 @@ func (r *Reconciler) reconcileOrphanIdentities(ctx context.Context) error {
 	for {
 		resp, err := r.zitiMgmt.ListManagedIdentities(ctx, &zitimgmtv1.ListManagedIdentitiesRequest{
 			IdentityType: zitimgmtv1.IdentityType_IDENTITY_TYPE_AGENT,
-			TenantId:     placeholderTenantID,
 			PageSize:     managedIdentityPageSize,
 			PageToken:    pageToken,
 		})
