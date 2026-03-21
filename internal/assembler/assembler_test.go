@@ -97,18 +97,14 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if !equalStringSlice(request.Main.Cmd, expectedCmd) {
 		t.Fatalf("unexpected main cmd: %+v", request.Main.Cmd)
 	}
-	labelsJSON := request.Main.AdditionalProperties["labels_json"]
-	if labelsJSON == "" {
-		t.Fatal("expected labels_json")
-	}
-	labels := map[string]string{}
-	if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
-		t.Fatalf("unmarshal labels: %v", err)
+	labels := request.AdditionalProperties
+	if len(labels) == 0 {
+		t.Fatal("expected labels in request additional properties")
 	}
 	expectedLabels := map[string]string{
-		LabelManagedBy: ManagedByValue,
-		LabelAgentID:   agentID.String(),
-		LabelThreadID:  threadID.String(),
+		LabelKeyPrefix + LabelManagedBy: ManagedByValue,
+		LabelKeyPrefix + LabelAgentID:   agentID.String(),
+		LabelKeyPrefix + LabelThreadID:  threadID.String(),
 	}
 	if !equalStringMap(labels, expectedLabels) {
 		t.Fatalf("expected labels %+v, got %+v", expectedLabels, labels)
