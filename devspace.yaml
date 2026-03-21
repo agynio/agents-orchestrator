@@ -136,6 +136,10 @@ deployments:
 commands:
   test-e2e: |-
     devspace run-pipeline test-e2e -n ${DEVSPACE_NAMESPACE} $@
+  deploy: |-
+    devspace run-pipeline deploy -n ${DEVSPACE_NAMESPACE} $@
+  restore-argocd: |-
+    devspace run-pipeline restore-argocd -n ${DEVSPACE_NAMESPACE} $@
 
 pipelines:
   dev:
@@ -144,6 +148,7 @@ pipelines:
         short: w
         description: "Keep DevSpace running and stream logs"
     run: |-
+      trap 'echo "Restoring ArgoCD sync..."; restore_argocd_sync' EXIT
       disable_argocd_sync
       patch_deployment
       if [ "$(get_flag "watch")" == "true" ]; then
@@ -155,52 +160,30 @@ pipelines:
         stop_dev agents-orchestrator
       fi
 
-  test-e2e:
+  deploy:
     run: |-
-      # --- Deploy orchestrator from PR sources ---
       disable_argocd_sync
       patch_deployment
-      start_dev --disable-pod-replace agents-orchestrator &
+      start_dev --disable-pod-replace agents-orchestrator-deploy
       wait_for_orchestrator
+      echo "Deploy complete. Orchestrator is running from source."
 
-      # --- Deploy and run e2e tests ---
+  test-e2e:
+    run: |-
       create_deployments e2e-runner
-      start_dev e2e-runner &
-      echo "Waiting for e2e-runner sync to complete..."
-      ELAPSED=0
-      until exec_container \
-        --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
-        -n ${ORCHESTRATOR_NAMESPACE} \
-        -- test -f /opt/app/data/buf.gen.yaml; do
-        sleep 3
-        ELAPSED=$((ELAPSED + 3))
-        if [ "$ELAPSED" -ge 120 ]; then
-          echo "ERROR: e2e-runner sync timeout" >&2
-          stop_dev agents-orchestrator || true
-          exit 1
-        fi
-      done
-      echo "Sync complete."
+      start_dev e2e-runner-test
+      echo "Sync complete. Running e2e tests..."
       exec_container \
         --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
         -n ${ORCHESTRATOR_NAMESPACE} \
         -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --path agynio/api/runner/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
       EXIT_CODE=$?
-
-      # --- Cleanup ---
-      stop_dev e2e-runner
       purge_deployments e2e-runner
-      stop_dev agents-orchestrator
       exit $EXIT_CODE
 
-hooks:
-  - name: restore-argocd-auto-sync
-    events:
-      - after:dev:agents-orchestrator
-    command: bash
-    args:
-      - -c
-      - *restore_argocd_sync
+  restore-argocd:
+    run: |-
+      restore_argocd_sync
 
 dev:
   agents-orchestrator:
@@ -240,6 +223,48 @@ dev:
     workingDir: /opt/app/data
     sync:
       - path: ./:/opt/app/data
+        excludePaths:
+          - .git/
+          - .devspace/
+          - /.gen/
+          - /tmp/
+
+  agents-orchestrator-deploy:
+    namespace: ${ORCHESTRATOR_NAMESPACE}
+    labelSelector:
+      app.kubernetes.io/name: agents-orchestrator
+      app.kubernetes.io/instance: agents-orchestrator
+    containers:
+      agents-orchestrator:
+        container: agents-orchestrator
+        sync:
+          - path: ./:/opt/app/data
+            noWatch: true
+            excludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+            uploadExcludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+            downloadExcludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+
+  e2e-runner-test:
+    namespace: ${ORCHESTRATOR_NAMESPACE}
+    labelSelector:
+      app.kubernetes.io/name: agents-orchestrator-e2e
+    command: ["sleep", "infinity"]
+    workingDir: /opt/app/data
+    sync:
+      - path: ./:/opt/app/data
+        noWatch: true
         excludePaths:
           - .git/
           - .devspace/
