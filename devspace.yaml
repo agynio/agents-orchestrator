@@ -82,6 +82,26 @@ functions:
                   type: RuntimeDefault
     EOF
     )"
+  wait_for_orchestrator: |-
+    echo "Waiting for orchestrator deployment to roll out..."
+    kubectl rollout status deployment/agents-orchestrator-agents-orchestrator \
+      -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s
+
+    echo "Waiting for orchestrator source sync and process start..."
+    ELAPSED=0
+    until exec_container \
+      --label-selector "app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator" \
+      -n ${ORCHESTRATOR_NAMESPACE} \
+      -- pgrep -f "go run ./cmd/orchestrator" >/dev/null 2>&1; do
+      sleep 5
+      ELAPSED=$((ELAPSED + 5))
+      if [ "$ELAPSED" -ge 300 ]; then
+        echo "ERROR: orchestrator process did not start within 300s" >&2
+        exit 1
+      fi
+      echo "  still waiting... (${ELAPSED}s)"
+    done
+    echo "Orchestrator is running from source."
 
 deployments:
   e2e-runner:
@@ -137,6 +157,14 @@ pipelines:
 
   test-e2e:
     run: |-
+      # --- Deploy orchestrator from PR sources ---
+      disable_argocd_sync
+      patch_deployment
+      start_dev --disable-pod-replace agents-orchestrator &
+      ORCH_DEV_PID=$!
+      wait_for_orchestrator
+
+      # --- Deploy and run e2e tests ---
       create_deployments e2e-runner
       start_dev e2e-runner &
       echo "Waiting for e2e-runner sync to complete..."
@@ -149,6 +177,7 @@ pipelines:
         ELAPSED=$((ELAPSED + 3))
         if [ "$ELAPSED" -ge 120 ]; then
           echo "ERROR: e2e-runner sync timeout" >&2
+          stop_dev agents-orchestrator || true
           exit 1
         fi
       done
@@ -158,8 +187,11 @@ pipelines:
         -n ${ORCHESTRATOR_NAMESPACE} \
         -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --path agynio/api/runner/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
       EXIT_CODE=$?
+
+      # --- Cleanup ---
       stop_dev e2e-runner
       purge_deployments e2e-runner
+      stop_dev agents-orchestrator
       exit $EXIT_CODE
 
 hooks:

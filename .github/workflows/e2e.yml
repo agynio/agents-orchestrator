@@ -80,6 +80,10 @@ jobs:
           kubectl logs -n platform -l app.kubernetes.io/name=agents-orchestrator \
             --tail=500 --timestamps 2>&1 || echo "Failed to fetch orchestrator logs"
           echo ""
+          echo "=== E2E runner pod logs ==="
+          kubectl logs -n platform -l app.kubernetes.io/name=agents-orchestrator-e2e \
+            --tail=500 --timestamps 2>&1 || echo "Failed to fetch e2e-runner logs"
+          echo ""
           echo "=== K8s-runner pod logs ==="
           kubectl logs -n platform -l app.kubernetes.io/name=k8s-runner \
             --tail=200 --timestamps 2>&1 || echo "Failed to fetch k8s-runner logs"
