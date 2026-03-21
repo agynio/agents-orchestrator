@@ -161,7 +161,6 @@ pipelines:
       disable_argocd_sync
       patch_deployment
       start_dev --disable-pod-replace agents-orchestrator &
-      ORCH_DEV_PID=$!
       wait_for_orchestrator
 
       # --- Deploy and run e2e tests ---

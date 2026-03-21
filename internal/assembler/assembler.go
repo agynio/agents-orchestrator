@@ -115,9 +115,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Sidecars: sidecars,
 		Volumes:  volumeResolver.Specs(),
 		AdditionalProperties: map[string]string{
-			"label." + LabelManagedBy: ManagedByValue,
-			"label." + LabelAgentID:   agentID.String(),
-			"label." + LabelThreadID:  threadID.String(),
+			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
+			LabelKeyPrefix + LabelAgentID:   agentID.String(),
+			LabelKeyPrefix + LabelThreadID:  threadID.String(),
 		},
 	}, nil
 }

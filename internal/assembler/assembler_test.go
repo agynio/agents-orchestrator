@@ -102,9 +102,9 @@ func TestAssemblerMainContainer(t *testing.T) {
 		t.Fatal("expected labels in request additional properties")
 	}
 	expectedLabels := map[string]string{
-		"label." + LabelManagedBy: ManagedByValue,
-		"label." + LabelAgentID:   agentID.String(),
-		"label." + LabelThreadID:  threadID.String(),
+		LabelKeyPrefix + LabelManagedBy: ManagedByValue,
+		LabelKeyPrefix + LabelAgentID:   agentID.String(),
+		LabelKeyPrefix + LabelThreadID:  threadID.String(),
 	}
 	if !equalStringMap(labels, expectedLabels) {
 		t.Fatalf("expected labels %+v, got %+v", expectedLabels, labels)
