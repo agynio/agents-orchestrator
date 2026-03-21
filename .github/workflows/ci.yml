@@ -29,7 +29,8 @@ jobs:
             --path agynio/api/threads/v1 \
             --path agynio/api/notifications/v1 \
             --path agynio/api/agents/v1 \
-            --path agynio/api/secrets/v1
+            --path agynio/api/secrets/v1 \
+            --path agynio/api/ziti_management/v1
 
       - name: Run tests
         run: go test ./...

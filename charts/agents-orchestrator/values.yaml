@@ -76,7 +76,9 @@ env:
     value: ""
   - name: SECRETS_ADDRESS
     value: ""
-  - name: RUNNER_ADDRESS
+  - name: ZITI_IDENTITY_FILE
+    value: ""
+  - name: ZITI_MANAGEMENT_ADDRESS
     value: ""
   - name: DEFAULT_AGENT_IMAGE
     value: ""

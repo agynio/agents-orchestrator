@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
+	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/db"
@@ -22,6 +24,7 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/store"
 	"github.com/agynio/agents-orchestrator/internal/subscriber"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openziti/sdk-golang/ziti"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -56,6 +59,11 @@ func run() error {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
 
+	zitiCtx, err := ziti.NewContextFromFile(cfg.ZitiIdentityFile)
+	if err != nil {
+		return fmt.Errorf("load ziti identity: %w", err)
+	}
+
 	threadsConn, err := grpc.DialContext(ctx, cfg.ThreadsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial threads: %w", err)
@@ -80,7 +88,19 @@ func run() error {
 	}
 	defer secretsConn.Close()
 
-	runnerConn, err := grpc.DialContext(ctx, cfg.RunnerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	zitiMgmtConn, err := grpc.NewClient(cfg.ZitiManagementAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("dial ziti management: %w", err)
+	}
+	defer zitiMgmtConn.Close()
+
+	runnerConn, err := grpc.NewClient(
+		"passthrough:///runner",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			return zitiCtx.Dial("runner")
+		}),
+	)
 	if err != nil {
 		return fmt.Errorf("dial runner: %w", err)
 	}
@@ -91,11 +111,12 @@ func run() error {
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
+	zitiMgmtClient := zitimgmtv1.NewZitiManagementServiceClient(zitiMgmtConn)
 
 	store := store.NewStore(pool)
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
-	reconciler := reconciler.New(threadsClient, agentsClient, runnerClient, store, assembler, subscriber.Wake(), cfg.PollInterval, cfg.IdleTimeout, cfg.StopTimeoutSec)
+	reconciler := reconciler.New(threadsClient, agentsClient, runnerClient, zitiMgmtClient, store, assembler, subscriber.Wake(), cfg.PollInterval, cfg.IdleTimeout, cfg.StopTimeoutSec)
 
 	start := func(leadCtx context.Context) {
 		group, groupCtx := errgroup.WithContext(leadCtx)
