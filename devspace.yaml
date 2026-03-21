@@ -186,6 +186,7 @@ pipelines:
       restore_argocd_sync
 
 dev:
+  # CI counterpart: agents-orchestrator-deploy (one-shot sync)
   agents-orchestrator:
     namespace: ${ORCHESTRATOR_NAMESPACE}
     labelSelector:
@@ -215,6 +216,7 @@ dev:
           enabled: true
           lastLines: 200
 
+  # CI counterpart: e2e-runner-test (one-shot sync)
   e2e-runner:
     namespace: ${ORCHESTRATOR_NAMESPACE}
     labelSelector:
@@ -229,6 +231,7 @@ dev:
           - /.gen/
           - /tmp/
 
+  # One-shot variant of agents-orchestrator for CI deploy pipeline. Keep sync excludePaths in sync.
   agents-orchestrator-deploy:
     namespace: ${ORCHESTRATOR_NAMESPACE}
     labelSelector:
@@ -256,6 +259,7 @@ dev:
               - /.gen/
               - /tmp/
 
+  # One-shot variant of e2e-runner for CI test pipeline. Keep sync excludePaths in sync.
   e2e-runner-test:
     namespace: ${ORCHESTRATOR_NAMESPACE}
     labelSelector:
