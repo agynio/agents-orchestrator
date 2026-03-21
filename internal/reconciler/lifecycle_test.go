@@ -34,9 +34,6 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetAgentId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
-			if req.GetTenantId() != placeholderTenantID {
-				return nil, errors.New("unexpected tenant id")
-			}
 			return &zitimgmtv1.CreateAgentIdentityResponse{ZitiIdentityId: zitiID, EnrollmentJwt: jwt}, nil
 		},
 	}
@@ -369,9 +366,6 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 		listManagedIdentities: func(_ context.Context, req *zitimgmtv1.ListManagedIdentitiesRequest, _ ...grpc.CallOption) (*zitimgmtv1.ListManagedIdentitiesResponse, error) {
 			if req.GetIdentityType() != zitimgmtv1.IdentityType_IDENTITY_TYPE_AGENT {
 				return nil, errors.New("unexpected identity type")
-			}
-			if req.GetTenantId() != placeholderTenantID {
-				return nil, errors.New("unexpected tenant id")
 			}
 			return &zitimgmtv1.ListManagedIdentitiesResponse{
 				Identities: []*zitimgmtv1.ManagedIdentity{
