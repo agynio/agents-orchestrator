@@ -11,6 +11,9 @@ import (
 const managedIdentityPageSize int32 = 100
 
 func (r *Reconciler) reconcileOrphanIdentities(ctx context.Context) error {
+	if r.zitiMgmt == nil {
+		return nil
+	}
 	tracked, err := r.store.ListAll(ctx)
 	if err != nil {
 		return err

@@ -59,11 +59,6 @@ func run() error {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
 
-	zitiCtx, err := ziti.NewContextFromFile(cfg.ZitiIdentityFile)
-	if err != nil {
-		return fmt.Errorf("load ziti identity: %w", err)
-	}
-
 	threadsConn, err := grpc.DialContext(ctx, cfg.ThreadsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial threads: %w", err)
@@ -88,30 +83,47 @@ func run() error {
 	}
 	defer secretsConn.Close()
 
-	zitiMgmtConn, err := grpc.NewClient(cfg.ZitiManagementAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("dial ziti management: %w", err)
-	}
-	defer zitiMgmtConn.Close()
-
-	runnerConn, err := grpc.NewClient(
-		"passthrough:///runner",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			return zitiCtx.Dial("runner")
-		}),
+	var (
+		runnerConn     *grpc.ClientConn
+		zitiMgmtConn   *grpc.ClientConn
+		zitiMgmtClient zitimgmtv1.ZitiManagementServiceClient
 	)
-	if err != nil {
-		return fmt.Errorf("dial runner: %w", err)
+	if cfg.ZitiIdentityFile != "" {
+		zitiCtx, err := ziti.NewContextFromFile(cfg.ZitiIdentityFile)
+		if err != nil {
+			return fmt.Errorf("load ziti identity: %w", err)
+		}
+		zitiMgmtConn, err = grpc.NewClient(cfg.ZitiManagementAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial ziti management: %w", err)
+		}
+		zitiMgmtClient = zitimgmtv1.NewZitiManagementServiceClient(zitiMgmtConn)
+		runnerConn, err = grpc.NewClient(
+			"passthrough:///runner",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+				return zitiCtx.Dial("runner")
+			}),
+		)
+		if err != nil {
+			return fmt.Errorf("dial runner: %w", err)
+		}
+	} else {
+		runnerConn, err = grpc.DialContext(ctx, cfg.RunnerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial runner: %w", err)
+		}
 	}
 	defer runnerConn.Close()
+	if zitiMgmtConn != nil {
+		defer zitiMgmtConn.Close()
+	}
 
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	notificationsClient := notificationsv1.NewNotificationsServiceClient(notificationsConn)
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
-	zitiMgmtClient := zitimgmtv1.NewZitiManagementServiceClient(zitiMgmtConn)
 
 	store := store.NewStore(pool)
 	subscriber := subscriber.New(notificationsClient)

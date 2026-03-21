@@ -79,6 +79,52 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 	}
 }
 
+func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	workloadID := "workload-1"
+	assembler := newTestAssembler(agentID)
+
+	var calls []string
+	runner := &fakeRunnerClient{
+		startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
+			calls = append(calls, "start")
+			if req.GetMain() == nil {
+				return nil, errors.New("missing main container")
+			}
+			envs := envMap(req.GetMain().GetEnv())
+			if _, ok := envs["ZITI_ENROLLMENT_JWT"]; ok {
+				return nil, errors.New("unexpected ZITI_ENROLLMENT_JWT")
+			}
+			return &runnerv1.StartWorkloadResponse{Id: workloadID, Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING}, nil
+		},
+	}
+
+	workloadStore := &fakeWorkloadStore{
+		insert: func(_ context.Context, workloadIDArg string, agentIDArg, threadIDArg uuid.UUID, zitiIdentityID *string) (*store.Workload, error) {
+			calls = append(calls, "insert")
+			if workloadIDArg != workloadID {
+				return nil, errors.New("unexpected workload id")
+			}
+			if agentIDArg != agentID || threadIDArg != threadID {
+				return nil, errors.New("unexpected identifiers")
+			}
+			if zitiIdentityID != nil {
+				return nil, errors.New("unexpected ziti identity id")
+			}
+			return &store.Workload{WorkloadID: workloadIDArg, AgentID: agentIDArg, ThreadID: threadIDArg}, nil
+		},
+	}
+
+	reconciler := New(nil, nil, runner, nil, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
+
+	if !reflect.DeepEqual(calls, []string{"start", "insert"}) {
+		t.Fatalf("unexpected call order: %v", calls)
+	}
+}
+
 func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
@@ -243,6 +289,35 @@ func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 	}
 }
 
+func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	assembler := newTestAssembler(agentID)
+	zitiID := "ziti-identity"
+
+	var calls []string
+	runner := &fakeRunnerClient{
+		stopWorkload: func(_ context.Context, _ *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			calls = append(calls, "stop")
+			return &runnerv1.StopWorkloadResponse{}, nil
+		},
+	}
+
+	workloadStore := &fakeWorkloadStore{
+		delete: func(_ context.Context, _ string) (*store.Workload, error) {
+			calls = append(calls, "store-delete")
+			return &store.Workload{}, nil
+		},
+	}
+
+	reconciler := New(nil, nil, runner, nil, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	reconciler.stopWorkload(ctx, store.Workload{WorkloadID: "workload-1", ZitiIdentityID: &zitiID})
+
+	if !reflect.DeepEqual(calls, []string{"stop", "store-delete"}) {
+		t.Fatalf("unexpected call order: %v", calls)
+	}
+}
+
 func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
@@ -288,6 +363,23 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 	}
 }
 
+func TestReconcileOrphanIdentitiesNoopWhenZitiMgmtNil(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	assembler := newTestAssembler(agentID)
+
+	workloadStore := &fakeWorkloadStore{
+		listAll: func(context.Context) ([]store.Workload, error) {
+			return nil, errors.New("unexpected list")
+		},
+	}
+
+	reconciler := New(nil, nil, &fakeRunnerClient{}, nil, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	if err := reconciler.reconcileOrphanIdentities(ctx); err != nil {
+		t.Fatalf("reconcile orphan identities: %v", err)
+	}
+}
+
 func TestFetchActualDeletesIdentityForStaleWorkload(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
@@ -326,6 +418,38 @@ func TestFetchActualDeletesIdentityForStaleWorkload(t *testing.T) {
 	}
 	if !deleteCalled {
 		t.Fatal("expected delete identity call")
+	}
+}
+
+func TestFetchActualSkipsIdentityCleanupWhenZitiMgmtNil(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	assembler := newTestAssembler(agentID)
+	zitiID := "ziti-id"
+
+	deleted := false
+	workloadStore := &fakeWorkloadStore{
+		listAll: func(context.Context) ([]store.Workload, error) {
+			return []store.Workload{{WorkloadID: "workload-1", ZitiIdentityID: &zitiID}}, nil
+		},
+		delete: func(_ context.Context, _ string) (*store.Workload, error) {
+			deleted = true
+			return &store.Workload{WorkloadID: "workload-1", ZitiIdentityID: &zitiID}, nil
+		},
+	}
+
+	runner := &fakeRunnerClient{
+		findWorkloadsByLabels: func(_ context.Context, _ *runnerv1.FindWorkloadsByLabelsRequest, _ ...grpc.CallOption) (*runnerv1.FindWorkloadsByLabelsResponse, error) {
+			return &runnerv1.FindWorkloadsByLabelsResponse{TargetIds: []string{}}, nil
+		},
+	}
+
+	reconciler := New(nil, nil, runner, nil, workloadStore, assembler, nil, time.Second, time.Minute, 30)
+	if _, err := reconciler.fetchActual(ctx); err != nil {
+		t.Fatalf("fetch actual: %v", err)
+	}
+	if !deleted {
+		t.Fatal("expected stale workload delete")
 	}
 }
 

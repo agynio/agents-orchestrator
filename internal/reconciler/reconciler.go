@@ -85,8 +85,10 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 	for _, workload := range actions.ToStop {
 		r.stopWorkload(ctx, workload)
 	}
-	if err := r.reconcileOrphanIdentities(ctx); err != nil {
-		return err
+	if r.zitiMgmt != nil {
+		if err := r.reconcileOrphanIdentities(ctx); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -97,49 +99,59 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		log.Printf("reconciler: assemble workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		return
 	}
-	identityResp, err := r.zitiMgmt.CreateAgentIdentity(ctx, &zitimgmtv1.CreateAgentIdentityRequest{
-		AgentId:  target.AgentID.String(),
-		TenantId: placeholderTenantID,
-	})
-	if err != nil {
-		log.Printf("reconciler: create ziti identity for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
-		return
-	}
-	zitiIdentityID := identityResp.GetZitiIdentityId()
-	enrollmentJWT := identityResp.GetEnrollmentJwt()
-	if zitiIdentityID == "" || enrollmentJWT == "" {
-		log.Printf("reconciler: ziti identity response missing fields for agent %s thread %s", target.AgentID.String(), target.ThreadID.String())
-		if zitiIdentityID != "" {
-			if err := r.deleteIdentity(ctx, zitiIdentityID); err != nil {
-				log.Printf("reconciler: delete ziti identity %s after missing enrollment jwt: %v", zitiIdentityID, err)
-			}
+	var zitiIdentityID *string
+	if r.zitiMgmt != nil {
+		identityResp, err := r.zitiMgmt.CreateAgentIdentity(ctx, &zitimgmtv1.CreateAgentIdentityRequest{
+			AgentId:  target.AgentID.String(),
+			TenantId: placeholderTenantID,
+		})
+		if err != nil {
+			log.Printf("reconciler: create ziti identity for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
+			return
 		}
-		return
+		identityID := identityResp.GetZitiIdentityId()
+		enrollmentJWT := identityResp.GetEnrollmentJwt()
+		if identityID == "" || enrollmentJWT == "" {
+			log.Printf("reconciler: ziti identity response missing fields for agent %s thread %s", target.AgentID.String(), target.ThreadID.String())
+			if identityID != "" {
+				if err := r.deleteIdentity(ctx, identityID); err != nil {
+					log.Printf("reconciler: delete ziti identity %s after missing enrollment jwt: %v", identityID, err)
+				}
+			}
+			return
+		}
+		request.Main.Env = append(request.Main.Env, &runnerv1.EnvVar{Name: "ZITI_ENROLLMENT_JWT", Value: enrollmentJWT})
+		zitiIdentityID = &identityID
 	}
-	request.Main.Env = append(request.Main.Env, &runnerv1.EnvVar{Name: "ZITI_ENROLLMENT_JWT", Value: enrollmentJWT})
 	resp, err := r.runner.StartWorkload(ctx, request)
 	if err != nil {
 		log.Printf("reconciler: start workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
-		if err := r.deleteIdentity(ctx, zitiIdentityID); err != nil {
-			log.Printf("reconciler: delete ziti identity %s after start failure: %v", zitiIdentityID, err)
+		if zitiIdentityID != nil {
+			if err := r.deleteIdentity(ctx, *zitiIdentityID); err != nil {
+				log.Printf("reconciler: delete ziti identity %s after start failure: %v", *zitiIdentityID, err)
+			}
 		}
 		return
 	}
 	if resp.GetStatus() == runnerv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
 		log.Printf("reconciler: workload failed for agent %s thread %s: %s", target.AgentID.String(), target.ThreadID.String(), failureSummary(resp.GetFailure()))
-		if err := r.deleteIdentity(ctx, zitiIdentityID); err != nil {
-			log.Printf("reconciler: delete ziti identity %s after workload failure: %v", zitiIdentityID, err)
+		if zitiIdentityID != nil {
+			if err := r.deleteIdentity(ctx, *zitiIdentityID); err != nil {
+				log.Printf("reconciler: delete ziti identity %s after workload failure: %v", *zitiIdentityID, err)
+			}
 		}
 		return
 	}
 	if resp.GetId() == "" {
 		log.Printf("reconciler: workload started without id for agent %s thread %s", target.AgentID.String(), target.ThreadID.String())
-		if err := r.deleteIdentity(ctx, zitiIdentityID); err != nil {
-			log.Printf("reconciler: delete ziti identity %s after missing workload id: %v", zitiIdentityID, err)
+		if zitiIdentityID != nil {
+			if err := r.deleteIdentity(ctx, *zitiIdentityID); err != nil {
+				log.Printf("reconciler: delete ziti identity %s after missing workload id: %v", *zitiIdentityID, err)
+			}
 		}
 		return
 	}
-	if _, err := r.store.Insert(ctx, resp.GetId(), target.AgentID, target.ThreadID, &zitiIdentityID); err != nil {
+	if _, err := r.store.Insert(ctx, resp.GetId(), target.AgentID, target.ThreadID, zitiIdentityID); err != nil {
 		log.Printf("reconciler: store workload %s for agent %s thread %s: %v", resp.GetId(), target.AgentID.String(), target.ThreadID.String(), err)
 		if _, err := r.runner.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
 			WorkloadId: resp.GetId(),
@@ -147,8 +159,10 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		}); err != nil {
 			log.Printf("reconciler: stop workload %s after store failure: %v", resp.GetId(), err)
 		}
-		if err := r.deleteIdentity(ctx, zitiIdentityID); err != nil {
-			log.Printf("reconciler: delete ziti identity %s after store failure: %v", zitiIdentityID, err)
+		if zitiIdentityID != nil {
+			if err := r.deleteIdentity(ctx, *zitiIdentityID); err != nil {
+				log.Printf("reconciler: delete ziti identity %s after store failure: %v", *zitiIdentityID, err)
+			}
 		}
 	}
 }
@@ -162,7 +176,7 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload store.Workload) 
 		log.Printf("reconciler: stop workload %s: %v", workload.WorkloadID, err)
 		return
 	}
-	if workload.ZitiIdentityID != nil {
+	if r.zitiMgmt != nil && workload.ZitiIdentityID != nil {
 		if err := r.deleteIdentity(ctx, *workload.ZitiIdentityID); err != nil {
 			log.Printf("reconciler: delete ziti identity %s after stopping workload %s: %v", *workload.ZitiIdentityID, workload.WorkloadID, err)
 		}
