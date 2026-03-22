@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -105,39 +106,9 @@ func run() error {
 			return fmt.Errorf("dial ziti management: %w", err)
 		}
 		zitiMgmtClient = zitimgmtv1.NewZitiManagementServiceClient(zitiMgmtConn)
-		identityResp, err := zitiMgmtClient.RequestServiceIdentity(ctx, &zitimgmtv1.RequestServiceIdentityRequest{
-			ServiceType: zitimgmtv1.ServiceType_SERVICE_TYPE_ORCHESTRATOR,
-		})
+		zitiCtx, identityID, err := setupZitiIdentity(ctx, zitiMgmtClient)
 		if err != nil {
-			return fmt.Errorf("request ziti service identity: %w", err)
-		}
-		identityID := identityResp.GetZitiIdentityId()
-		if identityID == "" {
-			return fmt.Errorf("request ziti service identity: missing identity id")
-		}
-		identityJSON := identityResp.GetIdentityJson()
-		if len(identityJSON) == 0 {
-			return fmt.Errorf("request ziti service identity: missing identity json")
-		}
-		identityFile, err := os.CreateTemp("", "ziti-identity-*.json")
-		if err != nil {
-			return fmt.Errorf("create ziti identity file: %w", err)
-		}
-		defer func() {
-			if err := os.Remove(identityFile.Name()); err != nil {
-				log.Printf("failed to remove ziti identity file: %v", err)
-			}
-		}()
-		if _, err := identityFile.Write(identityJSON); err != nil {
-			_ = identityFile.Close()
-			return fmt.Errorf("write ziti identity file: %w", err)
-		}
-		if err := identityFile.Close(); err != nil {
-			return fmt.Errorf("close ziti identity file: %w", err)
-		}
-		zitiCtx, err := ziti.NewContextFromFile(identityFile.Name())
-		if err != nil {
-			return fmt.Errorf("load ziti identity: %w", err)
+			return err
 		}
 		go renewLease(ctx, zitiMgmtClient, identityID, cfg.ZitiLeaseRenewalInterval)
 		runnerConn, err = grpc.NewClient(
@@ -205,6 +176,32 @@ func run() error {
 	return nil
 }
 
+func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient) (ziti.Context, string, error) {
+	identityResp, err := client.RequestServiceIdentity(ctx, &zitimgmtv1.RequestServiceIdentityRequest{
+		ServiceType: zitimgmtv1.ServiceType_SERVICE_TYPE_ORCHESTRATOR,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("request ziti service identity: %w", err)
+	}
+	identityID := identityResp.GetZitiIdentityId()
+	if identityID == "" {
+		return nil, "", fmt.Errorf("request ziti service identity: missing identity id")
+	}
+	identityJSON := identityResp.GetIdentityJson()
+	if len(identityJSON) == 0 {
+		return nil, "", fmt.Errorf("request ziti service identity: missing identity json")
+	}
+	identityConfig := &ziti.Config{}
+	if err := json.Unmarshal(identityJSON, identityConfig); err != nil {
+		return nil, "", fmt.Errorf("parse ziti identity: %w", err)
+	}
+	zitiCtx, err := ziti.NewContext(identityConfig)
+	if err != nil {
+		return nil, "", fmt.Errorf("load ziti identity: %w", err)
+	}
+	return zitiCtx, identityID, nil
+}
+
 func renewLease(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, identityID string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -213,6 +210,9 @@ func renewLease(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClie
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if ctx.Err() != nil {
+				return
+			}
 			if _, err := client.ExtendIdentityLease(ctx, &zitimgmtv1.ExtendIdentityLeaseRequest{ZitiIdentityId: identityID}); err != nil {
 				log.Printf("failed to extend ziti lease: %v", err)
 			}

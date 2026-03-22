@@ -76,8 +76,10 @@ env:
     value: ""
   - name: SECRETS_ADDRESS
     value: ""
-  - name: ZITI_IDENTITY_FILE
-    value: ""
+  - name: ZITI_ENABLED
+    value: "false"
+  - name: ZITI_LEASE_RENEWAL_INTERVAL
+    value: "2m"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: ""
   - name: DEFAULT_AGENT_IMAGE
