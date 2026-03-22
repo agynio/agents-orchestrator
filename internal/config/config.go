@@ -14,8 +14,9 @@ type Config struct {
 	AgentsAddress             string
 	SecretsAddress            string
 	RunnerAddress             string
-	ZitiIdentityFile          string
+	ZitiEnabled               bool
 	ZitiManagementAddress     string
+	ZitiLeaseRenewalInterval  time.Duration
 	DefaultAgentImage         string
 	AgentThreadsAddress       string
 	AgentNotificationsAddress string
@@ -52,10 +53,30 @@ func FromEnv() (Config, error) {
 	if cfg.RunnerAddress == "" {
 		cfg.RunnerAddress = "k8s-runner:50051"
 	}
-	cfg.ZitiIdentityFile = os.Getenv("ZITI_IDENTITY_FILE")
+	zitiEnabled := os.Getenv("ZITI_ENABLED")
+	if zitiEnabled != "" {
+		parsed, err := strconv.ParseBool(zitiEnabled)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse ZITI_ENABLED: %w", err)
+		}
+		cfg.ZitiEnabled = parsed
+	}
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
 	if cfg.ZitiManagementAddress == "" {
 		cfg.ZitiManagementAddress = "ziti-management:50051"
+	}
+	zitiLeaseRenewalInterval := os.Getenv("ZITI_LEASE_RENEWAL_INTERVAL")
+	if zitiLeaseRenewalInterval == "" {
+		cfg.ZitiLeaseRenewalInterval = 2 * time.Minute
+	} else {
+		parsed, err := time.ParseDuration(zitiLeaseRenewalInterval)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse ZITI_LEASE_RENEWAL_INTERVAL: %w", err)
+		}
+		cfg.ZitiLeaseRenewalInterval = parsed
+	}
+	if cfg.ZitiLeaseRenewalInterval <= 0 {
+		return Config{}, fmt.Errorf("ZITI_LEASE_RENEWAL_INTERVAL must be greater than 0")
 	}
 	cfg.DefaultAgentImage = os.Getenv("DEFAULT_AGENT_IMAGE")
 	if cfg.DefaultAgentImage == "" {
