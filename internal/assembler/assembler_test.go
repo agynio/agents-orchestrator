@@ -165,6 +165,63 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 }
 
+func TestAssemblerInitImageOverride(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+
+	agent := &agentsv1.Agent{
+		Meta:      &agentsv1.EntityMeta{Id: agentID.String()},
+		Image:     "agent-image",
+		InitImage: "agent-init-image",
+	}
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				return nil, errors.New("unexpected agent id")
+			}
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	cfg := config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+	}
+
+	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
+	request, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(request.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
+	}
+	initContainer := request.InitContainers[0]
+	if initContainer.Image != agent.GetInitImage() {
+		t.Fatalf("expected init image %q, got %q", agent.GetInitImage(), initContainer.Image)
+	}
+}
+
 func TestAssemblerResolvesSecretEnv(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
