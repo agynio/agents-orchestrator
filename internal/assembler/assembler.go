@@ -16,7 +16,12 @@ import (
 	"github.com/google/uuid"
 )
 
-const listPageSize int32 = 100
+const (
+	listPageSize      int32 = 100
+	agynBinVolumeName       = "agyn-bin"
+	agynBinMountPath        = "/agyn-bin"
+	agynBinBinaryPath       = "/agyn-bin/agynd"
+)
 
 type Assembler struct {
 	agents  agentsv1.AgentsServiceClient
@@ -73,16 +78,27 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	mainEnv := baseAgentEnvVars(a.cfg, agent, agentID, threadID, skillsJSON, agentInitScript)
 	mainEnv = append(mainEnv, agentEnvVars...)
 
-	image := agent.GetImage()
-	if image == "" {
-		image = a.cfg.DefaultAgentImage
+	initImage := agent.GetInitImage()
+	if initImage == "" {
+		initImage = a.cfg.DefaultInitImage
 	}
+
+	mainMounts := append([]*runnerv1.VolumeMount{}, agentMounts...)
+	mainMounts = append(mainMounts, &runnerv1.VolumeMount{Volume: agynBinVolumeName, MountPath: agynBinMountPath})
 	main := &runnerv1.ContainerSpec{
-		Image:  image,
+		Image:  agent.GetImage(),
 		Name:   fmt.Sprintf("agent-%s-%s", agentID.String()[:8], threadID.String()[:8]),
-		Cmd:    []string{"/bin/sh", "-c", "exec sleep infinity"},
+		Cmd:    []string{agynBinBinaryPath},
 		Env:    mainEnv,
-		Mounts: agentMounts,
+		Mounts: mainMounts,
+	}
+
+	initContainer := &runnerv1.ContainerSpec{
+		Image: initImage,
+		Name:  "agent-init",
+		Mounts: []*runnerv1.VolumeMount{
+			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
+		},
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -110,10 +126,18 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		sidecars = append(sidecars, sidecar)
 	}
 
+	agynBinVolume := &runnerv1.VolumeSpec{
+		Name: agynBinVolumeName,
+		Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL,
+	}
+	volumes := append(volumeResolver.Specs(), agynBinVolume)
+	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
+
 	return &runnerv1.StartWorkloadRequest{
-		Main:     main,
-		Sidecars: sidecars,
-		Volumes:  volumeResolver.Specs(),
+		Main:           main,
+		Sidecars:       sidecars,
+		Volumes:        volumes,
+		InitContainers: []*runnerv1.ContainerSpec{initContainer},
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
@@ -344,8 +368,7 @@ func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, thread
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
 		{Name: "THREAD_ID", Value: threadID.String()},
-		{Name: "THREADS_ADDRESS", Value: cfg.AgentThreadsAddress},
-		{Name: "NOTIFICATIONS_ADDRESS", Value: cfg.AgentNotificationsAddress},
+		{Name: "GATEWAY_ADDRESS", Value: cfg.AgentGatewayAddress},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
 	}
 	if initScript != "" {

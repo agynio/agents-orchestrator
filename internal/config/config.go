@@ -8,23 +8,22 @@ import (
 )
 
 type Config struct {
-	DatabaseURL               string
-	ThreadsAddress            string
-	NotificationsAddress      string
-	AgentsAddress             string
-	SecretsAddress            string
-	RunnerAddress             string
-	ZitiEnabled               bool
-	ZitiManagementAddress     string
-	ZitiLeaseRenewalInterval  time.Duration
-	DefaultAgentImage         string
-	AgentThreadsAddress       string
-	AgentNotificationsAddress string
-	PollInterval              time.Duration
-	IdleTimeout               time.Duration
-	StopTimeoutSec            uint32
-	LeaseName                 string
-	LeaseNamespace            string
+	DatabaseURL              string
+	ThreadsAddress           string
+	NotificationsAddress     string
+	AgentsAddress            string
+	SecretsAddress           string
+	RunnerAddress            string
+	ZitiEnabled              bool
+	ZitiManagementAddress    string
+	ZitiLeaseRenewalInterval time.Duration
+	DefaultInitImage         string
+	AgentGatewayAddress      string
+	PollInterval             time.Duration
+	IdleTimeout              time.Duration
+	StopTimeoutSec           uint32
+	LeaseName                string
+	LeaseNamespace           string
 }
 
 func FromEnv() (Config, error) {
@@ -78,17 +77,13 @@ func FromEnv() (Config, error) {
 	if cfg.ZitiLeaseRenewalInterval <= 0 {
 		return Config{}, fmt.Errorf("ZITI_LEASE_RENEWAL_INTERVAL must be greater than 0")
 	}
-	cfg.DefaultAgentImage = os.Getenv("DEFAULT_AGENT_IMAGE")
-	if cfg.DefaultAgentImage == "" {
-		return Config{}, fmt.Errorf("DEFAULT_AGENT_IMAGE must be set")
+	cfg.DefaultInitImage = os.Getenv("DEFAULT_INIT_IMAGE")
+	if cfg.DefaultInitImage == "" {
+		return Config{}, fmt.Errorf("DEFAULT_INIT_IMAGE must be set")
 	}
-	cfg.AgentThreadsAddress = os.Getenv("AGENT_THREADS_ADDRESS")
-	if cfg.AgentThreadsAddress == "" {
-		cfg.AgentThreadsAddress = "threads:50051"
-	}
-	cfg.AgentNotificationsAddress = os.Getenv("AGENT_NOTIFICATIONS_ADDRESS")
-	if cfg.AgentNotificationsAddress == "" {
-		cfg.AgentNotificationsAddress = "notifications:50051"
+	cfg.AgentGatewayAddress = os.Getenv("AGENT_GATEWAY_ADDRESS")
+	if cfg.AgentGatewayAddress == "" {
+		cfg.AgentGatewayAddress = "gateway:50051"
 	}
 
 	pollInterval := os.Getenv("POLL_INTERVAL")

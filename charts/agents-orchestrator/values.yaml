@@ -82,11 +82,9 @@ env:
     value: "2m"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: ""
-  - name: DEFAULT_AGENT_IMAGE
+  - name: DEFAULT_INIT_IMAGE
     value: ""
-  - name: AGENT_THREADS_ADDRESS
-    value: ""
-  - name: AGENT_NOTIFICATIONS_ADDRESS
+  - name: AGENT_GATEWAY_ADDRESS
     value: ""
   - name: POLL_INTERVAL
     value: ""

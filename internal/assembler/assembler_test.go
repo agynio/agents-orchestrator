@@ -26,6 +26,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 		Name:          "assistant",
 		Role:          "ops",
 		Model:         "gpt-test",
+		Image:         "agent-image",
 		Description:   "test agent",
 		Configuration: "{\"mode\":\"test\"}",
 	}
@@ -73,9 +74,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		DefaultAgentImage:         "default-image",
-		AgentThreadsAddress:       "threads:50051",
-		AgentNotificationsAddress: "notifications:50052",
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
@@ -86,16 +86,53 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if request.Main == nil {
 		t.Fatal("expected main container")
 	}
-	if request.Main.Image != cfg.DefaultAgentImage {
-		t.Fatalf("expected default image %q, got %q", cfg.DefaultAgentImage, request.Main.Image)
+	if request.Main.Image != agent.GetImage() {
+		t.Fatalf("expected agent image %q, got %q", agent.GetImage(), request.Main.Image)
 	}
 	expectedName := "agent-" + agentID.String()[:8] + "-" + threadID.String()[:8]
 	if request.Main.Name != expectedName {
 		t.Fatalf("expected main name %q, got %q", expectedName, request.Main.Name)
 	}
-	expectedCmd := []string{"/bin/sh", "-c", "exec sleep infinity"}
+	expectedCmd := []string{agynBinBinaryPath}
 	if !equalStringSlice(request.Main.Cmd, expectedCmd) {
 		t.Fatalf("unexpected main cmd: %+v", request.Main.Cmd)
+	}
+	if len(request.Main.Mounts) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(request.Main.Mounts))
+	}
+	if request.Main.Mounts[0].Volume != agynBinVolumeName {
+		t.Fatalf("expected agyn-bin mount volume, got %q", request.Main.Mounts[0].Volume)
+	}
+	if request.Main.Mounts[0].MountPath != agynBinMountPath {
+		t.Fatalf("expected agyn-bin mount path %q, got %q", agynBinMountPath, request.Main.Mounts[0].MountPath)
+	}
+	if len(request.Volumes) != 1 {
+		t.Fatalf("expected 1 volume, got %d", len(request.Volumes))
+	}
+	if request.Volumes[0].Name != agynBinVolumeName {
+		t.Fatalf("expected agyn-bin volume name, got %q", request.Volumes[0].Name)
+	}
+	if request.Volumes[0].Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected agyn-bin volume kind ephemeral, got %v", request.Volumes[0].Kind)
+	}
+	if len(request.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
+	}
+	initContainer := request.InitContainers[0]
+	if initContainer.Image != cfg.DefaultInitImage {
+		t.Fatalf("expected init container image %q, got %q", cfg.DefaultInitImage, initContainer.Image)
+	}
+	if initContainer.Name != "agent-init" {
+		t.Fatalf("expected init container name agent-init, got %q", initContainer.Name)
+	}
+	if len(initContainer.Mounts) != 1 {
+		t.Fatalf("expected 1 init container mount, got %d", len(initContainer.Mounts))
+	}
+	if initContainer.Mounts[0].Volume != agynBinVolumeName {
+		t.Fatalf("expected init container agyn-bin volume, got %q", initContainer.Mounts[0].Volume)
+	}
+	if initContainer.Mounts[0].MountPath != agynBinMountPath {
+		t.Fatalf("expected init container agyn-bin mount path %q, got %q", agynBinMountPath, initContainer.Mounts[0].MountPath)
 	}
 	labels := request.AdditionalProperties
 	if len(labels) == 0 {
@@ -116,8 +153,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_MODEL", agent.GetModel())
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
 	assertEnv(t, envs, "THREAD_ID", threadID.String())
-	assertEnv(t, envs, "THREADS_ADDRESS", cfg.AgentThreadsAddress)
-	assertEnv(t, envs, "NOTIFICATIONS_ADDRESS", cfg.AgentNotificationsAddress)
+	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo ready")
 	var parsedSkills []skillPayload
@@ -147,7 +183,7 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 
 	agentsClient := &fakeAgentsClient{
 		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, Image: "agent-image"}}, nil
 		},
 		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -175,7 +211,10 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, secretsClient, &config.Config{})
+	assembler := New(agentsClient, secretsClient, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+	})
 	request, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -197,7 +236,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 
 	agentsClient := &fakeAgentsClient{
 		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, Image: "agent-image"}}, nil
 		},
 		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -246,7 +285,10 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{})
+	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+	})
 	request, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -268,13 +310,13 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	if len(sidecar.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(sidecar.Mounts))
 	}
-	if len(request.Volumes) != 1 {
-		t.Fatalf("expected 1 volume, got %d", len(request.Volumes))
+	if len(request.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
 	}
-	volumeSpec := request.Volumes[0]
 	expectedName := "vol-" + volumeID.String()[:8]
-	if volumeSpec.Name != expectedName {
-		t.Fatalf("expected volume name %q, got %q", expectedName, volumeSpec.Name)
+	volumeSpec := findVolumeSpec(request.Volumes, expectedName)
+	if volumeSpec == nil {
+		t.Fatalf("expected volume %q", expectedName)
 	}
 	if volumeSpec.Kind != runnerv1.VolumeKind_VOLUME_KIND_NAMED {
 		t.Fatalf("expected named volume, got %v", volumeSpec.Kind)
@@ -282,6 +324,13 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	expectedPersistent := "agent-" + agentID.String()[:8] + "-" + volumeID.String()[:8]
 	if volumeSpec.PersistentName != expectedPersistent {
 		t.Fatalf("expected persistent name %q, got %q", expectedPersistent, volumeSpec.PersistentName)
+	}
+	agynBinVolume := findVolumeSpec(request.Volumes, agynBinVolumeName)
+	if agynBinVolume == nil {
+		t.Fatalf("expected %s volume", agynBinVolumeName)
+	}
+	if agynBinVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected agyn-bin volume kind ephemeral, got %v", agynBinVolume.Kind)
 	}
 	mount := sidecar.Mounts[0]
 	if mount.Volume != expectedName {
@@ -304,6 +353,15 @@ func envMap(envs []*runnerv1.EnvVar) map[string]string {
 		result[env.Name] = env.Value
 	}
 	return result
+}
+
+func findVolumeSpec(volumes []*runnerv1.VolumeSpec, name string) *runnerv1.VolumeSpec {
+	for _, volume := range volumes {
+		if volume.GetName() == name {
+			return volume
+		}
+	}
+	return nil
 }
 
 func assertEnv(t *testing.T, envs map[string]string, name, expected string) {

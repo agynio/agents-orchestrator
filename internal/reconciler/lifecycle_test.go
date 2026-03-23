@@ -8,6 +8,7 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
@@ -364,7 +365,7 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 	deleteCalls := []string{}
 	zitiMgmt := &fakeZitiMgmtClient{
 		listManagedIdentities: func(_ context.Context, req *zitimgmtv1.ListManagedIdentitiesRequest, _ ...grpc.CallOption) (*zitimgmtv1.ListManagedIdentitiesResponse, error) {
-			if req.GetIdentityType() != zitimgmtv1.IdentityType_IDENTITY_TYPE_AGENT {
+			if req.GetIdentityType() != identityv1.IdentityType_IDENTITY_TYPE_AGENT {
 				return nil, errors.New("unexpected identity type")
 			}
 			return &zitimgmtv1.ListManagedIdentitiesResponse{
@@ -496,7 +497,7 @@ func newTestAssembler(agentID uuid.UUID) *assembler.Assembler {
 			if req.GetId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, Image: "agent-image"}}, nil
 		},
 		listSkills: func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -519,9 +520,8 @@ func newTestAssembler(agentID uuid.UUID) *assembler.Assembler {
 	}
 
 	cfg := &config.Config{
-		DefaultAgentImage:         "default-image",
-		AgentThreadsAddress:       "threads:50051",
-		AgentNotificationsAddress: "notifications:50051",
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
 	}
 	return assembler.New(agentsClient, &fakeSecretsClient{}, cfg)
 }
