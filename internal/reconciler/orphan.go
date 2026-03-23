@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 )
 
@@ -31,7 +32,7 @@ func (r *Reconciler) reconcileOrphanIdentities(ctx context.Context) error {
 	var deleteErr error
 	for {
 		resp, err := r.zitiMgmt.ListManagedIdentities(ctx, &zitimgmtv1.ListManagedIdentitiesRequest{
-			IdentityType: zitimgmtv1.IdentityType_IDENTITY_TYPE_AGENT,
+			IdentityType: identityv1.IdentityType_IDENTITY_TYPE_AGENT,
 			PageSize:     managedIdentityPageSize,
 			PageToken:    pageToken,
 		})
