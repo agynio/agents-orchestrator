@@ -19,6 +19,7 @@ type Config struct {
 	ZitiLeaseRenewalInterval time.Duration
 	DefaultInitImage         string
 	AgentGatewayAddress      string
+	AgentLLMBaseURL          string
 	PollInterval             time.Duration
 	IdleTimeout              time.Duration
 	StopTimeoutSec           uint32
@@ -84,6 +85,10 @@ func FromEnv() (Config, error) {
 	cfg.AgentGatewayAddress = os.Getenv("AGENT_GATEWAY_ADDRESS")
 	if cfg.AgentGatewayAddress == "" {
 		cfg.AgentGatewayAddress = "gateway:50051"
+	}
+	cfg.AgentLLMBaseURL = os.Getenv("AGENT_LLM_BASE_URL")
+	if cfg.AgentLLMBaseURL == "" {
+		cfg.AgentLLMBaseURL = "http://llm:8080/v1"
 	}
 
 	pollInterval := os.Getenv("POLL_INTERVAL")

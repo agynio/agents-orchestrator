@@ -369,6 +369,7 @@ func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, thread
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
 		{Name: "THREAD_ID", Value: threadID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: cfg.AgentGatewayAddress},
+		{Name: "LLM_BASE_URL", Value: cfg.AgentLLMBaseURL},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
 	}
 	if initScript != "" {

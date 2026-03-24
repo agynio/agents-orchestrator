@@ -76,6 +76,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	cfg := config.Config{
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
@@ -154,6 +155,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
 	assertEnv(t, envs, "THREAD_ID", threadID.String())
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
+	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo ready")
 	var parsedSkills []skillPayload
@@ -206,6 +208,7 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 	cfg := config.Config{
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
@@ -271,6 +274,7 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 	assembler := New(agentsClient, secretsClient, &config.Config{
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
 	request, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
@@ -345,6 +349,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
 	request, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
