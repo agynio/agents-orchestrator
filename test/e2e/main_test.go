@@ -175,7 +175,7 @@ func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServ
 func findWorkloadsByLabels(ctx context.Context, client runnerv1.RunnerServiceClient, labels map[string]string) ([]string, error) {
 	resp, err := client.FindWorkloadsByLabels(ctx, &runnerv1.FindWorkloadsByLabelsRequest{
 		Labels: labels,
-		All:    false,
+		All:    true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("find workloads: %w", err)
