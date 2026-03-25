@@ -14,6 +14,8 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/store"
 )
 
+const reconcileTimeout = 30 * time.Second
+
 type Reconciler struct {
 	threads   threadsv1.ThreadsServiceClient
 	agents    agentsv1.AgentsServiceClient
@@ -59,32 +61,25 @@ func (r *Reconciler) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.poll)
 	defer ticker.Stop()
 
-	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	err := r.reconcile(rctx)
-	cancel()
-	if err != nil {
-		log.Printf("reconciler: cycle failed: %v", err)
-	}
+	r.runCycle(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-r.wake:
-			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			err := r.reconcile(rctx)
-			cancel()
-			if err != nil {
-				log.Printf("reconciler: cycle failed: %v", err)
-			}
+			r.runCycle(ctx)
 		case <-ticker.C:
-			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			err := r.reconcile(rctx)
-			cancel()
-			if err != nil {
-				log.Printf("reconciler: cycle failed: %v", err)
-			}
+			r.runCycle(ctx)
 		}
+	}
+}
+
+func (r *Reconciler) runCycle(ctx context.Context) {
+	rctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+	if err := r.reconcile(rctx); err != nil {
+		log.Printf("reconciler: cycle failed: %v", err)
 	}
 }
 
