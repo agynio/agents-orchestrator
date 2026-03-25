@@ -170,6 +170,7 @@ func run() error {
 		return err
 	}
 
+	log.Printf("orchestrator: ready")
 	if err := leader.Run(ctx); err != nil {
 		return err
 	}
