@@ -18,6 +18,7 @@ import (
 
 const (
 	listPageSize      int32 = 100
+	rpcTimeout              = 10 * time.Second
 	agynBinVolumeName       = "agyn-bin"
 	agynBinMountPath        = "/agyn-bin"
 	agynBinBinaryPath       = "/agyn-bin/agynd"
@@ -147,7 +148,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 }
 
 func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {
-	resp, err := a.agents.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: agentID.String()})
+	rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	resp, err := a.agents.GetAgent(rctx, &agentsv1.GetAgentRequest{Id: agentID.String()})
+	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -173,11 +176,13 @@ func (a *Assembler) listMcps(ctx context.Context, agentID uuid.UUID) ([]*agentsv
 	resp := []*agentsv1.Mcp{}
 	token := ""
 	for {
-		page, err := a.agents.ListMcps(ctx, &agentsv1.ListMcpsRequest{
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		page, err := a.agents.ListMcps(rctx, &agentsv1.ListMcpsRequest{
 			AgentId:   agentID.String(),
 			PageSize:  listPageSize,
 			PageToken: token,
 		})
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -193,11 +198,13 @@ func (a *Assembler) listHooks(ctx context.Context, agentID uuid.UUID) ([]*agents
 	resp := []*agentsv1.Hook{}
 	token := ""
 	for {
-		page, err := a.agents.ListHooks(ctx, &agentsv1.ListHooksRequest{
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		page, err := a.agents.ListHooks(rctx, &agentsv1.ListHooksRequest{
 			AgentId:   agentID.String(),
 			PageSize:  listPageSize,
 			PageToken: token,
 		})
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -213,11 +220,13 @@ func (a *Assembler) listSkills(ctx context.Context, agentID uuid.UUID) ([]*agent
 	resp := []*agentsv1.Skill{}
 	token := ""
 	for {
-		page, err := a.agents.ListSkills(ctx, &agentsv1.ListSkillsRequest{
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		page, err := a.agents.ListSkills(rctx, &agentsv1.ListSkillsRequest{
 			AgentId:   agentID.String(),
 			PageSize:  listPageSize,
 			PageToken: token,
 		})
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -233,13 +242,15 @@ func (a *Assembler) listEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest)
 	resp := []*agentsv1.Env{}
 	token := ""
 	for {
-		page, err := a.agents.ListEnvs(ctx, &agentsv1.ListEnvsRequest{
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		page, err := a.agents.ListEnvs(rctx, &agentsv1.ListEnvsRequest{
 			AgentId:   req.GetAgentId(),
 			McpId:     req.GetMcpId(),
 			HookId:    req.GetHookId(),
 			PageSize:  listPageSize,
 			PageToken: token,
 		})
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -255,13 +266,15 @@ func (a *Assembler) listInitScripts(ctx context.Context, req *agentsv1.ListInitS
 	resp := []*agentsv1.InitScript{}
 	token := ""
 	for {
-		page, err := a.agents.ListInitScripts(ctx, &agentsv1.ListInitScriptsRequest{
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		page, err := a.agents.ListInitScripts(rctx, &agentsv1.ListInitScriptsRequest{
 			AgentId:   req.GetAgentId(),
 			McpId:     req.GetMcpId(),
 			HookId:    req.GetHookId(),
 			PageSize:  listPageSize,
 			PageToken: token,
 		})
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -277,7 +290,8 @@ func (a *Assembler) listVolumeAttachments(ctx context.Context, req *agentsv1.Lis
 	resp := []*agentsv1.VolumeAttachment{}
 	token := ""
 	for {
-		page, err := a.agents.ListVolumeAttachments(ctx, &agentsv1.ListVolumeAttachmentsRequest{
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		page, err := a.agents.ListVolumeAttachments(rctx, &agentsv1.ListVolumeAttachmentsRequest{
 			VolumeId:  req.GetVolumeId(),
 			AgentId:   req.GetAgentId(),
 			McpId:     req.GetMcpId(),
@@ -285,6 +299,7 @@ func (a *Assembler) listVolumeAttachments(ctx context.Context, req *agentsv1.Lis
 			PageSize:  listPageSize,
 			PageToken: token,
 		})
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -501,7 +516,9 @@ func (v *volumeResolver) getVolume(ctx context.Context, volumeID uuid.UUID) (*ag
 	if cached, ok := v.cache[key]; ok {
 		return cached, nil
 	}
-	resp, err := v.agents.GetVolume(ctx, &agentsv1.GetVolumeRequest{Id: key})
+	rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	resp, err := v.agents.GetVolume(rctx, &agentsv1.GetVolumeRequest{Id: key})
+	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("get volume %s: %w", key, err)
 	}

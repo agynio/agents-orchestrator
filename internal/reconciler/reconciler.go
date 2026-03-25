@@ -59,8 +59,11 @@ func (r *Reconciler) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.poll)
 	defer ticker.Stop()
 
-	if err := r.reconcile(ctx); err != nil {
-		log.Printf("reconciler: initial reconcile failed: %v", err)
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	err := r.reconcile(rctx)
+	cancel()
+	if err != nil {
+		log.Printf("reconciler: cycle failed: %v", err)
 	}
 
 	for {
@@ -68,12 +71,18 @@ func (r *Reconciler) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-r.wake:
-			if err := r.reconcile(ctx); err != nil {
-				log.Printf("reconciler: reconcile failed: %v", err)
+			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := r.reconcile(rctx)
+			cancel()
+			if err != nil {
+				log.Printf("reconciler: cycle failed: %v", err)
 			}
 		case <-ticker.C:
-			if err := r.reconcile(ctx); err != nil {
-				log.Printf("reconciler: reconcile failed: %v", err)
+			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := r.reconcile(rctx)
+			cancel()
+			if err != nil {
+				log.Printf("reconciler: cycle failed: %v", err)
 			}
 		}
 	}
@@ -100,6 +109,13 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 			return err
 		}
 	}
+	log.Printf(
+		"reconciler: cycle complete - desired=%d actual=%d started=%d stopped=%d",
+		len(desired),
+		len(actual),
+		len(actions.ToStart),
+		len(actions.ToStop),
+	)
 	return nil
 }
 

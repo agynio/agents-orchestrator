@@ -48,7 +48,9 @@ func (r *envResolver) resolveValue(ctx context.Context, env *agentsv1.Env) (stri
 		if cached, ok := r.cache[source.SecretId]; ok {
 			return cached, nil
 		}
-		resp, err := r.secrets.ResolveSecret(ctx, &secretsv1.ResolveSecretRequest{Id: source.SecretId})
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		resp, err := r.secrets.ResolveSecret(rctx, &secretsv1.ResolveSecretRequest{Id: source.SecretId})
+		cancel()
 		if err != nil {
 			return "", fmt.Errorf("resolve secret %s: %w", source.SecretId, err)
 		}
