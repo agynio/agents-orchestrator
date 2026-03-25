@@ -16,11 +16,15 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
+
+	testIdentityID   = "22222222-2222-2222-2222-222222222222"
+	testIdentityType = "user"
 
 	labelManagedBy = "managed-by"
 	labelAgentID   = "agent-id"
@@ -64,6 +68,17 @@ func dialGRPC(t *testing.T, addr string, opts ...grpc.DialOption) *grpc.ClientCo
 	return conn
 }
 
+func identityInterceptor() grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		md := metadata.Pairs(
+			"x-identity-id", testIdentityID,
+			"x-identity-type", testIdentityType,
+		)
+		ctx = metadata.NewOutgoingContext(ctx, md)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+}
+
 // pollUntil retries check at interval until it returns nil or ctx expires.
 func pollUntil(ctx context.Context, interval time.Duration, check func(ctx context.Context) error) error {
 	lastErr := check(ctx)
@@ -93,12 +108,19 @@ func newUserID() string {
 
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string, model ...string) *agentsv1.Agent {
 	t.Helper()
+	modelValue := uuid.New().String()
+	if len(model) > 0 {
+		trimmed := strings.TrimSpace(model[0])
+		if trimmed != "" {
+			modelValue = trimmed
+		}
+	}
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:  name,
 		Role:  "assistant",
-		Model: uuid.New().String(),
+		Model: modelValue,
 		Image: "alpine:3.21",
 	})
 	if err != nil {
