@@ -43,8 +43,20 @@ functions:
             - name: agents-orchestrator
               image: ghcr.io/agynio/devcontainer-go:1 # keep in sync with DEV_IMAGE
               env:
+                - name: AGENT_LLM_BASE_URL
+                  value: "https://testllm.dev/v1/org/agynio/suite/codex"
+                - name: AGENT_GATEWAY_ADDRESS
+                  value: "gateway-gateway.platform.svc.cluster.local:8080"
+                - name: AGENT_IDENTITY_ID
+                  value: "22222222-2222-2222-2222-222222222222"
+                - name: AGENT_IDENTITY_TYPE
+                  value: "service"
+                - name: AGENT_ORGANIZATION_ID
+                  value: "33333333-3333-3333-3333-333333333333"
+                - name: AGENT_MODEL_OVERRIDE
+                  value: "simple-hello"
                 - name: DEFAULT_INIT_IMAGE
-                  value: "alpine:3.21"
+                  value: "ghcr.io/agynio/agent-init-codex:0.5.0"
               workingDir: /opt/app/data
               command:
                 - sh
@@ -87,6 +99,9 @@ functions:
                   type: RuntimeDefault
     EOF
     )"
+    if [ -n "${CLUSTER_ADMIN_TOKEN:-}" ]; then
+      kubectl set env deployment/agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} AGENT_AUTH_TOKEN="${CLUSTER_ADMIN_TOKEN}"
+    fi
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."
     kubectl rollout status deployment/agents-orchestrator \

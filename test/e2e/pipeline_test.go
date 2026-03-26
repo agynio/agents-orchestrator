@@ -1,4 +1,4 @@
-//go:build e2e && short_idle
+//go:build e2e
 
 package e2e
 
@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+func TestFullPipelineMessageResponse(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	t.Cleanup(cancel)
 
 	agentsConn := dialGRPC(t, agentsAddr, grpc.WithUnaryInterceptor(identityInterceptor()))
@@ -27,7 +27,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-idle-%s", uuid.NewString()))
+	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-pipeline-%s", uuid.NewString()))
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
@@ -42,56 +42,47 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	message := sendMessage(t, ctx, threadsClient, threadID, userID, "e2e idle message")
-	messageID := message.GetId()
-	if messageID == "" {
-		t.Fatal("send message: missing id")
-	}
+	sendMessage(t, ctx, threadsClient, threadID, userID, "hello")
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
 		labelAgentID:   agentID,
 		labelThreadID:  threadID,
 	}
-
-	workloadID := ""
 	t.Cleanup(func() {
-		if workloadID == "" {
+		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
+		if err != nil {
+			t.Logf("cleanup: find workloads: %v", err)
 			return
 		}
-		cleanupWorkload(t, ctx, runnerClient, workloadID)
+		for _, workloadID := range ids {
+			cleanupWorkload(t, ctx, runnerClient, workloadID)
+		}
 	})
 
-	pollCtx, pollCancel := context.WithTimeout(ctx, 90*time.Second)
+	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer pollCancel()
+	agentBody := ""
 	if err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
-		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
+		resp, err := threadsClient.GetMessages(ctx, &threadsv1.GetMessagesRequest{
+			ThreadId: threadID,
+			PageSize: 50,
+		})
 		if err != nil {
-			return err
+			return fmt.Errorf("get messages: %w", err)
 		}
-		if len(ids) != 1 {
-			return fmt.Errorf("expected 1 workload, got %d", len(ids))
+		for _, msg := range resp.GetMessages() {
+			if msg.GetSenderId() == agentID {
+				agentBody = msg.GetBody()
+				return nil
+			}
 		}
-		workloadID = ids[0]
-		return nil
+		return fmt.Errorf("agent response not found")
 	}); err != nil {
-		t.Fatalf("wait for workload: %v", err)
+		t.Fatalf("wait for agent response: %v", err)
 	}
 
-	ackMessages(t, ctx, threadsClient, agentID, []string{messageID})
-
-	idleCtx, idleCancel := context.WithTimeout(ctx, 50*time.Second)
-	defer idleCancel()
-	if err := pollUntil(idleCtx, pollInterval, func(ctx context.Context) error {
-		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
-		if err != nil {
-			return err
-		}
-		if len(ids) != 0 {
-			return fmt.Errorf("expected 0 workloads, got %d", len(ids))
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("wait for workload stop: %v", err)
+	if agentBody != "Hi! How are you?" {
+		t.Fatalf("expected agent response %q, got %q", "Hi! How are you?", agentBody)
 	}
 }

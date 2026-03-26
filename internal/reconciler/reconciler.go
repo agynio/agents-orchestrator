@@ -17,43 +17,46 @@ import (
 const reconcileTimeout = 30 * time.Second
 
 type Reconciler struct {
-	threads   threadsv1.ThreadsServiceClient
-	agents    agentsv1.AgentsServiceClient
-	runner    runnerv1.RunnerServiceClient
-	zitiMgmt  zitimgmtv1.ZitiManagementServiceClient
-	store     store.WorkloadStore
-	assembler *assembler.Assembler
-	wake      <-chan struct{}
-	poll      time.Duration
-	idle      time.Duration
-	stopSec   uint32
+	threads        threadsv1.ThreadsServiceClient
+	agents         agentsv1.AgentsServiceClient
+	runner         runnerv1.RunnerServiceClient
+	zitiMgmt       zitimgmtv1.ZitiManagementServiceClient
+	store          store.WorkloadStore
+	assembler      *assembler.Assembler
+	wake           <-chan struct{}
+	poll           time.Duration
+	idle           time.Duration
+	stopSec        uint32
+	organizationID string
 }
 
 type Config struct {
-	Threads   threadsv1.ThreadsServiceClient
-	Agents    agentsv1.AgentsServiceClient
-	Runner    runnerv1.RunnerServiceClient
-	ZitiMgmt  zitimgmtv1.ZitiManagementServiceClient
-	Store     store.WorkloadStore
-	Assembler *assembler.Assembler
-	Wake      <-chan struct{}
-	Poll      time.Duration
-	Idle      time.Duration
-	StopSec   uint32
+	Threads        threadsv1.ThreadsServiceClient
+	Agents         agentsv1.AgentsServiceClient
+	Runner         runnerv1.RunnerServiceClient
+	ZitiMgmt       zitimgmtv1.ZitiManagementServiceClient
+	Store          store.WorkloadStore
+	Assembler      *assembler.Assembler
+	Wake           <-chan struct{}
+	Poll           time.Duration
+	Idle           time.Duration
+	StopSec        uint32
+	OrganizationID string
 }
 
 func New(cfg Config) *Reconciler {
 	return &Reconciler{
-		threads:   cfg.Threads,
-		agents:    cfg.Agents,
-		runner:    cfg.Runner,
-		zitiMgmt:  cfg.ZitiMgmt,
-		store:     cfg.Store,
-		assembler: cfg.Assembler,
-		wake:      cfg.Wake,
-		poll:      cfg.Poll,
-		idle:      cfg.Idle,
-		stopSec:   cfg.StopSec,
+		threads:        cfg.Threads,
+		agents:         cfg.Agents,
+		runner:         cfg.Runner,
+		zitiMgmt:       cfg.ZitiMgmt,
+		store:          cfg.Store,
+		assembler:      cfg.Assembler,
+		wake:           cfg.Wake,
+		poll:           cfg.Poll,
+		idle:           cfg.Idle,
+		stopSec:        cfg.StopSec,
+		organizationID: cfg.OrganizationID,
 	}
 }
 

@@ -22,6 +22,8 @@ const (
 	agynBinVolumeName       = "agyn-bin"
 	agynBinMountPath        = "/agyn-bin"
 	agynBinBinaryPath       = "/agyn-bin/agynd"
+	agentWorkspaceDir       = "/tmp"
+	agentHomeDir            = "/root"
 )
 
 type Assembler struct {
@@ -385,10 +387,18 @@ func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, thread
 		{Name: "THREAD_ID", Value: threadID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: cfg.AgentGatewayAddress},
 		{Name: "LLM_BASE_URL", Value: cfg.AgentLLMBaseURL},
+		{Name: "WORKSPACE_DIR", Value: agentWorkspaceDir},
+		{Name: "HOME", Value: agentHomeDir},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
+	}
+	if cfg.AgentModelOverride != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "MODEL_OVERRIDE", Value: cfg.AgentModelOverride})
 	}
 	if initScript != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
+	}
+	if cfg.AgentAuthToken != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "AUTH_TOKEN", Value: cfg.AgentAuthToken})
 	}
 	return vars
 }

@@ -55,8 +55,9 @@ func (r *Reconciler) listAgents(ctx context.Context) ([]*agentsv1.Agent, error) 
 	token := ""
 	for {
 		page, err := r.agents.ListAgents(ctx, &agentsv1.ListAgentsRequest{
-			PageSize:  desiredPageSize,
-			PageToken: token,
+			PageSize:       desiredPageSize,
+			PageToken:      token,
+			OrganizationId: r.organizationID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list agents: %w", err)

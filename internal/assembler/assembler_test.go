@@ -77,6 +77,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
+		AgentAuthToken:      "test-token",
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
@@ -156,6 +157,12 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "THREAD_ID", threadID.String())
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
+	assertEnv(t, envs, "WORKSPACE_DIR", agentWorkspaceDir)
+	assertEnv(t, envs, "HOME", agentHomeDir)
+	assertEnv(t, envs, "AUTH_TOKEN", "test-token")
+	if _, ok := envs["MODEL_OVERRIDE"]; ok {
+		t.Fatal("expected MODEL_OVERRIDE to be absent")
+	}
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo ready")
 	var parsedSkills []skillPayload
@@ -165,6 +172,27 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if len(parsedSkills) != 1 || parsedSkills[0].Name != "skill-a" || parsedSkills[0].Body != "do-a" {
 		t.Fatalf("unexpected skills payload: %+v", parsedSkills)
 	}
+}
+
+func TestAssemblerModelOverrideEnv(t *testing.T) {
+	agentID := uuid.New()
+	threadID := uuid.New()
+
+	cfg := config.Config{
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+		AgentModelOverride:  "override-model",
+	}
+
+	agent := &agentsv1.Agent{
+		Name:          "assistant",
+		Role:          "ops",
+		Model:         "gpt-test",
+		Configuration: "{}",
+	}
+
+	envs := envMap(baseAgentEnvVars(&cfg, agent, agentID, threadID, "[]", ""))
+	assertEnv(t, envs, "MODEL_OVERRIDE", "override-model")
 }
 
 func TestAssemblerInitImageOverride(t *testing.T) {
