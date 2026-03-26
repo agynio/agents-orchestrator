@@ -47,8 +47,6 @@ functions:
                   value: "https://testllm.dev/v1/org/agynio/suite/agn"
                 - name: AGENT_GATEWAY_ADDRESS
                   value: "gateway-gateway.platform.svc.cluster.local:8080"
-                - name: AGENT_AUTH_TOKEN
-                  value: "${CLUSTER_ADMIN_TOKEN}"
                 - name: AGENT_IDENTITY_ID
                   value: "22222222-2222-2222-2222-222222222222"
                 - name: AGENT_IDENTITY_TYPE
@@ -101,6 +99,9 @@ functions:
                   type: RuntimeDefault
     EOF
     )"
+    if [ -n "${CLUSTER_ADMIN_TOKEN:-}" ]; then
+      kubectl set env deployment/agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} AGENT_AUTH_TOKEN="${CLUSTER_ADMIN_TOKEN}"
+    fi
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."
     kubectl rollout status deployment/agents-orchestrator \
