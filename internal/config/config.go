@@ -8,12 +8,12 @@ import (
 )
 
 type Config struct {
-	DatabaseURL              string
 	ThreadsAddress           string
 	NotificationsAddress     string
 	AgentsAddress            string
 	SecretsAddress           string
 	RunnerAddress            string
+	RunnersAddress           string
 	ZitiEnabled              bool
 	ZitiManagementAddress    string
 	ZitiLeaseRenewalInterval time.Duration
@@ -33,10 +33,6 @@ type Config struct {
 
 func FromEnv() (Config, error) {
 	cfg := Config{}
-	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
-	if cfg.DatabaseURL == "" {
-		return Config{}, fmt.Errorf("DATABASE_URL must be set")
-	}
 	cfg.ThreadsAddress = os.Getenv("THREADS_ADDRESS")
 	if cfg.ThreadsAddress == "" {
 		cfg.ThreadsAddress = "threads:50051"
@@ -56,6 +52,10 @@ func FromEnv() (Config, error) {
 	cfg.RunnerAddress = os.Getenv("RUNNER_ADDRESS")
 	if cfg.RunnerAddress == "" {
 		cfg.RunnerAddress = "k8s-runner:50051"
+	}
+	cfg.RunnersAddress = os.Getenv("RUNNERS_ADDRESS")
+	if cfg.RunnersAddress == "" {
+		cfg.RunnersAddress = "runners:50051"
 	}
 	zitiEnabled := os.Getenv("ZITI_ENABLED")
 	if zitiEnabled != "" {

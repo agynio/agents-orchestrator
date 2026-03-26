@@ -23,13 +23,14 @@ func TestAssemblerMainContainer(t *testing.T) {
 	threadID := uuid.New()
 
 	agent := &agentsv1.Agent{
-		Meta:          &agentsv1.EntityMeta{Id: agentID.String()},
-		Name:          "assistant",
-		Role:          "ops",
-		Model:         "gpt-test",
-		Image:         "agent-image",
-		Description:   "test agent",
-		Configuration: "{\"mode\":\"test\"}",
+		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+		OrganizationId: "org-1",
+		Name:           "assistant",
+		Role:           "ops",
+		Model:          "gpt-test",
+		Image:          "agent-image",
+		Description:    "test agent",
+		Configuration:  "{\"mode\":\"test\"}",
 	}
 
 	skills := []*agentsv1.Skill{{Name: "skill-a", Body: "do-a"}}
@@ -81,10 +82,14 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
-	request, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
+	if result.OrganizationID != agent.GetOrganizationId() {
+		t.Fatalf("expected organization id %q, got %q", agent.GetOrganizationId(), result.OrganizationID)
+	}
+	request := result.Request
 	if request.Main == nil {
 		t.Fatal("expected main container")
 	}
@@ -357,9 +362,10 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 	threadID := uuid.New()
 
 	agent := &agentsv1.Agent{
-		Meta:      &agentsv1.EntityMeta{Id: agentID.String()},
-		Image:     "agent-image",
-		InitImage: "agent-init-image",
+		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+		OrganizationId: "org-1",
+		Image:          "agent-image",
+		InitImage:      "agent-init-image",
 	}
 
 	agentsClient := &fakeAgentsClient{
@@ -396,10 +402,11 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
-	request, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
+	request := result.Request
 	if len(request.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
 	}
@@ -427,7 +434,7 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 
 	agentsClient := &fakeAgentsClient{
 		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
 		},
 		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -460,10 +467,11 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	request, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
+	request := result.Request
 	envs := envMap(request.Main.Env)
 	assertEnv(t, envs, "SECRET_ENV", "resolved")
 	assertEnv(t, envs, "SECRET_ENV_TWO", "resolved")
@@ -481,7 +489,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 
 	agentsClient := &fakeAgentsClient{
 		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
 		},
 		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -535,10 +543,11 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	request, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
+	request := result.Request
 	if len(request.Sidecars) != 1 {
 		t.Fatalf("expected 1 sidecar, got %d", len(request.Sidecars))
 	}

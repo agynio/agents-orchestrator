@@ -15,17 +15,15 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
+	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/config"
-	"github.com/agynio/agents-orchestrator/internal/db"
 	"github.com/agynio/agents-orchestrator/internal/leader"
 	"github.com/agynio/agents-orchestrator/internal/reconciler"
-	"github.com/agynio/agents-orchestrator/internal/store"
 	"github.com/agynio/agents-orchestrator/internal/subscriber"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openziti/sdk-golang/ziti"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -52,20 +50,6 @@ func run() error {
 	cfg, err := config.FromEnv()
 	if err != nil {
 		return err
-	}
-
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-	if err != nil {
-		return fmt.Errorf("parse database url: %w", err)
-	}
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		return fmt.Errorf("create connection pool: %w", err)
-	}
-	defer pool.Close()
-
-	if err := db.ApplyMigrations(ctx, pool); err != nil {
-		return fmt.Errorf("apply migrations: %w", err)
 	}
 
 	closeConn := func(conn *grpc.ClientConn) {
@@ -102,6 +86,12 @@ func run() error {
 		return fmt.Errorf("dial secrets: %w", err)
 	}
 	defer closeConn(secretsConn)
+
+	runnersConn, err := grpc.DialContext(ctx, cfg.RunnersAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("dial runners: %w", err)
+	}
+	defer closeConn(runnersConn)
 
 	var (
 		runnerConn     *grpc.ClientConn
@@ -146,8 +136,7 @@ func run() error {
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
-
-	store := store.NewStore(pool)
+	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
@@ -155,7 +144,7 @@ func run() error {
 		Agents:    agentsClient,
 		Runner:    runnerClient,
 		ZitiMgmt:  zitiMgmtClient,
-		Store:     store,
+		Runners:   runnersClient,
 		Assembler: assembler,
 		Wake:      subscriber.Wake(),
 		Poll:      cfg.PollInterval,
