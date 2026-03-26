@@ -98,7 +98,7 @@ func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServic
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:  name,
 		Role:  "assistant",
-		Model: uuid.New().String(),
+		Model: "test-model",
 		Image: "alpine:3.21",
 	})
 	if err != nil {
