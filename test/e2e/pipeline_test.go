@@ -12,13 +12,14 @@ import (
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
 )
 
 func TestFullPipelineMessageResponse(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	t.Cleanup(cancel)
 
-	agentsConn := dialGRPC(t, agentsAddr)
+	agentsConn := dialGRPC(t, agentsAddr, grpc.WithUnaryInterceptor(identityInterceptor()))
 	threadsConn := dialGRPC(t, threadsAddr)
 	runnerConn := dialRunnerGRPC(t, runnerAddr)
 
@@ -26,7 +27,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-pipeline-%s", uuid.NewString()))
+	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-pipeline-%s", uuid.NewString()), "simple-hello")
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
