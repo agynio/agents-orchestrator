@@ -49,6 +49,8 @@ functions:
                   value: "22222222-2222-2222-2222-222222222222"
                 - name: AGENT_IDENTITY_TYPE
                   value: "service"
+                - name: AGENT_ORGANIZATION_ID
+                  value: "33333333-3333-3333-3333-333333333333"
                 - name: AGENT_MODEL_OVERRIDE
                   value: "simple-hello"
                 - name: DEFAULT_INIT_IMAGE

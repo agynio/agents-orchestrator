@@ -23,6 +23,7 @@ type Config struct {
 	AgentModelOverride       string
 	AgentIdentityID          string
 	AgentIdentityType        string
+	AgentOrganizationID      string
 	PollInterval             time.Duration
 	IdleTimeout              time.Duration
 	StopTimeoutSec           uint32
@@ -101,6 +102,10 @@ func FromEnv() (Config, error) {
 	cfg.AgentIdentityType = os.Getenv("AGENT_IDENTITY_TYPE")
 	if cfg.AgentIdentityType == "" {
 		cfg.AgentIdentityType = "service"
+	}
+	cfg.AgentOrganizationID = os.Getenv("AGENT_ORGANIZATION_ID")
+	if cfg.AgentOrganizationID == "" {
+		return Config{}, fmt.Errorf("AGENT_ORGANIZATION_ID must be set")
 	}
 
 	pollInterval := os.Getenv("POLL_INTERVAL")

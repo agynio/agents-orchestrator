@@ -23,8 +23,9 @@ const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
 
-	testIdentityID   = "22222222-2222-2222-2222-222222222222"
-	testIdentityType = "user"
+	testIdentityID     = "22222222-2222-2222-2222-222222222222"
+	testIdentityType   = "user"
+	testOrganizationID = "33333333-3333-3333-3333-333333333333"
 
 	labelManagedBy = "managed-by"
 	labelAgentID   = "agent-id"
@@ -118,10 +119,11 @@ func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServic
 		}
 	}
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-		Name:  name,
-		Role:  "assistant",
-		Model: modelValue,
-		Image: "alpine:3.21",
+		Name:           name,
+		Role:           "assistant",
+		Model:          modelValue,
+		Image:          "alpine:3.21",
+		OrganizationId: testOrganizationID,
 	})
 	if err != nil {
 		t.Fatalf("create agent %q: %v", name, err)

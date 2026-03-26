@@ -157,16 +157,17 @@ func run() error {
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
-		Threads:   threadsClient,
-		Agents:    agentsClient,
-		Runner:    runnerClient,
-		ZitiMgmt:  zitiMgmtClient,
-		Store:     store,
-		Assembler: assembler,
-		Wake:      subscriber.Wake(),
-		Poll:      cfg.PollInterval,
-		Idle:      cfg.IdleTimeout,
-		StopSec:   cfg.StopTimeoutSec,
+		Threads:        threadsClient,
+		Agents:         agentsClient,
+		Runner:         runnerClient,
+		ZitiMgmt:       zitiMgmtClient,
+		Store:          store,
+		Assembler:      assembler,
+		Wake:           subscriber.Wake(),
+		Poll:           cfg.PollInterval,
+		Idle:           cfg.IdleTimeout,
+		StopSec:        cfg.StopTimeoutSec,
+		OrganizationID: cfg.AgentOrganizationID,
 	})
 
 	start := func(leadCtx context.Context) {
