@@ -88,7 +88,7 @@ func FromEnv() (Config, error) {
 	}
 	cfg.AgentGatewayAddress = os.Getenv("AGENT_GATEWAY_ADDRESS")
 	if cfg.AgentGatewayAddress == "" {
-		cfg.AgentGatewayAddress = "gateway:50051"
+		cfg.AgentGatewayAddress = "gateway:8080"
 	}
 	cfg.AgentLLMBaseURL = os.Getenv("AGENT_LLM_BASE_URL")
 	if cfg.AgentLLMBaseURL == "" {
