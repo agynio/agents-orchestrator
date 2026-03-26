@@ -45,8 +45,10 @@ functions:
               env:
                 - name: AGENT_LLM_BASE_URL
                   value: "https://testllm.dev/v1/org/agynio/suite/agn"
+                - name: AGENT_MODEL_OVERRIDE
+                  value: "simple-hello"
                 - name: DEFAULT_INIT_IMAGE
-                  value: "ghcr.io/agynio/agent-init-codex:0.1.0"
+                  value: "ghcr.io/agynio/agent-init-codex:0.2.0"
               workingDir: /opt/app/data
               command:
                 - sh

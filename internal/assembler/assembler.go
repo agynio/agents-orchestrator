@@ -387,6 +387,9 @@ func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, thread
 		{Name: "LLM_BASE_URL", Value: cfg.AgentLLMBaseURL},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
 	}
+	if cfg.AgentModelOverride != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "MODEL_OVERRIDE", Value: cfg.AgentModelOverride})
+	}
 	if initScript != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
 	}

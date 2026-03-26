@@ -20,6 +20,7 @@ type Config struct {
 	DefaultInitImage         string
 	AgentGatewayAddress      string
 	AgentLLMBaseURL          string
+	AgentModelOverride       string
 	PollInterval             time.Duration
 	IdleTimeout              time.Duration
 	StopTimeoutSec           uint32
@@ -90,6 +91,7 @@ func FromEnv() (Config, error) {
 	if cfg.AgentLLMBaseURL == "" {
 		cfg.AgentLLMBaseURL = "http://llm:8080/v1"
 	}
+	cfg.AgentModelOverride = os.Getenv("AGENT_MODEL_OVERRIDE")
 
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {
