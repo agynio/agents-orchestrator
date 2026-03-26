@@ -58,7 +58,7 @@ functions:
                 - name: AGENT_MODEL_OVERRIDE
                   value: "simple-hello"
                 - name: DEFAULT_INIT_IMAGE
-                  value: "ghcr.io/agynio/agent-init-codex:0.3.0"
+                  value: "ghcr.io/agynio/agent-init-codex:0.4.0"
               workingDir: /opt/app/data
               command:
                 - sh
