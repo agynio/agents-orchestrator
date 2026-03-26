@@ -96,3 +96,16 @@ jobs:
           echo "=== K8s-runner pod logs ==="
           kubectl logs -n platform -l app.kubernetes.io/name=k8s-runner \
             --tail=200 --timestamps 2>&1 || echo "Failed to fetch k8s-runner logs"
+          echo ""
+          echo "=== Workload pod logs (init containers) ==="
+          for pod in $(kubectl get pods -n platform -l managed-by=agents-orchestrator -o name 2>/dev/null); do
+            echo "--- $pod init container: agent-init ---"
+            kubectl logs -n platform "$pod" -c agent-init --timestamps 2>&1 || echo "No init container logs"
+          done
+          echo ""
+          echo "=== Workload pod logs (main containers) ==="
+          kubectl logs -n platform -l managed-by=agents-orchestrator \
+            --all-containers --tail=500 --timestamps 2>&1 || echo "No workload pod logs"
+          echo ""
+          echo "=== Workload pod describe ==="
+          kubectl describe pods -n platform -l managed-by=agents-orchestrator 2>&1 || echo "No workload pods found"
