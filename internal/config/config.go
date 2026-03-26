@@ -93,7 +93,7 @@ func FromEnv() (Config, error) {
 	}
 	cfg.AgentLLMBaseURL = os.Getenv("AGENT_LLM_BASE_URL")
 	if cfg.AgentLLMBaseURL == "" {
-		cfg.AgentLLMBaseURL = "http://llm:8080/v1"
+		cfg.AgentLLMBaseURL = "http://llm-proxy:8080/v1"
 	}
 	cfg.AgentModelOverride = os.Getenv("AGENT_MODEL_OVERRIDE")
 	cfg.AgentIdentityID = os.Getenv("AGENT_IDENTITY_ID")
