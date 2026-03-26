@@ -73,6 +73,26 @@ jobs:
         working-directory: service
         run: devspace run deploy -n platform
 
+      - name: Start workload log watcher
+        run: |
+          # Background process that watches for workload pods and captures their logs
+          (
+            while true; do
+              for pod in $(kubectl get pods -n platform -l managed-by=agents-orchestrator -o name 2>/dev/null); do
+                podname=$(basename "$pod")
+                # Capture init container logs
+                kubectl logs -n platform "$podname" -c agent-init --timestamps 2>/dev/null >> /tmp/workload-init-logs.txt || true
+                # Capture main container logs  
+                kubectl logs -n platform "$podname" --all-containers --timestamps 2>/dev/null >> /tmp/workload-main-logs.txt || true
+                # Capture pod status
+                kubectl get pod -n platform "$podname" -o wide 2>/dev/null >> /tmp/workload-status.txt || true
+              done
+              sleep 5
+            done
+          ) &
+          echo $! > /tmp/watcher-pid.txt
+          echo "Workload log watcher started (PID: $(cat /tmp/watcher-pid.txt))"
+
       - name: Run E2E tests
         working-directory: service
         run: devspace run test-e2e -n platform
@@ -85,6 +105,18 @@ jobs:
       - name: Capture platform logs
         if: always()
         run: |
+          # Stop the background watcher
+          kill $(cat /tmp/watcher-pid.txt 2>/dev/null) 2>/dev/null || true
+
+          echo "=== Workload init container logs (from watcher) ==="
+          cat /tmp/workload-init-logs.txt 2>/dev/null || echo "No init container logs captured"
+          echo ""
+          echo "=== Workload main container logs (from watcher) ==="
+          cat /tmp/workload-main-logs.txt 2>/dev/null || echo "No main container logs captured"
+          echo ""
+          echo "=== Workload pod status history ==="
+          cat /tmp/workload-status.txt 2>/dev/null || echo "No status captured"
+          echo ""
           echo "=== Orchestrator pod logs ==="
           kubectl logs -n platform -l app.kubernetes.io/name=agents-orchestrator \
             --tail=500 --timestamps 2>&1 || echo "Failed to fetch orchestrator logs"

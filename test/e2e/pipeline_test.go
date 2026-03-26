@@ -5,7 +5,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -80,46 +79,10 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 		}
 		return fmt.Errorf("agent response not found")
 	}); err != nil {
-		dumpWorkloadLogs(t)
 		t.Fatalf("wait for agent response: %v", err)
 	}
 
 	if agentBody != "Hi! How are you?" {
 		t.Fatalf("expected agent response %q, got %q", "Hi! How are you?", agentBody)
 	}
-}
-
-func dumpWorkloadLogs(t *testing.T) {
-	t.Helper()
-	output, err := exec.Command(
-		"kubectl",
-		"logs",
-		"-n",
-		"platform",
-		"-l",
-		"managed-by=agents-orchestrator",
-		"--all-containers",
-		"--tail=200",
-		"--timestamps",
-	).CombinedOutput()
-	if err != nil {
-		t.Logf("failed to capture workload logs: %v", err)
-		return
-	}
-	t.Logf("=== Workload pod logs ===\n%s", string(output))
-
-	output, err = exec.Command(
-		"kubectl",
-		"describe",
-		"pods",
-		"-n",
-		"platform",
-		"-l",
-		"managed-by=agents-orchestrator",
-	).CombinedOutput()
-	if err != nil {
-		t.Logf("failed to describe workload pods: %v", err)
-		return
-	}
-	t.Logf("=== Workload pod describe ===\n%s", string(output))
 }
