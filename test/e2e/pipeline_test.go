@@ -42,7 +42,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	sendMessage(t, ctx, threadsClient, threadID, userID, "hi")
+	sendMessage(t, ctx, threadsClient, threadID, userID, "hello")
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
