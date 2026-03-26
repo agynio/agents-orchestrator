@@ -385,6 +385,8 @@ func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, thread
 		{Name: "THREAD_ID", Value: threadID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: cfg.AgentGatewayAddress},
 		{Name: "LLM_BASE_URL", Value: cfg.AgentLLMBaseURL},
+		{Name: "WORKSPACE_DIR", Value: "/tmp"},
+		{Name: "HOME", Value: "/root"},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
 	}
 	if cfg.AgentModelOverride != "" {
