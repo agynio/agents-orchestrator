@@ -13,19 +13,17 @@ import (
 const managedIdentityPageSize int32 = 100
 
 func (r *Reconciler) reconcileOrphanIdentities(ctx context.Context) error {
-	tracked, err := r.store.ListAll(ctx)
+	tracked, err := r.listActiveWorkloads(ctx)
 	if err != nil {
 		return err
 	}
 	active := make(map[string]struct{}, len(tracked))
 	for _, workload := range tracked {
-		if workload.ZitiIdentityID == nil {
+		zitiIdentityID := workload.GetZitiIdentityId()
+		if zitiIdentityID == "" {
 			continue
 		}
-		if *workload.ZitiIdentityID == "" {
-			return fmt.Errorf("workload %s has empty ziti identity id", workload.WorkloadID)
-		}
-		active[*workload.ZitiIdentityID] = struct{}{}
+		active[zitiIdentityID] = struct{}{}
 	}
 
 	pageToken := ""

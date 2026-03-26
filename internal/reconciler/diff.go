@@ -1,25 +1,51 @@
 package reconciler
 
 import (
+	"fmt"
 	"time"
 
-	"github.com/agynio/agents-orchestrator/internal/store"
+	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 )
 
 type Actions struct {
 	ToStart []AgentThread
-	ToStop  []store.Workload
+	ToStop  []*runnersv1.Workload
 }
 
-func ComputeActions(desired []AgentThread, actual []store.Workload, idleTimeout time.Duration, now time.Time) Actions {
+type workloadEntry struct {
+	workload  *runnersv1.Workload
+	startedAt time.Time
+}
+
+func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTimeout time.Duration, now time.Time) (Actions, error) {
 	desiredSet := make(map[AgentThread]struct{}, len(desired))
 	for _, item := range desired {
 		desiredSet[item] = struct{}{}
 	}
-	actualSet := make(map[AgentThread]store.Workload, len(actual))
+	actualSet := make(map[AgentThread]workloadEntry, len(actual))
 	for _, workload := range actual {
-		key := AgentThread{AgentID: workload.AgentID, ThreadID: workload.ThreadID}
-		actualSet[key] = workload
+		if workload == nil {
+			return Actions{}, fmt.Errorf("workload is nil")
+		}
+		agentID, err := uuidutil.ParseUUID(workload.GetAgentId(), "workload.agent_id")
+		if err != nil {
+			return Actions{}, err
+		}
+		threadID, err := uuidutil.ParseUUID(workload.GetThreadId(), "workload.thread_id")
+		if err != nil {
+			return Actions{}, err
+		}
+		meta := workload.GetMeta()
+		if meta == nil {
+			return Actions{}, fmt.Errorf("workload meta missing")
+		}
+		createdAt := meta.GetCreatedAt()
+		if createdAt == nil {
+			return Actions{}, fmt.Errorf("workload meta created_at missing")
+		}
+		key := AgentThread{AgentID: agentID, ThreadID: threadID}
+		actualSet[key] = workloadEntry{workload: workload, startedAt: createdAt.AsTime()}
 	}
 	result := Actions{}
 	for _, item := range desired {
@@ -27,13 +53,13 @@ func ComputeActions(desired []AgentThread, actual []store.Workload, idleTimeout 
 			result.ToStart = append(result.ToStart, item)
 		}
 	}
-	for key, workload := range actualSet {
+	for key, entry := range actualSet {
 		if _, ok := desiredSet[key]; ok {
 			continue
 		}
-		if now.Sub(workload.StartedAt) > idleTimeout {
-			result.ToStop = append(result.ToStop, workload)
+		if now.Sub(entry.startedAt) > idleTimeout {
+			result.ToStop = append(result.ToStop, entry.workload)
 		}
 	}
-	return result
+	return result, nil
 }

@@ -30,11 +30,16 @@ type Assembler struct {
 	cfg     *config.Config
 }
 
+type AssembleResult struct {
+	Request        *runnerv1.StartWorkloadRequest
+	OrganizationID string
+}
+
 func New(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
 	return &Assembler{agents: agents, secrets: secrets, cfg: cfg}
 }
 
-func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (*runnerv1.StartWorkloadRequest, error) {
+func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (*AssembleResult, error) {
 	agent, err := a.fetchAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
@@ -134,7 +139,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	volumes := append(volumeResolver.Specs(), agynBinVolume)
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
 
-	return &runnerv1.StartWorkloadRequest{
+	request := &runnerv1.StartWorkloadRequest{
 		Main:           main,
 		Sidecars:       sidecars,
 		Volumes:        volumes,
@@ -144,7 +149,8 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
 			LabelKeyPrefix + LabelThreadID:  threadID.String(),
 		},
-	}, nil
+	}
+	return &AssembleResult{Request: request, OrganizationID: agent.GetOrganizationId()}, nil
 }
 
 func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {
@@ -168,6 +174,9 @@ func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv
 	}
 	if metaID != agentID {
 		return nil, fmt.Errorf("agent id mismatch: %s", metaID.String())
+	}
+	if agent.GetOrganizationId() == "" {
+		return nil, fmt.Errorf("agent organization id missing")
 	}
 	return agent, nil
 }
