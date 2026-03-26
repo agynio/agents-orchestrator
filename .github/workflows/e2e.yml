@@ -79,11 +79,17 @@ jobs:
           # Start background workload log watcher
           (
             while true; do
-              for pod in $(kubectl get pods -n platform -l managed-by=agents-orchestrator -o name 2>/dev/null); do
+              # List ALL pods in platform namespace to debug label issues
+              kubectl get pods -n platform -o wide 2>/dev/null >> /tmp/all-pods.txt || true
+              echo "---" >> /tmp/all-pods.txt
+
+              # Try to find workload pods by name prefix instead of label
+              for pod in $(kubectl get pods -n platform -o name 2>/dev/null | grep workload); do
                 podname=$(basename "$pod")
-                kubectl logs -n platform "$podname" -c agent-init --timestamps 2>/dev/null >> /tmp/workload-init-logs.txt || true
+                echo "=== POD: $podname ===" >> /tmp/workload-main-logs.txt
                 kubectl logs -n platform "$podname" --all-containers --timestamps 2>/dev/null >> /tmp/workload-main-logs.txt || true
-                kubectl get pod -n platform "$podname" -o wide 2>/dev/null >> /tmp/workload-status.txt || true
+                echo "=== DESCRIBE: $podname ===" >> /tmp/workload-describe.txt
+                kubectl describe pod -n platform "$podname" 2>/dev/null >> /tmp/workload-describe.txt || true
               done
               sleep 5
             done
@@ -99,14 +105,14 @@ jobs:
           wait $WATCHER_PID 2>/dev/null || true
 
           # Output captured logs
-          echo "=== Workload init container logs ==="
-          cat /tmp/workload-init-logs.txt 2>/dev/null || echo "No init logs"
+          echo "=== All pods in platform namespace (history) ==="
+          cat /tmp/all-pods.txt 2>/dev/null || echo "No pod list"
           echo ""
           echo "=== Workload main container logs ==="
           cat /tmp/workload-main-logs.txt 2>/dev/null || echo "No main logs"
           echo ""
-          echo "=== Workload pod status history ==="
-          cat /tmp/workload-status.txt 2>/dev/null || echo "No status"
+          echo "=== Workload pod describe ==="
+          cat /tmp/workload-describe.txt 2>/dev/null || echo "No describe"
 
           exit ${TEST_EXIT:-0}
 
