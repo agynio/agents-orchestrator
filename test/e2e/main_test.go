@@ -109,15 +109,9 @@ func newUserID() string {
 
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string, model ...string) *agentsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {
 	t.Helper()
 	modelValue := uuid.New().String()
-	if len(model) > 0 {
-		trimmed := strings.TrimSpace(model[0])
-		if trimmed != "" {
-			modelValue = trimmed
-		}
-	}
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:           name,
 		Role:           "assistant",

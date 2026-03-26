@@ -80,48 +80,7 @@ jobs:
 
       - name: Run E2E tests
         working-directory: service
-        run: |
-          # Start background workload log watcher
-          (
-            while true; do
-              # List ALL pods in platform namespace to debug label issues
-              kubectl get pods -n platform -o wide 2>/dev/null >> /tmp/all-pods.txt || true
-              echo "=== Pods in agyn-workloads namespace ===" >> /tmp/all-pods.txt
-              kubectl get pods -n agyn-workloads -o wide 2>/dev/null >> /tmp/all-pods.txt || true
-              echo "---" >> /tmp/all-pods.txt
-
-              # Try to find workload pods by name prefix instead of label
-              for pod in $(kubectl get pods -n agyn-workloads -o name 2>/dev/null | grep workload); do
-                podname=$(basename "$pod")
-                echo "=== POD: $podname ===" >> /tmp/workload-main-logs.txt
-                kubectl logs -n agyn-workloads "$podname" --all-containers --timestamps 2>/dev/null >> /tmp/workload-main-logs.txt || true
-                echo "=== DESCRIBE: $podname ===" >> /tmp/workload-describe.txt
-                kubectl describe pod -n agyn-workloads "$podname" 2>/dev/null >> /tmp/workload-describe.txt || true
-              done
-              sleep 5
-            done
-          ) &
-          WATCHER_PID=$!
-          echo "Workload log watcher started (PID: $WATCHER_PID)"
-
-          # Run tests (may fail)
-          devspace run test-e2e -n platform || TEST_EXIT=$?
-
-          # Stop watcher
-          kill $WATCHER_PID 2>/dev/null || true
-          wait $WATCHER_PID 2>/dev/null || true
-
-          # Output captured logs
-          echo "=== All pods in platform/agyn-workloads namespaces (history) ==="
-          cat /tmp/all-pods.txt 2>/dev/null || echo "No pod list"
-          echo ""
-          echo "=== Workload main container logs ==="
-          cat /tmp/workload-main-logs.txt 2>/dev/null || echo "No main logs"
-          echo ""
-          echo "=== Workload pod describe ==="
-          cat /tmp/workload-describe.txt 2>/dev/null || echo "No describe"
-
-          exit ${TEST_EXIT:-0}
+        run: devspace run test-e2e -n platform
 
       - name: Restore ArgoCD sync
         if: always()
