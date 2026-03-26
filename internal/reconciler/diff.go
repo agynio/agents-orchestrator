@@ -25,9 +25,6 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 	}
 	actualSet := make(map[AgentThread]workloadEntry, len(actual))
 	for _, workload := range actual {
-		if workload == nil {
-			return Actions{}, fmt.Errorf("workload is nil")
-		}
 		agentID, err := uuidutil.ParseUUID(workload.GetAgentId(), "workload.agent_id")
 		if err != nil {
 			return Actions{}, err
@@ -37,9 +34,6 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 			return Actions{}, err
 		}
 		meta := workload.GetMeta()
-		if meta == nil {
-			return Actions{}, fmt.Errorf("workload meta missing")
-		}
 		createdAt := meta.GetCreatedAt()
 		if createdAt == nil {
 			return Actions{}, fmt.Errorf("workload meta created_at missing")

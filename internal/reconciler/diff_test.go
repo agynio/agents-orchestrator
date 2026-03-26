@@ -116,14 +116,6 @@ func sortAgentThreads(values []AgentThread) {
 
 func sortWorkloads(values []*runnersv1.Workload) {
 	sort.Slice(values, func(i, j int) bool {
-		firstID := ""
-		secondID := ""
-		if values[i] != nil {
-			firstID = values[i].GetMeta().GetId()
-		}
-		if values[j] != nil {
-			secondID = values[j].GetMeta().GetId()
-		}
-		return firstID < secondID
+		return values[i].GetMeta().GetId() < values[j].GetMeta().GetId()
 	})
 }
