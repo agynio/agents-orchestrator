@@ -77,6 +77,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
+		AgentAuthToken:      "test-token",
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
@@ -156,6 +157,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "THREAD_ID", threadID.String())
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
+	assertEnv(t, envs, "AUTH_TOKEN", "test-token")
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo ready")
 	var parsedSkills []skillPayload

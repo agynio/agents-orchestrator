@@ -41,6 +41,11 @@ jobs:
         working-directory: bootstrap
         run: ./apply.sh -y
 
+      - name: Extract cluster admin token
+        working-directory: bootstrap/stacks/platform
+        run: |
+          echo "CLUSTER_ADMIN_TOKEN=$(terraform output -raw cluster_admin_api_token)" >> "$GITHUB_ENV"
+
       - name: Verify platform health
         working-directory: bootstrap
         run: ./.github/scripts/verify_platform_health.sh

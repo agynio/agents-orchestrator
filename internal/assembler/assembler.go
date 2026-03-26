@@ -395,6 +395,9 @@ func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, thread
 	if initScript != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
 	}
+	if cfg.AgentAuthToken != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "AUTH_TOKEN", Value: cfg.AgentAuthToken})
+	}
 	return vars
 }
 

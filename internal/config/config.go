@@ -19,6 +19,7 @@ type Config struct {
 	ZitiLeaseRenewalInterval time.Duration
 	DefaultInitImage         string
 	AgentGatewayAddress      string
+	AgentAuthToken           string
 	AgentLLMBaseURL          string
 	AgentModelOverride       string
 	AgentIdentityID          string
@@ -107,6 +108,7 @@ func FromEnv() (Config, error) {
 	if cfg.AgentOrganizationID == "" {
 		return Config{}, fmt.Errorf("AGENT_ORGANIZATION_ID must be set")
 	}
+	cfg.AgentAuthToken = os.Getenv("AGENT_AUTH_TOKEN")
 
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {
