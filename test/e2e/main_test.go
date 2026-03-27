@@ -16,15 +16,12 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 )
 
 const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
 
-	testIdentityID     = "22222222-2222-2222-2222-222222222222"
-	testIdentityType   = "user"
 	testOrganizationID = "33333333-3333-3333-3333-333333333333"
 
 	labelManagedBy = "managed-by"
@@ -67,17 +64,6 @@ func dialGRPC(t *testing.T, addr string, opts ...grpc.DialOption) *grpc.ClientCo
 	}
 	t.Cleanup(func() { conn.Close() })
 	return conn
-}
-
-func identityInterceptor() grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		md := metadata.Pairs(
-			"x-identity-id", testIdentityID,
-			"x-identity-type", testIdentityType,
-		)
-		ctx = metadata.NewOutgoingContext(ctx, md)
-		return invoker(ctx, method, req, reply, cc, opts...)
-	}
 }
 
 // pollUntil retries check at interval until it returns nil or ctx expires.
