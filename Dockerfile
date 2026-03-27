@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.8
-ARG GO_VERSION=1.24
+ARG GO_VERSION=1.25
 ARG BUF_VERSION=1.66.0
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS buf
