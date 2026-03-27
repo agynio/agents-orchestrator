@@ -17,15 +17,21 @@ import (
 )
 
 const (
-	listPageSize                 int32 = 100
-	rpcTimeout                         = 10 * time.Second
-	agynBinVolumeName                  = "agyn-bin"
-	agynBinMountPath                   = "/agyn-bin"
-	agynBinBinaryPath                  = "/agyn-bin/agynd"
-	agentWorkspaceDir                  = "/tmp"
-	agentHomeDir                       = "/root"
-	ZitiSidecarInitContainerName       = "ziti-sidecar"
-	zitiDNSNameserver                  = "127.0.0.1"
+	listPageSize                   int32 = 100
+	rpcTimeout                           = 10 * time.Second
+	agynBinVolumeName                    = "agyn-bin"
+	agynBinMountPath                     = "/agyn-bin"
+	agynBinBinaryPath                    = "/agyn-bin/agynd"
+	agentWorkspaceDir                    = "/tmp"
+	agentHomeDir                         = "/root"
+	ZitiSidecarInitContainerName         = "ziti-sidecar"
+	zitiDNSNameserver                    = "127.0.0.1"
+	zitiSidecarCommand                   = "tproxy"
+	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
+	zitiRestartPolicyKey                 = "restart_policy"
+	zitiRestartPolicyAlways              = "Always"
+	zitiDNSSearchService                 = "svc.cluster.local"
+	zitiDNSSearchCluster                 = "cluster.local"
 )
 
 type Assembler struct {
@@ -108,8 +114,11 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	initContainers := []*runnerv1.ContainerSpec{initContainer}
 	if a.cfg.ZitiEnabled {
 		initContainers = append(initContainers, &runnerv1.ContainerSpec{
-			Image: a.cfg.ZitiSidecarImage,
-			Name:  ZitiSidecarInitContainerName,
+			Image:                a.cfg.ZitiSidecarImage,
+			Name:                 ZitiSidecarInitContainerName,
+			Cmd:                  []string{zitiSidecarCommand},
+			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
+			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		})
 	}
 
@@ -159,6 +168,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if a.cfg.ZitiEnabled {
 		request.DnsConfig = &runnerv1.DnsConfig{
 			Nameservers: []string{zitiDNSNameserver, a.cfg.ClusterDNS},
+			Searches:    []string{zitiDNSSearchService, zitiDNSSearchCluster},
 		}
 	}
 	return request, nil

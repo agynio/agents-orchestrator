@@ -15,6 +15,7 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/store"
+	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )
@@ -45,7 +46,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetMain() == nil {
 				return nil, errors.New("missing main container")
 			}
-			zitiContainer := findInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
+			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
 			if zitiContainer == nil {
 				return nil, errors.New("missing ziti sidecar init container")
 			}
@@ -100,7 +101,7 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			if req.GetMain() == nil {
 				return nil, errors.New("missing main container")
 			}
-			zitiContainer := findInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
+			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
 			if zitiContainer != nil {
 				envs := envMap(zitiContainer.GetEnv())
 				if _, ok := envs["ZITI_ENROLLMENT_JWT"]; ok {
@@ -543,18 +544,6 @@ func envMap(envs []*runnerv1.EnvVar) map[string]string {
 		result[env.GetName()] = env.GetValue()
 	}
 	return result
-}
-
-func findInitContainer(containers []*runnerv1.ContainerSpec, name string) *runnerv1.ContainerSpec {
-	for _, container := range containers {
-		if container == nil {
-			continue
-		}
-		if container.GetName() == name {
-			return container
-		}
-	}
-	return nil
 }
 
 type fakeWorkloadStore struct {

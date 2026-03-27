@@ -11,6 +11,7 @@ import (
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
+	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -230,19 +231,34 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Nameservers, expectedNameservers) {
 		t.Fatalf("expected dns nameservers %+v, got %+v", expectedNameservers, request.DnsConfig.Nameservers)
 	}
+	expectedSearches := []string{zitiDNSSearchService, zitiDNSSearchCluster}
+	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
+		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
+	}
 	if len(request.InitContainers) != 2 {
 		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
 	}
-	initContainer := findInitContainer(request.InitContainers, "agent-init")
+	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
 		t.Fatal("expected agent-init container")
 	}
-	zitiInit := findInitContainer(request.InitContainers, ZitiSidecarInitContainerName)
+	zitiInit := testutil.FindInitContainer(request.InitContainers, ZitiSidecarInitContainerName)
 	if zitiInit == nil {
 		t.Fatal("expected ziti-sidecar init container")
 	}
 	if zitiInit.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiInit.Image)
+	}
+	expectedCmd := []string{zitiSidecarCommand}
+	if !equalStringSlice(zitiInit.Cmd, expectedCmd) {
+		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiInit.Cmd)
+	}
+	if !equalStringSlice(zitiInit.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
+		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiInit.RequiredCapabilities)
+	}
+	expectedProperties := map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways}
+	if !equalStringMap(zitiInit.AdditionalProperties, expectedProperties) {
+		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiInit.AdditionalProperties)
 	}
 }
 
@@ -515,18 +531,6 @@ func envMap(envs []*runnerv1.EnvVar) map[string]string {
 		result[env.Name] = env.Value
 	}
 	return result
-}
-
-func findInitContainer(containers []*runnerv1.ContainerSpec, name string) *runnerv1.ContainerSpec {
-	for _, container := range containers {
-		if container == nil {
-			continue
-		}
-		if container.Name == name {
-			return container
-		}
-	}
-	return nil
 }
 
 func findVolumeSpec(volumes []*runnerv1.VolumeSpec, name string) *runnerv1.VolumeSpec {
