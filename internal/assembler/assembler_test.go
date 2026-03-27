@@ -77,7 +77,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
-		AgentAuthToken:      "test-token",
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
@@ -159,7 +158,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
 	assertEnv(t, envs, "WORKSPACE_DIR", agentWorkspaceDir)
 	assertEnv(t, envs, "HOME", agentHomeDir)
-	assertEnv(t, envs, "AUTH_TOKEN", "test-token")
 	if _, ok := envs["MODEL_OVERRIDE"]; ok {
 		t.Fatal("expected MODEL_OVERRIDE to be absent")
 	}
@@ -171,6 +169,80 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 	if len(parsedSkills) != 1 || parsedSkills[0].Name != "skill-a" || parsedSkills[0].Body != "do-a" {
 		t.Fatalf("unexpected skills payload: %+v", parsedSkills)
+	}
+}
+
+func TestAssemblerAddsZitiSidecar(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+
+	agent := &agentsv1.Agent{
+		Meta:  &agentsv1.EntityMeta{Id: agentID.String()},
+		Image: "agent-image",
+	}
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				return nil, errors.New("unexpected agent id")
+			}
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	cfg := config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+		ZitiEnabled:         true,
+		ZitiSidecarImage:    "ziti-image",
+		ClusterDNS:          "10.43.0.10",
+	}
+
+	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
+	request, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if request.DnsConfig == nil {
+		t.Fatal("expected dns config")
+	}
+	expectedNameservers := []string{zitiDNSNameserver, cfg.ClusterDNS}
+	if !equalStringSlice(request.DnsConfig.Nameservers, expectedNameservers) {
+		t.Fatalf("expected dns nameservers %+v, got %+v", expectedNameservers, request.DnsConfig.Nameservers)
+	}
+	if len(request.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
+	}
+	initContainer := findInitContainer(request.InitContainers, "agent-init")
+	if initContainer == nil {
+		t.Fatal("expected agent-init container")
+	}
+	zitiInit := findInitContainer(request.InitContainers, ZitiSidecarInitContainerName)
+	if zitiInit == nil {
+		t.Fatal("expected ziti-sidecar init container")
+	}
+	if zitiInit.Image != cfg.ZitiSidecarImage {
+		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiInit.Image)
 	}
 }
 
@@ -443,6 +515,18 @@ func envMap(envs []*runnerv1.EnvVar) map[string]string {
 		result[env.Name] = env.Value
 	}
 	return result
+}
+
+func findInitContainer(containers []*runnerv1.ContainerSpec, name string) *runnerv1.ContainerSpec {
+	for _, container := range containers {
+		if container == nil {
+			continue
+		}
+		if container.Name == name {
+			return container
+		}
+	}
+	return nil
 }
 
 func findVolumeSpec(volumes []*runnerv1.VolumeSpec, name string) *runnerv1.VolumeSpec {
