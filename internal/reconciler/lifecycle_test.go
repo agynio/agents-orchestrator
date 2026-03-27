@@ -15,6 +15,7 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/store"
+	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )
@@ -26,7 +27,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 	zitiID := "ziti-identity"
 	jwt := "enrollment-jwt"
 	workloadID := "workload-1"
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, true)
 
 	var calls []string
 	zitiMgmt := &fakeZitiMgmtClient{
@@ -45,7 +46,11 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetMain() == nil {
 				return nil, errors.New("missing main container")
 			}
-			envs := envMap(req.GetMain().GetEnv())
+			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
+			if zitiContainer == nil {
+				return nil, errors.New("missing ziti sidecar init container")
+			}
+			envs := envMap(zitiContainer.GetEnv())
 			if envs["ZITI_ENROLLMENT_JWT"] != jwt {
 				return nil, errors.New("missing ZITI_ENROLLMENT_JWT")
 			}
@@ -73,7 +78,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 		Runner:    runner,
 		ZitiMgmt:  zitiMgmt,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
@@ -87,7 +92,7 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	agentID := uuid.New()
 	threadID := uuid.New()
 	workloadID := "workload-1"
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, false)
 
 	var calls []string
 	runner := &fakeRunnerClient{
@@ -96,9 +101,12 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			if req.GetMain() == nil {
 				return nil, errors.New("missing main container")
 			}
-			envs := envMap(req.GetMain().GetEnv())
-			if _, ok := envs["ZITI_ENROLLMENT_JWT"]; ok {
-				return nil, errors.New("unexpected ZITI_ENROLLMENT_JWT")
+			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
+			if zitiContainer != nil {
+				envs := envMap(zitiContainer.GetEnv())
+				if _, ok := envs["ZITI_ENROLLMENT_JWT"]; ok {
+					return nil, errors.New("unexpected ZITI_ENROLLMENT_JWT")
+				}
 			}
 			return &runnerv1.StartWorkloadResponse{Id: workloadID, Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING}, nil
 		},
@@ -123,7 +131,7 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	reconciler := newTestReconciler(Config{
 		Runner:    runner,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
@@ -137,7 +145,7 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 	agentID := uuid.New()
 	threadID := uuid.New()
 	zitiID := "ziti-identity"
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, true)
 
 	var calls []string
 	zitiMgmt := &fakeZitiMgmtClient{
@@ -171,7 +179,7 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 		Runner:    runner,
 		ZitiMgmt:  zitiMgmt,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
@@ -186,7 +194,7 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 	threadID := uuid.New()
 	zitiID := "ziti-identity"
 	workloadID := "workload-1"
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, true)
 
 	var calls []string
 	zitiMgmt := &fakeZitiMgmtClient{
@@ -228,7 +236,7 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 		Runner:    runner,
 		ZitiMgmt:  zitiMgmt,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
@@ -240,7 +248,7 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, true)
 	zitiID := "ziti-identity"
 
 	var calls []string
@@ -269,7 +277,7 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 		Runner:    runner,
 		ZitiMgmt:  zitiMgmt,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	reconciler.stopWorkload(ctx, store.Workload{WorkloadID: "workload-1", ZitiIdentityID: &zitiID})
 
@@ -281,7 +289,7 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, true)
 
 	deleteCalled := false
 	runner := &fakeRunnerClient{
@@ -307,7 +315,7 @@ func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 		Runner:    runner,
 		ZitiMgmt:  zitiMgmt,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	reconciler.stopWorkload(ctx, store.Workload{WorkloadID: "workload-1"})
 
@@ -319,7 +327,7 @@ func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, false)
 	zitiID := "ziti-identity"
 
 	var calls []string
@@ -340,7 +348,7 @@ func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	reconciler := newTestReconciler(Config{
 		Runner:    runner,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	reconciler.stopWorkload(ctx, store.Workload{WorkloadID: "workload-1", ZitiIdentityID: &zitiID})
 
@@ -352,7 +360,7 @@ func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, true)
 	activeID := "active-id"
 	orphanID := "orphan-id"
 
@@ -385,7 +393,7 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 		Runner:    &fakeRunnerClient{},
 		ZitiMgmt:  zitiMgmt,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	if err := reconciler.reconcileOrphanIdentities(ctx); err != nil {
 		t.Fatalf("reconcile orphan identities: %v", err)
@@ -399,7 +407,7 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 func TestFetchActualDeletesIdentityForStaleWorkload(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, true)
 	zitiID := "ziti-id"
 
 	workloadStore := &fakeWorkloadStore{
@@ -432,7 +440,7 @@ func TestFetchActualDeletesIdentityForStaleWorkload(t *testing.T) {
 		Runner:    runner,
 		ZitiMgmt:  zitiMgmt,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	if _, err := reconciler.fetchActual(ctx); err != nil {
 		t.Fatalf("fetch actual: %v", err)
@@ -445,7 +453,7 @@ func TestFetchActualDeletesIdentityForStaleWorkload(t *testing.T) {
 func TestFetchActualSkipsIdentityCleanupWhenZitiMgmtNil(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
-	assembler := newTestAssembler(agentID)
+	testAssembler := newTestAssembler(agentID, false)
 	zitiID := "ziti-id"
 
 	deleted := false
@@ -468,7 +476,7 @@ func TestFetchActualSkipsIdentityCleanupWhenZitiMgmtNil(t *testing.T) {
 	reconciler := newTestReconciler(Config{
 		Runner:    runner,
 		Store:     workloadStore,
-		Assembler: assembler,
+		Assembler: testAssembler,
 	})
 	if _, err := reconciler.fetchActual(ctx); err != nil {
 		t.Fatalf("fetch actual: %v", err)
@@ -491,7 +499,7 @@ func newTestReconciler(cfg Config) *Reconciler {
 	return New(cfg)
 }
 
-func newTestAssembler(agentID uuid.UUID) *assembler.Assembler {
+func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler {
 	agentsClient := &fakeAgentsClient{
 		getAgent: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
 			if req.GetId() != agentID.String() {
@@ -523,6 +531,9 @@ func newTestAssembler(agentID uuid.UUID) *assembler.Assembler {
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
+		ZitiEnabled:         zitiEnabled,
+		ZitiSidecarImage:    "ziti-sidecar-image",
+		ClusterDNS:          "10.43.0.10",
 	}
 	return assembler.New(agentsClient, &fakeSecretsClient{}, cfg)
 }

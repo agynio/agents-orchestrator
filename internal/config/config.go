@@ -17,11 +17,15 @@ type Config struct {
 	ZitiEnabled              bool
 	ZitiManagementAddress    string
 	ZitiLeaseRenewalInterval time.Duration
+	ZitiSidecarImage         string
+	ClusterDNS               string
 	DefaultInitImage         string
 	AgentGatewayAddress      string
-	AgentAuthToken           string
 	AgentLLMBaseURL          string
 	AgentModelOverride       string
+	AgentIdentityID          string
+	AgentIdentityType        string
+	AgentOrganizationID      string
 	PollInterval             time.Duration
 	IdleTimeout              time.Duration
 	StopTimeoutSec           uint32
@@ -80,6 +84,14 @@ func FromEnv() (Config, error) {
 	if cfg.ZitiLeaseRenewalInterval <= 0 {
 		return Config{}, fmt.Errorf("ZITI_LEASE_RENEWAL_INTERVAL must be greater than 0")
 	}
+	cfg.ZitiSidecarImage = os.Getenv("ZITI_SIDECAR_IMAGE")
+	if cfg.ZitiSidecarImage == "" {
+		cfg.ZitiSidecarImage = "openziti/ziti-tunnel:latest"
+	}
+	cfg.ClusterDNS = os.Getenv("CLUSTER_DNS")
+	if cfg.ClusterDNS == "" {
+		cfg.ClusterDNS = "10.43.0.10"
+	}
 	cfg.DefaultInitImage = os.Getenv("DEFAULT_INIT_IMAGE")
 	if cfg.DefaultInitImage == "" {
 		return Config{}, fmt.Errorf("DEFAULT_INIT_IMAGE must be set")
@@ -93,7 +105,18 @@ func FromEnv() (Config, error) {
 		cfg.AgentLLMBaseURL = "http://llm-proxy:8080/v1"
 	}
 	cfg.AgentModelOverride = os.Getenv("AGENT_MODEL_OVERRIDE")
-	cfg.AgentAuthToken = os.Getenv("AGENT_AUTH_TOKEN")
+	cfg.AgentIdentityID = os.Getenv("AGENT_IDENTITY_ID")
+	if cfg.AgentIdentityID == "" {
+		return Config{}, fmt.Errorf("AGENT_IDENTITY_ID must be set")
+	}
+	cfg.AgentIdentityType = os.Getenv("AGENT_IDENTITY_TYPE")
+	if cfg.AgentIdentityType == "" {
+		cfg.AgentIdentityType = "service"
+	}
+	cfg.AgentOrganizationID = os.Getenv("AGENT_ORGANIZATION_ID")
+	if cfg.AgentOrganizationID == "" {
+		return Config{}, fmt.Errorf("AGENT_ORGANIZATION_ID must be set")
+	}
 
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {

@@ -17,13 +17,21 @@ import (
 )
 
 const (
-	listPageSize      int32 = 100
-	rpcTimeout              = 10 * time.Second
-	agynBinVolumeName       = "agyn-bin"
-	agynBinMountPath        = "/agyn-bin"
-	agynBinBinaryPath       = "/agyn-bin/agynd"
-	agentWorkspaceDir       = "/tmp"
-	agentHomeDir            = "/root"
+	listPageSize                   int32 = 100
+	rpcTimeout                           = 10 * time.Second
+	agynBinVolumeName                    = "agyn-bin"
+	agynBinMountPath                     = "/agyn-bin"
+	agynBinBinaryPath                    = "/agyn-bin/agynd"
+	agentWorkspaceDir                    = "/tmp"
+	agentHomeDir                         = "/root"
+	ZitiSidecarInitContainerName         = "ziti-sidecar"
+	zitiDNSNameserver                    = "127.0.0.1"
+	zitiSidecarCommand                   = "tproxy"
+	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
+	zitiRestartPolicyKey                 = "restart_policy"
+	zitiRestartPolicyAlways              = "Always"
+	zitiDNSSearchService                 = "svc.cluster.local"
+	zitiDNSSearchCluster                 = "cluster.local"
 )
 
 type Assembler struct {
@@ -103,6 +111,16 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
 		},
 	}
+	initContainers := []*runnerv1.ContainerSpec{initContainer}
+	if a.cfg.ZitiEnabled {
+		initContainers = append(initContainers, &runnerv1.ContainerSpec{
+			Image:                a.cfg.ZitiSidecarImage,
+			Name:                 ZitiSidecarInitContainerName,
+			Cmd:                  []string{zitiSidecarCommand},
+			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
+			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
+		})
+	}
 
 	mcps, err := a.listMcps(ctx, agentID)
 	if err != nil {
@@ -136,17 +154,24 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	volumes := append(volumeResolver.Specs(), agynBinVolume)
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
 
-	return &runnerv1.StartWorkloadRequest{
+	request := &runnerv1.StartWorkloadRequest{
 		Main:           main,
 		Sidecars:       sidecars,
 		Volumes:        volumes,
-		InitContainers: []*runnerv1.ContainerSpec{initContainer},
+		InitContainers: initContainers,
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
 			LabelKeyPrefix + LabelThreadID:  threadID.String(),
 		},
-	}, nil
+	}
+	if a.cfg.ZitiEnabled {
+		request.DnsConfig = &runnerv1.DnsConfig{
+			Nameservers: []string{zitiDNSNameserver, a.cfg.ClusterDNS},
+			Searches:    []string{zitiDNSSearchService, zitiDNSSearchCluster},
+		}
+	}
+	return request, nil
 }
 
 func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {
@@ -396,9 +421,6 @@ func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, thread
 	}
 	if initScript != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
-	}
-	if cfg.AgentAuthToken != "" {
-		vars = append(vars, &runnerv1.EnvVar{Name: "AUTH_TOKEN", Value: cfg.AgentAuthToken})
 	}
 	return vars
 }
