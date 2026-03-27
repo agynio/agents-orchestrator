@@ -30,23 +30,11 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 )
 
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("orchestrator: %v", err)
-	}
-}
-
-func agentsIdentityInterceptor(identityID, identityType string) grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		md := metadata.Pairs(
-			"x-identity-id", identityID,
-			"x-identity-type", identityType,
-		)
-		ctx = metadata.NewOutgoingContext(ctx, md)
-		return invoker(ctx, method, req, reply, cc, opts...)
 	}
 }
 
@@ -96,7 +84,6 @@ func run() error {
 		ctx,
 		cfg.AgentsAddress,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(agentsIdentityInterceptor(cfg.AgentIdentityID, cfg.AgentIdentityType)),
 	)
 	if err != nil {
 		return fmt.Errorf("dial agents: %w", err)
@@ -157,17 +144,16 @@ func run() error {
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
-		Threads:        threadsClient,
-		Agents:         agentsClient,
-		Runner:         runnerClient,
-		ZitiMgmt:       zitiMgmtClient,
-		Store:          store,
-		Assembler:      assembler,
-		Wake:           subscriber.Wake(),
-		Poll:           cfg.PollInterval,
-		Idle:           cfg.IdleTimeout,
-		StopSec:        cfg.StopTimeoutSec,
-		OrganizationID: cfg.AgentOrganizationID,
+		Threads:   threadsClient,
+		Agents:    agentsClient,
+		Runner:    runnerClient,
+		ZitiMgmt:  zitiMgmtClient,
+		Store:     store,
+		Assembler: assembler,
+		Wake:      subscriber.Wake(),
+		Poll:      cfg.PollInterval,
+		Idle:      cfg.IdleTimeout,
+		StopSec:   cfg.StopTimeoutSec,
 	})
 
 	start := func(leadCtx context.Context) {
