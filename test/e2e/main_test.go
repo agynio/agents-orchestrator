@@ -22,6 +22,8 @@ const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
 
+	testOrganizationID = "11111111-1111-1111-1111-111111111111"
+
 	labelManagedBy = "managed-by"
 	labelAgentID   = "agent-id"
 	labelThreadID  = "thread-id"
@@ -96,10 +98,11 @@ func newUserID() string {
 func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {
 	t.Helper()
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-		Name:  name,
-		Role:  "assistant",
-		Model: uuid.New().String(),
-		Image: "alpine:3.21",
+		Name:           name,
+		Role:           "assistant",
+		Model:          uuid.New().String(),
+		Image:          "alpine:3.21",
+		OrganizationId: testOrganizationID,
 	})
 	if err != nil {
 		t.Fatalf("create agent %q: %v", name, err)
