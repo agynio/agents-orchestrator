@@ -23,9 +23,6 @@ type Config struct {
 	AgentGatewayAddress      string
 	AgentLLMBaseURL          string
 	AgentModelOverride       string
-	AgentIdentityID          string
-	AgentIdentityType        string
-	AgentOrganizationID      string
 	PollInterval             time.Duration
 	IdleTimeout              time.Duration
 	StopTimeoutSec           uint32
@@ -105,18 +102,6 @@ func FromEnv() (Config, error) {
 		cfg.AgentLLMBaseURL = "http://llm-proxy:8080/v1"
 	}
 	cfg.AgentModelOverride = os.Getenv("AGENT_MODEL_OVERRIDE")
-	cfg.AgentIdentityID = os.Getenv("AGENT_IDENTITY_ID")
-	if cfg.AgentIdentityID == "" {
-		return Config{}, fmt.Errorf("AGENT_IDENTITY_ID must be set")
-	}
-	cfg.AgentIdentityType = os.Getenv("AGENT_IDENTITY_TYPE")
-	if cfg.AgentIdentityType == "" {
-		cfg.AgentIdentityType = "service"
-	}
-	cfg.AgentOrganizationID = os.Getenv("AGENT_ORGANIZATION_ID")
-	if cfg.AgentOrganizationID == "" {
-		return Config{}, fmt.Errorf("AGENT_ORGANIZATION_ID must be set")
-	}
 
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {
