@@ -184,8 +184,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	threadID := uuid.New()
 
 	agent := &agentsv1.Agent{
-		Meta:  &agentsv1.EntityMeta{Id: agentID.String()},
-		Image: "agent-image",
+		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+		OrganizationId: "org-1",
+		Image:          "agent-image",
 	}
 
 	agentsClient := &fakeAgentsClient{
@@ -225,10 +226,14 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
-	request, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
+	if result.OrganizationID != agent.GetOrganizationId() {
+		t.Fatalf("expected organization id %q, got %q", agent.GetOrganizationId(), result.OrganizationID)
+	}
+	request := result.Request
 	if request.DnsConfig == nil {
 		t.Fatal("expected dns config")
 	}
