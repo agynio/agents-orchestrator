@@ -64,6 +64,22 @@ func FromEnv() (Config, error) {
 		}
 		cfg.ZitiEnabled = parsed
 	}
+	cfg.AgentGatewayAddress = os.Getenv("AGENT_GATEWAY_ADDRESS")
+	if cfg.AgentGatewayAddress == "" {
+		if cfg.ZitiEnabled {
+			cfg.AgentGatewayAddress = "gateway.ziti:443"
+		} else {
+			cfg.AgentGatewayAddress = "gateway:8080"
+		}
+	}
+	cfg.AgentLLMBaseURL = os.Getenv("AGENT_LLM_BASE_URL")
+	if cfg.AgentLLMBaseURL == "" {
+		if cfg.ZitiEnabled {
+			cfg.AgentLLMBaseURL = "https://llm-proxy.ziti/v1"
+		} else {
+			cfg.AgentLLMBaseURL = "http://llm-proxy:8080/v1"
+		}
+	}
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
 	if cfg.ZitiManagementAddress == "" {
 		cfg.ZitiManagementAddress = "ziti-management:50051"
@@ -83,7 +99,7 @@ func FromEnv() (Config, error) {
 	}
 	cfg.ZitiSidecarImage = os.Getenv("ZITI_SIDECAR_IMAGE")
 	if cfg.ZitiSidecarImage == "" {
-		cfg.ZitiSidecarImage = "openziti/ziti-tunnel:latest"
+		cfg.ZitiSidecarImage = "openziti/ziti-tunnel:1.6.14"
 	}
 	cfg.ClusterDNS = os.Getenv("CLUSTER_DNS")
 	if cfg.ClusterDNS == "" {
@@ -92,14 +108,6 @@ func FromEnv() (Config, error) {
 	cfg.DefaultInitImage = os.Getenv("DEFAULT_INIT_IMAGE")
 	if cfg.DefaultInitImage == "" {
 		return Config{}, fmt.Errorf("DEFAULT_INIT_IMAGE must be set")
-	}
-	cfg.AgentGatewayAddress = os.Getenv("AGENT_GATEWAY_ADDRESS")
-	if cfg.AgentGatewayAddress == "" {
-		cfg.AgentGatewayAddress = "gateway:8080"
-	}
-	cfg.AgentLLMBaseURL = os.Getenv("AGENT_LLM_BASE_URL")
-	if cfg.AgentLLMBaseURL == "" {
-		cfg.AgentLLMBaseURL = "http://llm-proxy:8080/v1"
 	}
 	cfg.AgentModelOverride = os.Getenv("AGENT_MODEL_OVERRIDE")
 
