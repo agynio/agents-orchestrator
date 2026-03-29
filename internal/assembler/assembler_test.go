@@ -289,6 +289,47 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 }
 
+func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("THREADS_ADDRESS", "")
+	t.Setenv("NOTIFICATIONS_ADDRESS", "")
+	t.Setenv("AGENTS_ADDRESS", "")
+	t.Setenv("SECRETS_ADDRESS", "")
+	t.Setenv("RUNNER_ADDRESS", "")
+	t.Setenv("ZITI_ENABLED", "true")
+	t.Setenv("ZITI_MANAGEMENT_ADDRESS", "")
+	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
+	t.Setenv("ZITI_SIDECAR_IMAGE", "")
+	t.Setenv("CLUSTER_DNS", "")
+	t.Setenv("DEFAULT_INIT_IMAGE", "init-image")
+	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
+	t.Setenv("AGENT_LLM_BASE_URL", "")
+	t.Setenv("AGENT_MODEL_OVERRIDE", "")
+	t.Setenv("POLL_INTERVAL", "")
+	t.Setenv("IDLE_TIMEOUT", "")
+	t.Setenv("STOP_TIMEOUT_SEC", "")
+	t.Setenv("LEASE_NAME", "")
+	t.Setenv("LEASE_NAMESPACE", "")
+
+	cfg, err := config.FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+
+	agentID := uuid.New()
+	threadID := uuid.New()
+	agent := &agentsv1.Agent{
+		Name:          "assistant",
+		Role:          "ops",
+		Model:         "gpt-test",
+		Configuration: "{}",
+	}
+
+	envs := envMap(baseAgentEnvVars(&cfg, agent, agentID, threadID, "[]", ""))
+	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
+	assertEnv(t, envs, "LLM_BASE_URL", "https://llm-proxy.ziti/v1")
+}
+
 func TestAssemblerModelOverrideEnv(t *testing.T) {
 	agentID := uuid.New()
 	threadID := uuid.New()
