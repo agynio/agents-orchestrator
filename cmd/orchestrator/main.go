@@ -119,7 +119,7 @@ func run() error {
 			"passthrough:///runner",
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-				return zitiCtx.Dial("runner")
+				return dialZitiWithRetry(ctx, zitiCtx, "runner")
 			}),
 		)
 		if err != nil {
@@ -204,7 +204,49 @@ func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServ
 	if err != nil {
 		return nil, "", fmt.Errorf("load ziti identity: %w", err)
 	}
+	ctxImpl, ok := zitiCtx.(*ziti.ContextImpl)
+	if !ok {
+		return nil, "", fmt.Errorf("unexpected ziti context type %T; cannot disable OIDC", zitiCtx)
+	}
+	ctxImpl.CtrlClt.SetUseOidc(false)
 	return zitiCtx, identityID, nil
+}
+
+func dialZitiWithRetry(ctx context.Context, zitiCtx ziti.Context, service string) (net.Conn, error) {
+	const (
+		maxAttempts    = 5
+		initialBackoff = 500 * time.Millisecond
+		maxBackoff     = 10 * time.Second
+	)
+	backoff := initialBackoff
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		conn, err := zitiCtx.DialContext(ctx, service)
+		if err == nil {
+			return conn, nil
+		}
+		log.Printf("dial ziti service %s: attempt %d/%d failed: %v", service, attempt, maxAttempts, err)
+		lastErr = err
+		if attempt == maxAttempts {
+			break
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+	return nil, fmt.Errorf("dial ziti service %s: %w", service, lastErr)
 }
 
 func renewLease(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, identityID string, interval time.Duration) {
