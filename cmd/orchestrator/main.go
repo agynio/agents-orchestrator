@@ -204,16 +204,21 @@ func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServ
 	if err != nil {
 		return nil, "", fmt.Errorf("load ziti identity: %w", err)
 	}
-	if ctxImpl, ok := zitiCtx.(*ziti.ContextImpl); ok {
-		ctxImpl.CtrlClt.SetUseOidc(false)
+	ctxImpl, ok := zitiCtx.(*ziti.ContextImpl)
+	if !ok {
+		return nil, "", fmt.Errorf("unexpected ziti context type %T; cannot disable OIDC", zitiCtx)
 	}
+	ctxImpl.CtrlClt.SetUseOidc(false)
 	return zitiCtx, identityID, nil
 }
 
 func dialZitiWithRetry(ctx context.Context, zitiCtx ziti.Context, service string) (net.Conn, error) {
-	const maxAttempts = 5
-	backoff := 500 * time.Millisecond
-	maxBackoff := 10 * time.Second
+	const (
+		maxAttempts    = 5
+		initialBackoff = 500 * time.Millisecond
+		maxBackoff     = 10 * time.Second
+	)
+	backoff := initialBackoff
 	var lastErr error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -224,6 +229,7 @@ func dialZitiWithRetry(ctx context.Context, zitiCtx ziti.Context, service string
 		if err == nil {
 			return conn, nil
 		}
+		log.Printf("dial ziti service %s: attempt %d/%d failed: %v", service, attempt, maxAttempts, err)
 		lastErr = err
 		if attempt == maxAttempts {
 			break
