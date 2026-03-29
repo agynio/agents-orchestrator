@@ -260,6 +260,33 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringMap(zitiInit.AdditionalProperties, expectedProperties) {
 		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiInit.AdditionalProperties)
 	}
+	if len(zitiInit.Mounts) != 1 {
+		t.Fatalf("expected 1 ziti sidecar mount, got %d", len(zitiInit.Mounts))
+	}
+	zitiMount := zitiInit.Mounts[0]
+	if zitiMount.Volume != zitiIdentityVolumeName {
+		t.Fatalf("expected ziti mount volume %q, got %q", zitiIdentityVolumeName, zitiMount.Volume)
+	}
+	if zitiMount.MountPath != zitiIdentityMountPath {
+		t.Fatalf("expected ziti mount path %q, got %q", zitiIdentityMountPath, zitiMount.MountPath)
+	}
+	if len(request.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
+	}
+	agynBinVolume := findVolumeSpec(request.Volumes, agynBinVolumeName)
+	if agynBinVolume == nil {
+		t.Fatalf("expected %s volume", agynBinVolumeName)
+	}
+	if agynBinVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected agyn-bin volume kind ephemeral, got %v", agynBinVolume.Kind)
+	}
+	zitiIdentityVolume := findVolumeSpec(request.Volumes, zitiIdentityVolumeName)
+	if zitiIdentityVolume == nil {
+		t.Fatalf("expected %s volume", zitiIdentityVolumeName)
+	}
+	if zitiIdentityVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected ziti identity volume kind ephemeral, got %v", zitiIdentityVolume.Kind)
+	}
 }
 
 func TestAssemblerModelOverrideEnv(t *testing.T) {

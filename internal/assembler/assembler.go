@@ -25,6 +25,8 @@ const (
 	agentWorkspaceDir                    = "/tmp"
 	agentHomeDir                         = "/root"
 	ZitiSidecarInitContainerName         = "ziti-sidecar"
+	zitiIdentityVolumeName               = "ziti-identity"
+	zitiIdentityMountPath                = "/netfoundry"
 	zitiDNSNameserver                    = "127.0.0.1"
 	zitiSidecarCommand                   = "tproxy"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
@@ -117,6 +119,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarInitContainerName,
 			Cmd:                  []string{zitiSidecarCommand},
+			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		})
@@ -152,6 +155,12 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL,
 	}
 	volumes := append(volumeResolver.Specs(), agynBinVolume)
+	if a.cfg.ZitiEnabled {
+		volumes = append(volumes, &runnerv1.VolumeSpec{
+			Name: zitiIdentityVolumeName,
+			Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL,
+		})
+	}
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
 
 	request := &runnerv1.StartWorkloadRequest{

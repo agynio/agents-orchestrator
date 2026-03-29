@@ -51,8 +51,8 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 				return nil, errors.New("missing ziti sidecar init container")
 			}
 			envs := envMap(zitiContainer.GetEnv())
-			if envs["ZITI_ENROLLMENT_JWT"] != jwt {
-				return nil, errors.New("missing ZITI_ENROLLMENT_JWT")
+			if envs["ZITI_ENROLL_TOKEN"] != jwt {
+				return nil, errors.New("missing ZITI_ENROLL_TOKEN")
 			}
 			return &runnerv1.StartWorkloadResponse{Id: workloadID, Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING}, nil
 		},
@@ -104,8 +104,8 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
 			if zitiContainer != nil {
 				envs := envMap(zitiContainer.GetEnv())
-				if _, ok := envs["ZITI_ENROLLMENT_JWT"]; ok {
-					return nil, errors.New("unexpected ZITI_ENROLLMENT_JWT")
+				if _, ok := envs["ZITI_ENROLL_TOKEN"]; ok {
+					return nil, errors.New("unexpected ZITI_ENROLL_TOKEN")
 				}
 			}
 			return &runnerv1.StartWorkloadResponse{Id: workloadID, Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING}, nil
