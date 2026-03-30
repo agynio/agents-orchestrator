@@ -38,8 +38,8 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.AgentGatewayAddress != "gateway.ziti:443" {
 		t.Fatalf("expected gateway address %q, got %q", "gateway.ziti:443", cfg.AgentGatewayAddress)
 	}
-	if cfg.AgentLLMBaseURL != "https://llm-proxy.ziti/v1" {
-		t.Fatalf("expected llm base url %q, got %q", "https://llm-proxy.ziti/v1", cfg.AgentLLMBaseURL)
+	if cfg.AgentLLMBaseURL != "http://llm-proxy.ziti/v1" {
+		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy.ziti/v1", cfg.AgentLLMBaseURL)
 	}
 }
 
