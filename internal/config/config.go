@@ -99,7 +99,7 @@ func FromEnv() (Config, error) {
 	}
 	cfg.ZitiSidecarImage = os.Getenv("ZITI_SIDECAR_IMAGE")
 	if cfg.ZitiSidecarImage == "" {
-		cfg.ZitiSidecarImage = "openziti/ziti-tunnel:1.6.14"
+		cfg.ZitiSidecarImage = "openziti/ziti-tunnel:2.0.0-pre8"
 	}
 	cfg.ClusterDNS = os.Getenv("CLUSTER_DNS")
 	if cfg.ClusterDNS == "" {
