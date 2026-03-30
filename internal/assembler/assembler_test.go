@@ -327,7 +327,7 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 
 	envs := envMap(baseAgentEnvVars(&cfg, agent, agentID, threadID, "[]", ""))
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
-	assertEnv(t, envs, "LLM_BASE_URL", "https://llm-proxy.ziti/v1")
+	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
 }
 
 func TestAssemblerModelOverrideEnv(t *testing.T) {
