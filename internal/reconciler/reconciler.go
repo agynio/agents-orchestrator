@@ -23,6 +23,7 @@ type Reconciler struct {
 	runners   runnersv1.RunnersServiceClient
 	zitiMgmt  zitimgmtv1.ZitiManagementServiceClient
 	assembler *assembler.Assembler
+	runnerID  string
 	wake      <-chan struct{}
 	poll      time.Duration
 	idle      time.Duration
@@ -36,6 +37,7 @@ type Config struct {
 	Runners   runnersv1.RunnersServiceClient
 	ZitiMgmt  zitimgmtv1.ZitiManagementServiceClient
 	Assembler *assembler.Assembler
+	RunnerID  string
 	Wake      <-chan struct{}
 	Poll      time.Duration
 	Idle      time.Duration
@@ -50,6 +52,7 @@ func New(cfg Config) *Reconciler {
 		runners:   cfg.Runners,
 		zitiMgmt:  cfg.ZitiMgmt,
 		assembler: cfg.Assembler,
+		runnerID:  cfg.RunnerID,
 		wake:      cfg.Wake,
 		poll:      cfg.Poll,
 		idle:      cfg.Idle,
@@ -207,11 +210,6 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		r.compensateIdentity(ctx, zitiIdentityID, "missing workload id")
 		return
 	}
-	if resp.GetRunnerId() == "" {
-		log.Printf("reconciler: workload started without runner id for agent %s thread %s", target.AgentID.String(), target.ThreadID.String())
-		r.rollbackWorkload(ctx, resp.GetId(), zitiIdentityID, "missing runner id")
-		return
-	}
 	status, err := runnerStatus(resp.GetStatus())
 	if err != nil {
 		log.Printf("reconciler: map workload status for workload %s: %v", resp.GetId(), err)
@@ -225,7 +223,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 	}
 	if _, err := r.runners.CreateWorkload(ctx, &runnersv1.CreateWorkloadRequest{
 		Id:             resp.GetId(),
-		RunnerId:       resp.GetRunnerId(),
+		RunnerId:       r.runnerID,
 		ThreadId:       target.ThreadID.String(),
 		AgentId:        target.AgentID.String(),
 		OrganizationId: assembled.OrganizationID,

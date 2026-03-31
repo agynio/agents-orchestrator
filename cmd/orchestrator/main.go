@@ -137,6 +137,10 @@ func run() error {
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
+	runnerID, err := resolveRunnerID(ctx, runnersClient)
+	if err != nil {
+		return err
+	}
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
@@ -146,6 +150,7 @@ func run() error {
 		ZitiMgmt:  zitiMgmtClient,
 		Runners:   runnersClient,
 		Assembler: assembler,
+		RunnerID:  runnerID,
 		Wake:      subscriber.Wake(),
 		Poll:      cfg.PollInterval,
 		Idle:      cfg.IdleTimeout,
@@ -213,6 +218,25 @@ func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServ
 	}
 	ctxImpl.CtrlClt.SetUseOidc(false)
 	return zitiCtx, identityID, nil
+}
+
+func resolveRunnerID(ctx context.Context, client runnersv1.RunnersServiceClient) (string, error) {
+	resp, err := client.ListRunners(ctx, &runnersv1.ListRunnersRequest{})
+	if err != nil {
+		return "", fmt.Errorf("list runners: %w", err)
+	}
+	runners := resp.GetRunners()
+	if len(runners) == 0 {
+		return "", fmt.Errorf("list runners: no runners registered")
+	}
+	if runners[0] == nil {
+		return "", fmt.Errorf("list runners: missing runner entry")
+	}
+	meta := runners[0].GetMeta()
+	if meta == nil || meta.GetId() == "" {
+		return "", fmt.Errorf("list runners: missing runner id")
+	}
+	return meta.GetId(), nil
 }
 
 func retryWithBackoff(ctx context.Context, operationName string, fn func(context.Context) error) error {

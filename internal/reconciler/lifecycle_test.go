@@ -60,9 +60,8 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 				return nil, errors.New("missing ZITI_ENROLL_TOKEN")
 			}
 			return &runnerv1.StartWorkloadResponse{
-				Id:       workloadID,
-				RunnerId: runnerID,
-				Status:   runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				Id:     workloadID,
+				Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 				Containers: &runnerv1.WorkloadContainers{
 					Main: mainContainerID,
 				},
@@ -114,6 +113,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 		Runners:   runners,
 		ZitiMgmt:  zitiMgmt,
 		Assembler: testAssembler,
+		RunnerID:  runnerID,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
@@ -146,9 +146,8 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 				}
 			}
 			return &runnerv1.StartWorkloadResponse{
-				Id:       workloadID,
-				RunnerId: runnerID,
-				Status:   runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				Id:     workloadID,
+				Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 				Containers: &runnerv1.WorkloadContainers{
 					Main: mainContainerID,
 				},
@@ -182,6 +181,7 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 		Runner:    runner,
 		Runners:   runners,
 		Assembler: testAssembler,
+		RunnerID:  runnerID,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
@@ -268,9 +268,8 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 		startWorkload: func(_ context.Context, _ *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
 			calls = append(calls, "start")
 			return &runnerv1.StartWorkloadResponse{
-				Id:       workloadID,
-				RunnerId: runnerID,
-				Status:   runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				Id:     workloadID,
+				Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 				Containers: &runnerv1.WorkloadContainers{
 					Main: mainContainerID,
 				},
@@ -297,6 +296,7 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 		ZitiMgmt:  zitiMgmt,
 		Runners:   runners,
 		Assembler: testAssembler,
+		RunnerID:  runnerID,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
