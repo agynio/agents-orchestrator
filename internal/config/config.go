@@ -17,6 +17,7 @@ type Config struct {
 	ZitiEnabled              bool
 	ZitiManagementAddress    string
 	ZitiLeaseRenewalInterval time.Duration
+	ZitiEnrollmentTimeout    time.Duration
 	ZitiSidecarImage         string
 	ClusterDNS               string
 	DefaultInitImage         string
@@ -96,6 +97,19 @@ func FromEnv() (Config, error) {
 	}
 	if cfg.ZitiLeaseRenewalInterval <= 0 {
 		return Config{}, fmt.Errorf("ZITI_LEASE_RENEWAL_INTERVAL must be greater than 0")
+	}
+	zitiEnrollmentTimeout := os.Getenv("ZITI_ENROLLMENT_TIMEOUT")
+	if zitiEnrollmentTimeout == "" {
+		cfg.ZitiEnrollmentTimeout = 2 * time.Minute
+	} else {
+		parsed, err := time.ParseDuration(zitiEnrollmentTimeout)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse ZITI_ENROLLMENT_TIMEOUT: %w", err)
+		}
+		cfg.ZitiEnrollmentTimeout = parsed
+	}
+	if cfg.ZitiEnrollmentTimeout <= 0 {
+		return Config{}, fmt.Errorf("ZITI_ENROLLMENT_TIMEOUT must be greater than 0")
 	}
 	cfg.ZitiSidecarImage = os.Getenv("ZITI_SIDECAR_IMAGE")
 	if cfg.ZitiSidecarImage == "" {

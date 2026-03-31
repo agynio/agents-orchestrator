@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	setBaseEnv(t)
@@ -22,6 +25,9 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.ZitiSidecarImage != "openziti/ziti-tunnel:2.0.0-pre8" {
 		t.Fatalf("expected ziti sidecar image %q, got %q", "openziti/ziti-tunnel:2.0.0-pre8", cfg.ZitiSidecarImage)
 	}
+	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
+		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
+	}
 }
 
 func TestFromEnvDefaultsZiti(t *testing.T) {
@@ -41,6 +47,9 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.AgentLLMBaseURL != "http://llm-proxy.ziti/v1" {
 		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy.ziti/v1", cfg.AgentLLMBaseURL)
 	}
+	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
+		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
+	}
 }
 
 func setBaseEnv(t *testing.T) {
@@ -53,6 +62,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("RUNNER_ADDRESS", "")
 	t.Setenv("ZITI_MANAGEMENT_ADDRESS", "")
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
+	t.Setenv("ZITI_ENROLLMENT_TIMEOUT", "")
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
 	t.Setenv("CLUSTER_DNS", "")
 	t.Setenv("DEFAULT_INIT_IMAGE", "init-image")

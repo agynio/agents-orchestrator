@@ -29,7 +29,14 @@ import (
 	"github.com/openziti/sdk-golang/ziti"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	retryInitialBackoff = 1 * time.Second
+	retryMaxBackoff     = 15 * time.Second
 )
 
 func main() {
@@ -110,7 +117,7 @@ func run() error {
 			return fmt.Errorf("dial ziti management: %w", err)
 		}
 		zitiMgmtClient = zitimgmtv1.NewZitiManagementServiceClient(zitiMgmtConn)
-		zitiCtx, identityID, err := setupZitiIdentity(ctx, zitiMgmtClient)
+		zitiCtx, identityID, err := setupZitiIdentity(ctx, zitiMgmtClient, cfg.ZitiEnrollmentTimeout)
 		if err != nil {
 			return err
 		}
@@ -181,11 +188,18 @@ func run() error {
 	return nil
 }
 
-func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient) (ziti.Context, string, error) {
-	identityResp, err := client.RequestServiceIdentity(ctx, &zitimgmtv1.RequestServiceIdentityRequest{
-		ServiceType: zitimgmtv1.ServiceType_SERVICE_TYPE_ORCHESTRATOR,
-	})
-	if err != nil {
+func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, timeout time.Duration) (ziti.Context, string, error) {
+	enrollmentCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var identityResp *zitimgmtv1.RequestServiceIdentityResponse
+	if err := retryWithBackoff(enrollmentCtx, "ziti enrollment", func(attemptCtx context.Context) error {
+		var requestErr error
+		identityResp, requestErr = client.RequestServiceIdentity(attemptCtx, &zitimgmtv1.RequestServiceIdentityRequest{
+			ServiceType: zitimgmtv1.ServiceType_SERVICE_TYPE_ORCHESTRATOR,
+		})
+		return requestErr
+	}); err != nil {
 		return nil, "", fmt.Errorf("request ziti service identity: %w", err)
 	}
 	identityID := identityResp.GetZitiIdentityId()
@@ -210,6 +224,54 @@ func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServ
 	}
 	ctxImpl.CtrlClt.SetUseOidc(false)
 	return zitiCtx, identityID, nil
+}
+
+func retryWithBackoff(ctx context.Context, operationName string, fn func(context.Context) error) error {
+	backoff := retryInitialBackoff
+	attempt := 1
+	for {
+		err := fn(ctx)
+		if err == nil {
+			return nil
+		}
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		if !isRetryableGrpcError(err) {
+			return err
+		}
+
+		delay := backoff
+		if delay > retryMaxBackoff {
+			delay = retryMaxBackoff
+		}
+
+		log.Printf("%s failed (attempt %d), retrying in %s: %v", operationName, attempt, delay, err)
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+
+		backoff *= 2
+		if backoff > retryMaxBackoff {
+			backoff = retryMaxBackoff
+		}
+		attempt++
+	}
+}
+
+func isRetryableGrpcError(err error) bool {
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	return statusErr.Code() == codes.Unavailable || statusErr.Code() == codes.Unknown
 }
 
 func dialZitiWithRetry(ctx context.Context, zitiCtx ziti.Context, service string) (net.Conn, error) {
