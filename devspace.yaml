@@ -31,7 +31,7 @@ functions:
     kubectl run register-runner --rm -i --restart=Never \
       --image=fullstorydev/grpcurl:latest \
       -n ${ORCHESTRATOR_NAMESPACE} \
-      --command -- sh -c 'grpcurl -plaintext -d "{\"name\":\"k8s-runner\"}" runners:50051 agynio.api.runners.v1.RunnersService/RegisterRunner' || true
+      --command -- /bin/grpcurl -plaintext -d '{"name":"k8s-runner"}' runners:50051 agynio.api.runners.v1.RunnersService/RegisterRunner || true
     echo "Patching agents-orchestrator deployment for DevSpace..."
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
     spec:
