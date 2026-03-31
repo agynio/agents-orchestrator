@@ -80,6 +80,8 @@ env:
     value: "false"
   - name: ZITI_LEASE_RENEWAL_INTERVAL
     value: "2m"
+  - name: ZITI_ENROLLMENT_TIMEOUT
+    value: "2m"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: ""
   - name: DEFAULT_INIT_IMAGE
