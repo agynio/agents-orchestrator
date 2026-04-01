@@ -288,6 +288,7 @@ func buildContainers(request *runnerv1.StartWorkloadRequest, resp *runnerv1.Star
 		container := &runnersv1.Container{
 			ContainerId: containerInfo.GetMain(),
 			Role:        runnersv1.ContainerRole_CONTAINER_ROLE_MAIN,
+			Status:      runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING,
 		}
 		container.Name = mainSpec.GetName()
 		container.Image = mainSpec.GetImage()
@@ -305,6 +306,7 @@ func buildContainers(request *runnerv1.StartWorkloadRequest, resp *runnerv1.Star
 			ContainerId: sidecar.GetId(),
 			Name:        sidecar.GetName(),
 			Role:        runnersv1.ContainerRole_CONTAINER_ROLE_SIDECAR,
+			Status:      runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING,
 		}
 		if spec, ok := sidecarSpecs[sidecar.GetName()]; ok && spec != nil {
 			container.Image = spec.GetImage()
