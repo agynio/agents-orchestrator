@@ -87,7 +87,7 @@ func run() error {
 	}
 	defer closeConn(secretsConn)
 
-	runnersConn, err := grpc.DialContext(ctx, cfg.RunnersAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	runnersConn, err := grpc.NewClient(cfg.RunnersAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial runners: %w", err)
 	}
@@ -228,6 +228,9 @@ func resolveRunnerID(ctx context.Context, client runnersv1.RunnersServiceClient)
 	runners := resp.GetRunners()
 	if len(runners) == 0 {
 		return "", fmt.Errorf("list runners: no runners registered")
+	}
+	if len(runners) > 1 {
+		log.Printf("orchestrator: warn: multiple runners registered (%d), using first", len(runners))
 	}
 	if runners[0] == nil {
 		return "", fmt.Errorf("list runners: missing runner entry")

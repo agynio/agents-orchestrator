@@ -300,6 +300,7 @@ func buildContainers(request *runnerv1.StartWorkloadRequest, resp *runnerv1.Star
 	}
 	for _, sidecar := range containerInfo.GetSidecars() {
 		if sidecar == nil || sidecar.GetId() == "" {
+			log.Printf("reconciler: warn: skipping sidecar with missing id")
 			continue
 		}
 		container := &runnersv1.Container{
