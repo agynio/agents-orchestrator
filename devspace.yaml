@@ -27,6 +27,18 @@ functions:
       echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
     fi
   patch_deployment: |-
+    echo "Registering k8s-runner with runners service..."
+    kubectl run register-runner --rm -i --restart=Never \
+      --image=ghcr.io/agynio/devcontainer-go:1 \
+      -n ${ORCHESTRATOR_NAMESPACE} \
+      --override-type=strategic \
+      --overrides='{"spec":{"securityContext":{"runAsUser":1000,"fsGroup":1000}}}' \
+      -- buf curl \
+        --schema buf.build/agynio/api \
+        --protocol grpc \
+        --http2-prior-knowledge \
+        -d '{"name":"k8s-runner"}' \
+        http://runners:50051/agynio.api.runners.v1.RunnersService/RegisterRunner || true
     echo "Patching agents-orchestrator deployment for DevSpace..."
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
     spec:
@@ -49,6 +61,8 @@ functions:
                   value: "gateway-gateway.platform.svc.cluster.local:8080"
                 - name: AGENT_MODEL_OVERRIDE
                   value: "simple-hello"
+                - name: ZITI_ENABLED
+                  value: "false"
                 - name: DEFAULT_INIT_IMAGE
                   value: "ghcr.io/agynio/agent-init-codex:0.5.0"
               workingDir: /opt/app/data
@@ -65,6 +79,7 @@ functions:
                   buf generate buf.build/agynio/api \
                     --include-imports \
                     --path agynio/api/runner/v1 \
+                    --path agynio/api/runners/v1 \
                     --path agynio/api/threads/v1 \
                     --path agynio/api/notifications/v1 \
                     --path agynio/api/agents/v1 \
@@ -193,7 +208,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
         -n ${ORCHESTRATOR_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --include-imports --path agynio/api/runner/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 --path agynio/api/ziti_management/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
+        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --include-imports --path agynio/api/runner/v1 --path agynio/api/runners/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 --path agynio/api/ziti_management/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
       EXIT_CODE=$?
       purge_deployments e2e-runner
       exit $EXIT_CODE

@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agynio/agents-orchestrator/internal/store"
+	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestComputeActions(t *testing.T) {
@@ -29,7 +30,7 @@ func TestComputeActions(t *testing.T) {
 	cases := []struct {
 		name     string
 		desired  []AgentThread
-		actual   []store.Workload
+		actual   []*runnersv1.Workload
 		expected Actions
 	}{
 		{
@@ -48,19 +49,19 @@ func TestComputeActions(t *testing.T) {
 		},
 		{
 			name:   "stop idle",
-			actual: []store.Workload{workload2},
+			actual: []*runnersv1.Workload{workload2},
 			expected: Actions{
-				ToStop: []store.Workload{workload2},
+				ToStop: []*runnersv1.Workload{workload2},
 			},
 		},
 		{
 			name:   "keep recent",
-			actual: []store.Workload{workload4},
+			actual: []*runnersv1.Workload{workload4},
 		},
 		{
 			name:    "match",
 			desired: []AgentThread{{AgentID: agent1, ThreadID: thread1}},
-			actual:  []store.Workload{workload1},
+			actual:  []*runnersv1.Workload{workload1},
 		},
 		{
 			name: "mixed",
@@ -68,17 +69,20 @@ func TestComputeActions(t *testing.T) {
 				{AgentID: agent1, ThreadID: thread1},
 				{AgentID: agent2, ThreadID: thread2},
 			},
-			actual: []store.Workload{workload3, workload2},
+			actual: []*runnersv1.Workload{workload3, workload2},
 			expected: Actions{
 				ToStart: []AgentThread{{AgentID: agent2, ThreadID: thread2}},
-				ToStop:  []store.Workload{workload2},
+				ToStop:  []*runnersv1.Workload{workload2},
 			},
 		},
 	}
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := ComputeActions(testCase.desired, testCase.actual, idleTimeout, now)
+			result, err := ComputeActions(testCase.desired, testCase.actual, idleTimeout, now)
+			if err != nil {
+				t.Fatalf("compute actions: %v", err)
+			}
 			sortAgentThreads(result.ToStart)
 			sortWorkloads(result.ToStop)
 			sortAgentThreads(testCase.expected.ToStart)
@@ -90,13 +94,14 @@ func TestComputeActions(t *testing.T) {
 	}
 }
 
-func makeWorkload(agentID, threadID uuid.UUID, startedAt time.Time) store.Workload {
-	return store.Workload{
-		ID:         uuid.New(),
-		WorkloadID: uuid.NewString(),
-		AgentID:    agentID,
-		ThreadID:   threadID,
-		StartedAt:  startedAt,
+func makeWorkload(agentID, threadID uuid.UUID, startedAt time.Time) *runnersv1.Workload {
+	return &runnersv1.Workload{
+		Meta: &runnersv1.EntityMeta{
+			Id:        uuid.NewString(),
+			CreatedAt: timestamppb.New(startedAt),
+		},
+		AgentId:  agentID.String(),
+		ThreadId: threadID.String(),
 	}
 }
 
@@ -109,11 +114,8 @@ func sortAgentThreads(values []AgentThread) {
 	})
 }
 
-func sortWorkloads(values []store.Workload) {
+func sortWorkloads(values []*runnersv1.Workload) {
 	sort.Slice(values, func(i, j int) bool {
-		if values[i].WorkloadID == values[j].WorkloadID {
-			return values[i].ID.String() < values[j].ID.String()
-		}
-		return values[i].WorkloadID < values[j].WorkloadID
+		return values[i].GetMeta().GetId() < values[j].GetMeta().GetId()
 	})
 }
