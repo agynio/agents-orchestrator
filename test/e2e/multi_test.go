@@ -28,8 +28,8 @@ func TestMultipleAgentsSeparateThreads(t *testing.T) {
 	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agentA := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-a-%s", uuid.NewString()))
-	agentB := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-b-%s", uuid.NewString()))
+	agentA := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-a-%s", uuid.NewString()), "simple-hello")
+	agentB := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-b-%s", uuid.NewString()), "simple-hello")
 	agentAID := agentA.GetMeta().GetId()
 	agentBID := agentB.GetMeta().GetId()
 	if agentAID == "" || agentBID == "" {
@@ -144,7 +144,7 @@ func TestSameAgentMultipleThreads(t *testing.T) {
 	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-thread-%s", uuid.NewString()))
+	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-thread-%s", uuid.NewString()), "simple-hello")
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")

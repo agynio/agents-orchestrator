@@ -119,13 +119,12 @@ func registerAgentIdentity(t *testing.T, ctx context.Context, client identityv1.
 
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model string) *agentsv1.Agent {
 	t.Helper()
-	modelValue := uuid.New().String()
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:           name,
 		Role:           "assistant",
-		Model:          modelValue,
+		Model:          model,
 		Image:          "alpine:3.21",
 		OrganizationId: testOrganizationID,
 	})

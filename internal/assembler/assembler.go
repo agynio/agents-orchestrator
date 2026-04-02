@@ -140,7 +140,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 	mcpAssignments, err := assignMcpPorts(mcps)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("assign mcp ports: %w", err)
 	}
 	hooks, err := a.listHooks(ctx, agentID)
 	if err != nil {

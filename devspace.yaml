@@ -59,8 +59,6 @@ functions:
                   value: "https://testllm.dev/v1/org/agynio/suite/codex"
                 - name: AGENT_GATEWAY_ADDRESS
                   value: "gateway-gateway.platform.svc.cluster.local:8080"
-                - name: AGENT_MODEL_OVERRIDE
-                  value: "simple-hello"
                 - name: ZITI_ENABLED
                   value: "false"
                 - name: DEFAULT_INIT_IMAGE

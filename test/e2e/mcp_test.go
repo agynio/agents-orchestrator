@@ -31,7 +31,7 @@ func TestMCPToolsE2E(t *testing.T) {
 	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString())
+	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString(), "mcp-tools-test")
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
@@ -88,6 +88,16 @@ func TestMCPToolsE2E(t *testing.T) {
 		labelAgentID:   agentID,
 		labelThreadID:  threadID,
 	}
+	t.Cleanup(func() {
+		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
+		if err != nil {
+			t.Logf("cleanup: find workloads: %v", err)
+			return
+		}
+		for _, workloadID := range ids {
+			cleanupWorkload(t, ctx, runnerClient, workloadID)
+		}
+	})
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 7*time.Minute)
 	defer pollCancel()

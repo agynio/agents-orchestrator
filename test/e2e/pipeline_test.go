@@ -28,7 +28,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-pipeline-%s", uuid.NewString()))
+	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-pipeline-%s", uuid.NewString()), "simple-hello")
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")

@@ -664,9 +664,6 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 
 	ports := map[string]string{}
 	for _, sidecar := range request.Sidecars {
-		if sidecar == nil {
-			continue
-		}
 		envs := envMap(sidecar.Env)
 		port, ok := envs["MCP_PORT"]
 		if !ok {
