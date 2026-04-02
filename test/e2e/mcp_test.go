@@ -74,6 +74,7 @@ func TestMCPToolsE2E(t *testing.T) {
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
 	sendMessage(t, ctx, threadsClient, threadID, userID, "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data")
+	t.Logf("test setup complete: agentID=%s threadID=%s memoryMcpID=%s filesystemMcpID=%s", agentID, threadID, memoryMcpID, filesystemMcpID)
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -93,8 +94,21 @@ func TestMCPToolsE2E(t *testing.T) {
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 7*time.Minute)
 	defer pollCancel()
+	truncateBody := func(body string) string {
+		if body == "" {
+			return body
+		}
+		bodyRunes := []rune(body)
+		if len(bodyRunes) <= 200 {
+			return body
+		}
+		return string(bodyRunes[:200])
+	}
 	agentBody := ""
+	pollCount := 0
 	if err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
+		pollCount++
+		logDiagnostics := pollCount%10 == 0
 		resp, err := threadsClient.GetMessages(ctx, &threadsv1.GetMessagesRequest{
 			ThreadId: threadID,
 			PageSize: 50,
@@ -102,10 +116,27 @@ func TestMCPToolsE2E(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("get messages: %w", err)
 		}
+		agentMessage := ""
 		for _, msg := range resp.GetMessages() {
-			if msg.GetSenderId() == agentID {
-				agentBody = msg.GetBody()
-				return nil
+			if logDiagnostics {
+				t.Logf("diagnostics: message sender=%s body=%s", msg.GetSenderId(), truncateBody(msg.GetBody()))
+			}
+			if agentMessage == "" && msg.GetSenderId() == agentID {
+				agentMessage = msg.GetBody()
+			}
+		}
+		if agentMessage != "" {
+			agentBody = agentMessage
+			return nil
+		}
+		if logDiagnostics {
+			ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
+			if err != nil {
+				t.Logf("diagnostics: find workloads: %v", err)
+			} else if len(ids) == 0 {
+				t.Log("diagnostics: no workloads found")
+			} else {
+				t.Logf("diagnostics: workloads=%v", ids)
 			}
 		}
 		return fmt.Errorf("agent response not found")
