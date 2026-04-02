@@ -12,6 +12,7 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ func TestMCPToolsE2E(t *testing.T) {
 
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
+	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
 	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString())
@@ -69,6 +71,7 @@ func TestMCPToolsE2E(t *testing.T) {
 	t.Cleanup(func() { deleteMCP(t, ctx, agentsClient, filesystemMcpID) })
 
 	userID := newUserID()
+	registerIdentity(t, ctx, identityClient, userID)
 	thread := createThread(t, ctx, threadsClient, []string{userID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
@@ -31,9 +32,10 @@ const (
 )
 
 var (
-	agentsAddr  = envOrDefault("AGENTS_ADDRESS", "agents:50051")
-	threadsAddr = envOrDefault("THREADS_ADDRESS", "threads:50051")
-	runnerAddr  = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
+	agentsAddr   = envOrDefault("AGENTS_ADDRESS", "agents:50051")
+	threadsAddr  = envOrDefault("THREADS_ADDRESS", "threads:50051")
+	identityAddr = envOrDefault("IDENTITY_ADDRESS", "identity:50051")
+	runnerAddr   = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 )
 
 func envOrDefault(key, fallback string) string {
@@ -91,6 +93,17 @@ func pollUntil(ctx context.Context, interval time.Duration, check func(ctx conte
 // newUserID returns a random UUID to use as a fake user participant.
 func newUserID() string {
 	return uuid.New().String()
+}
+
+func registerIdentity(t *testing.T, ctx context.Context, client identityv1.IdentityServiceClient, identityID string) {
+	t.Helper()
+	_, err := client.RegisterIdentity(ctx, &identityv1.RegisterIdentityRequest{
+		IdentityId:   identityID,
+		IdentityType: identityv1.IdentityType_IDENTITY_TYPE_USER,
+	})
+	if err != nil {
+		t.Fatalf("register identity %s: %v", identityID, err)
+	}
 }
 
 // --- Setup Helpers ---

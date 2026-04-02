@@ -9,6 +9,7 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ func TestMultipleAgentsSeparateThreads(t *testing.T) {
 
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
+	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
 	agentA := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-a-%s", uuid.NewString()))
@@ -37,6 +39,7 @@ func TestMultipleAgentsSeparateThreads(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentBID) })
 
 	userID := newUserID()
+	registerIdentity(t, ctx, identityClient, userID)
 	threadA := createThread(t, ctx, threadsClient, []string{userID, agentAID})
 	threadB := createThread(t, ctx, threadsClient, []string{userID, agentBID})
 	threadAID := threadA.GetId()
@@ -136,6 +139,7 @@ func TestSameAgentMultipleThreads(t *testing.T) {
 
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
+	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
 	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-thread-%s", uuid.NewString()))
@@ -146,6 +150,7 @@ func TestSameAgentMultipleThreads(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 
 	userID := newUserID()
+	registerIdentity(t, ctx, identityClient, userID)
 	threadA := createThread(t, ctx, threadsClient, []string{userID, agentID})
 	threadB := createThread(t, ctx, threadsClient, []string{userID, agentID})
 	threadAID := threadA.GetId()
