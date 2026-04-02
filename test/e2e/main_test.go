@@ -95,12 +95,13 @@ func newUserID() string {
 
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model string) *agentsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {
 	t.Helper()
+	modelValue := uuid.New().String()
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:           name,
 		Role:           "assistant",
-		Model:          model,
+		Model:          modelValue,
 		Image:          "alpine:3.21",
 		OrganizationId: testOrganizationID,
 	})
@@ -120,6 +121,23 @@ func deleteAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServic
 	if err != nil {
 		t.Logf("cleanup: delete agent %s: %v", agentID, err)
 	}
+}
+
+func createAgentEnv(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, agentID, name, value string) *agentsv1.Env {
+	t.Helper()
+	resp, err := client.CreateEnv(ctx, &agentsv1.CreateEnvRequest{
+		Name:   name,
+		Target: &agentsv1.CreateEnvRequest_AgentId{AgentId: agentID},
+		Source: &agentsv1.CreateEnvRequest_Value{Value: value},
+	})
+	if err != nil {
+		t.Fatalf("create agent env %q: %v", name, err)
+	}
+	env := resp.GetEnv()
+	if env == nil || env.GetMeta() == nil {
+		t.Fatal("create agent env: nil response")
+	}
+	return env
 }
 
 func createMCP(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, agentID, name, image, command string) *agentsv1.Mcp {

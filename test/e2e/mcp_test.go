@@ -26,12 +26,13 @@ func TestMCPToolsE2E(t *testing.T) {
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString(), "mcp-tools-test")
+	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString())
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
 	}
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
+	createAgentEnv(t, ctx, agentsClient, agentID, "MODEL_OVERRIDE", "mcp-tools-test")
 
 	memoryMCP := createMCP(
 		t,
