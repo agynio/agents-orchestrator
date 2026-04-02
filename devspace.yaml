@@ -64,7 +64,7 @@ functions:
                 - name: ZITI_ENABLED
                   value: "false"
                 - name: DEFAULT_INIT_IMAGE
-                  value: "ghcr.io/agynio/agent-init-codex:0.5.0"
+                  value: "ghcr.io/agynio/agent-init-codex:0.8.0"
               workingDir: /opt/app/data
               command:
                 - sh
