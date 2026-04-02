@@ -37,6 +37,7 @@ func TestMCPToolsE2E(t *testing.T) {
 		t.Fatal("create agent: missing id")
 	}
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
+	registerAgentIdentity(t, ctx, identityClient, agentID)
 	createAgentEnv(t, ctx, agentsClient, agentID, "MODEL_OVERRIDE", "mcp-tools-test")
 
 	memoryMCP := createMCP(

@@ -106,6 +106,17 @@ func registerIdentity(t *testing.T, ctx context.Context, client identityv1.Ident
 	}
 }
 
+func registerAgentIdentity(t *testing.T, ctx context.Context, client identityv1.IdentityServiceClient, identityID string) {
+	t.Helper()
+	_, err := client.RegisterIdentity(ctx, &identityv1.RegisterIdentityRequest{
+		IdentityId:   identityID,
+		IdentityType: identityv1.IdentityType_IDENTITY_TYPE_AGENT,
+	})
+	if err != nil {
+		t.Fatalf("register agent identity %s: %v", identityID, err)
+	}
+}
+
 // --- Setup Helpers ---
 
 func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {

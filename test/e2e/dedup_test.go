@@ -34,6 +34,7 @@ func TestNoDuplicateWorkloads(t *testing.T) {
 		t.Fatal("create agent: missing id")
 	}
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
+	registerAgentIdentity(t, ctx, identityClient, agentID)
 
 	userID := newUserID()
 	registerIdentity(t, ctx, identityClient, userID)
