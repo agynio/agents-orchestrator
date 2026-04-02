@@ -20,6 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: agynio/bootstrap
+          ref: d30951a
           path: bootstrap
 
       - name: Install kubectl
