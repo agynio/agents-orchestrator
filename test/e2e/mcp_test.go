@@ -87,16 +87,6 @@ func TestMCPToolsE2E(t *testing.T) {
 		labelAgentID:   agentID,
 		labelThreadID:  threadID,
 	}
-	t.Cleanup(func() {
-		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
-		if err != nil {
-			t.Logf("cleanup: find workloads: %v", err)
-			return
-		}
-		for _, workloadID := range ids {
-			cleanupWorkload(t, ctx, runnerClient, workloadID)
-		}
-	})
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 7*time.Minute)
 	defer pollCancel()
