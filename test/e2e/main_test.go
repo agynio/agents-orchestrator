@@ -95,13 +95,12 @@ func newUserID() string {
 
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model string) *agentsv1.Agent {
 	t.Helper()
-	modelValue := uuid.New().String()
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:           name,
 		Role:           "assistant",
-		Model:          modelValue,
+		Model:          model,
 		Image:          "alpine:3.21",
 		OrganizationId: testOrganizationID,
 	})
@@ -121,6 +120,49 @@ func deleteAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServic
 	if err != nil {
 		t.Logf("cleanup: delete agent %s: %v", agentID, err)
 	}
+}
+
+func createMCP(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, agentID, name, image, command string) *agentsv1.Mcp {
+	t.Helper()
+	resp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
+		AgentId: agentID,
+		Name:    name,
+		Image:   image,
+		Command: command,
+	})
+	if err != nil {
+		t.Fatalf("create mcp %q: %v", name, err)
+	}
+	mcp := resp.GetMcp()
+	if mcp == nil || mcp.GetMeta() == nil {
+		t.Fatal("create mcp: nil response")
+	}
+	return mcp
+}
+
+func deleteMCP(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, mcpID string) {
+	t.Helper()
+	_, err := client.DeleteMcp(ctx, &agentsv1.DeleteMcpRequest{Id: mcpID})
+	if err != nil {
+		t.Logf("cleanup: delete mcp %s: %v", mcpID, err)
+	}
+}
+
+func createMCPEnv(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, mcpID, name, value string) *agentsv1.Env {
+	t.Helper()
+	resp, err := client.CreateEnv(ctx, &agentsv1.CreateEnvRequest{
+		Name:   name,
+		Target: &agentsv1.CreateEnvRequest_McpId{McpId: mcpID},
+		Source: &agentsv1.CreateEnvRequest_Value{Value: value},
+	})
+	if err != nil {
+		t.Fatalf("create mcp env %q: %v", name, err)
+	}
+	env := resp.GetEnv()
+	if env == nil || env.GetMeta() == nil {
+		t.Fatal("create mcp env: nil response")
+	}
+	return env
 }
 
 func createThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantIDs []string) *threadsv1.Thread {

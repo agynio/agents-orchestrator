@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestFullPipelineMessageResponse(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+func TestMCPToolsE2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	t.Cleanup(cancel)
 
 	agentsConn := dialGRPC(t, agentsAddr)
@@ -26,12 +26,43 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-pipeline-%s", uuid.NewString()), "simple-hello")
+	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString(), "mcp-tools-test")
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
 	}
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
+
+	memoryMCP := createMCP(
+		t,
+		ctx,
+		agentsClient,
+		agentID,
+		"memory",
+		"node:22-slim",
+		`npx -y supergateway --stdio "npx -y @modelcontextprotocol/server-memory" --outputTransport streamableHttp --port $MCP_PORT --streamableHttpPath /mcp`,
+	)
+	memoryMcpID := memoryMCP.GetMeta().GetId()
+	if memoryMcpID == "" {
+		t.Fatal("create memory mcp: missing id")
+	}
+	t.Cleanup(func() { deleteMCP(t, ctx, agentsClient, memoryMcpID) })
+	createMCPEnv(t, ctx, agentsClient, memoryMcpID, "MEMORY_FILE_PATH", "/tmp/memory.json")
+
+	filesystemMCP := createMCP(
+		t,
+		ctx,
+		agentsClient,
+		agentID,
+		"filesystem",
+		"node:22-slim",
+		`mkdir -p /test-data && printf 'hello' > /test-data/hello.txt && npx -y supergateway --stdio "npx -y @modelcontextprotocol/server-filesystem /test-data" --outputTransport streamableHttp --port $MCP_PORT --streamableHttpPath /mcp`,
+	)
+	filesystemMcpID := filesystemMCP.GetMeta().GetId()
+	if filesystemMcpID == "" {
+		t.Fatal("create filesystem mcp: missing id")
+	}
+	t.Cleanup(func() { deleteMCP(t, ctx, agentsClient, filesystemMcpID) })
 
 	userID := newUserID()
 	thread := createThread(t, ctx, threadsClient, []string{userID, agentID})
@@ -41,7 +72,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	sendMessage(t, ctx, threadsClient, threadID, userID, "hello")
+	sendMessage(t, ctx, threadsClient, threadID, userID, "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data")
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -59,7 +90,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 		}
 	})
 
-	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
+	pollCtx, pollCancel := context.WithTimeout(ctx, 7*time.Minute)
 	defer pollCancel()
 	agentBody := ""
 	if err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
@@ -81,7 +112,8 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 		t.Fatalf("wait for agent response: %v", err)
 	}
 
-	if agentBody != "Hi! How are you?" {
-		t.Fatalf("expected agent response %q, got %q", "Hi! How are you?", agentBody)
+	expected := "I've created the entity 'test_project' (type: project) with the observation 'A test project'. The /test-data directory contains one file: hello.txt."
+	if agentBody != expected {
+		t.Fatalf("expected agent response %q, got %q", expected, agentBody)
 	}
 }
