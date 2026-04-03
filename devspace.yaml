@@ -89,7 +89,8 @@ functions:
                     --path agynio/api/agents/v1 \
                     --path agynio/api/secrets/v1 \
                     --path agynio/api/ziti_management/v1 \
-                    --path agynio/api/identity/v1
+                    --path agynio/api/identity/v1 \
+                    --path agynio/api/llm/v1
                   exec go run ./cmd/orchestrator
               volumeMounts:
                 - name: data
@@ -241,14 +242,17 @@ dev:
             excludePaths:
               - .git/
               - .devspace/
+              - /.gen/
               - /tmp/
             uploadExcludePaths:
               - .git/
               - .devspace/
+              - /.gen/
               - /tmp/
             downloadExcludePaths:
               - .git/
               - .devspace/
+              - /.gen/
               - /tmp/
         logs:
           enabled: true
@@ -266,6 +270,7 @@ dev:
         excludePaths:
           - .git/
           - .devspace/
+          - /.gen/
           - /tmp/
 
   # One-shot variant of agents-orchestrator for CI deploy pipeline. Keep sync excludePaths in sync.
@@ -283,14 +288,17 @@ dev:
             excludePaths:
               - .git/
               - .devspace/
+              - /.gen/
               - /tmp/
             uploadExcludePaths:
               - .git/
               - .devspace/
+              - /.gen/
               - /tmp/
             downloadExcludePaths:
               - .git/
               - .devspace/
+              - /.gen/
               - /tmp/
 
   # One-shot variant of e2e-runner for CI test pipeline. Keep sync excludePaths in sync.
@@ -306,4 +314,5 @@ dev:
         excludePaths:
           - .git/
           - .devspace/
+          - /.gen/
           - /tmp/
