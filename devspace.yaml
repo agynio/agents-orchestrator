@@ -38,8 +38,8 @@ functions:
         --protocol grpc \
         --http2-prior-knowledge \
         -d '{"name":"k8s-runner"}' \
-        http://runners:50051/agynio.api.runners.v1.RunnersService/RegisterRunner 2>/dev/null) || true
-    SERVICE_TOKEN=$(echo "$REGISTER_RESPONSE" | jq -r '.serviceToken // empty')
+        http://runners:50051/agynio.api.runners.v1.RunnersService/RegisterRunner 2>/dev/null | grep '^\s*{' | head -1) || true
+    SERVICE_TOKEN=$(echo "$REGISTER_RESPONSE" | jq -r '.serviceToken // empty' 2>/dev/null)
     if [ -n "$SERVICE_TOKEN" ]; then
       echo "Enrolling k8s-runner..."
       kubectl run register-runner --rm -i --restart=Never \
