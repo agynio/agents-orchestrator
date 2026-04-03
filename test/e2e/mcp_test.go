@@ -13,6 +13,7 @@ import (
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
+	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
@@ -29,17 +30,28 @@ func TestMCPToolsE2E(t *testing.T) {
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
+	llmConn := dialGRPC(t, llmAddr)
+	llmClient := llmv1.NewLLMServiceClient(llmConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString(), "mcp-tools-test")
+	provider := createLLMProvider(t, ctx, llmClient, testLLMEndpoint, testOrganizationID)
+	providerID := provider.GetMeta().GetId()
+	if providerID == "" {
+		t.Fatal("create llm provider: missing id")
+	}
+	model := createModel(t, ctx, llmClient, "e2e-model-"+uuid.NewString(), providerID, "mcp-tools-test", testOrganizationID)
+	modelID := model.GetMeta().GetId()
+	if modelID == "" {
+		t.Fatal("create model: missing id")
+	}
+
+	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString(), modelID)
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
 	}
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	registerAgentIdentity(t, ctx, identityClient, agentID)
-	createAgentEnv(t, ctx, agentsClient, agentID, "MODEL_OVERRIDE", "mcp-tools-test")
-
 	memoryMCP := createMCP(
 		t,
 		ctx,

@@ -10,6 +10,7 @@ import (
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
+	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
@@ -26,10 +27,23 @@ func TestMultipleAgentsSeparateThreads(t *testing.T) {
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
+	llmConn := dialGRPC(t, llmAddr)
+	llmClient := llmv1.NewLLMServiceClient(llmConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agentA := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-a-%s", uuid.NewString()), "simple-hello")
-	agentB := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-b-%s", uuid.NewString()), "simple-hello")
+	provider := createLLMProvider(t, ctx, llmClient, testLLMEndpoint, testOrganizationID)
+	providerID := provider.GetMeta().GetId()
+	if providerID == "" {
+		t.Fatal("create llm provider: missing id")
+	}
+	model := createModel(t, ctx, llmClient, "e2e-model-"+uuid.NewString(), providerID, "simple-hello", testOrganizationID)
+	modelID := model.GetMeta().GetId()
+	if modelID == "" {
+		t.Fatal("create model: missing id")
+	}
+
+	agentA := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-a-%s", uuid.NewString()), modelID)
+	agentB := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-b-%s", uuid.NewString()), modelID)
 	agentAID := agentA.GetMeta().GetId()
 	agentBID := agentB.GetMeta().GetId()
 	if agentAID == "" || agentBID == "" {
@@ -142,9 +156,22 @@ func TestSameAgentMultipleThreads(t *testing.T) {
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
+	llmConn := dialGRPC(t, llmAddr)
+	llmClient := llmv1.NewLLMServiceClient(llmConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-thread-%s", uuid.NewString()), "simple-hello")
+	provider := createLLMProvider(t, ctx, llmClient, testLLMEndpoint, testOrganizationID)
+	providerID := provider.GetMeta().GetId()
+	if providerID == "" {
+		t.Fatal("create llm provider: missing id")
+	}
+	model := createModel(t, ctx, llmClient, "e2e-model-"+uuid.NewString(), providerID, "simple-hello", testOrganizationID)
+	modelID := model.GetMeta().GetId()
+	if modelID == "" {
+		t.Fatal("create model: missing id")
+	}
+
+	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-multi-thread-%s", uuid.NewString()), modelID)
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")

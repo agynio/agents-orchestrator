@@ -12,6 +12,7 @@ import (
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
+	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ const (
 	testTimeout  = 120 * time.Second
 
 	testOrganizationID = "33333333-3333-3333-3333-333333333333"
+	testLLMEndpoint    = "https://testllm.dev/v1/org/agynio/suite/codex"
 
 	labelManagedBy = "managed-by"
 	labelAgentID   = "agent-id"
@@ -35,6 +37,7 @@ var (
 	agentsAddr   = envOrDefault("AGENTS_ADDRESS", "agents:50051")
 	threadsAddr  = envOrDefault("THREADS_ADDRESS", "threads:50051")
 	identityAddr = envOrDefault("IDENTITY_ADDRESS", "identity:50051")
+	llmAddr      = envOrDefault("LLM_ADDRESS", "llm:50051")
 	runnerAddr   = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 )
 
@@ -115,6 +118,42 @@ func registerAgentIdentity(t *testing.T, ctx context.Context, client identityv1.
 	if err != nil {
 		t.Fatalf("register agent identity %s: %v", identityID, err)
 	}
+}
+
+func createLLMProvider(t *testing.T, ctx context.Context, client llmv1.LLMServiceClient, endpoint, orgID string) *llmv1.LLMProvider {
+	t.Helper()
+	resp, err := client.CreateLLMProvider(ctx, &llmv1.CreateLLMProviderRequest{
+		Endpoint:       endpoint,
+		AuthMethod:     llmv1.AuthMethod_AUTH_METHOD_BEARER,
+		Token:          "test-token",
+		OrganizationId: orgID,
+	})
+	if err != nil {
+		t.Fatalf("create llm provider: %v", err)
+	}
+	provider := resp.GetProvider()
+	if provider == nil || provider.GetMeta() == nil {
+		t.Fatal("create llm provider: nil response")
+	}
+	return provider
+}
+
+func createModel(t *testing.T, ctx context.Context, client llmv1.LLMServiceClient, name, providerID, remoteName, orgID string) *llmv1.Model {
+	t.Helper()
+	resp, err := client.CreateModel(ctx, &llmv1.CreateModelRequest{
+		Name:           name,
+		LlmProviderId:  providerID,
+		RemoteName:     remoteName,
+		OrganizationId: orgID,
+	})
+	if err != nil {
+		t.Fatalf("create model %q: %v", name, err)
+	}
+	model := resp.GetModel()
+	if model == nil || model.GetMeta() == nil {
+		t.Fatal("create model: nil response")
+	}
+	return model
 }
 
 // --- Setup Helpers ---
