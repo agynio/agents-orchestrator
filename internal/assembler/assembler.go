@@ -194,19 +194,12 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}, nil
 }
 
-type runnerLabeler interface {
-	GetRunnerLabels() map[string]string
-}
-
 func agentRunnerLabels(agent *agentsv1.Agent) map[string]string {
 	if agent == nil {
 		return nil
 	}
-	labeler, ok := interface{}(agent).(runnerLabeler)
-	if !ok {
-		return nil
-	}
-	return labeler.GetRunnerLabels()
+	// TODO: Add runner_labels to Agent proto and return agent.GetRunnerLabels().
+	return nil
 }
 
 func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {

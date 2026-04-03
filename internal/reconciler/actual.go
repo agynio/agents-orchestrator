@@ -31,7 +31,6 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, er
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			log.Printf("reconciler: warn: dial runner %s: %v", runnerID, err)
-			r.removeStaleWorkloads(ctx, workloads, "runner unreachable")
 			continue
 		}
 		resp, err := runnerClient.FindWorkloadsByLabels(ctx, &runnerv1.FindWorkloadsByLabelsRequest{
@@ -40,7 +39,6 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, er
 		})
 		if err != nil {
 			log.Printf("reconciler: warn: list workloads for runner %s: %v", runnerID, err)
-			r.removeStaleWorkloads(ctx, workloads, "list failure")
 			continue
 		}
 		running := make(map[string]struct{}, len(resp.GetTargetIds()))
@@ -66,9 +64,6 @@ func (r *Reconciler) removeStaleWorkloads(ctx context.Context, workloads []*runn
 }
 
 func (r *Reconciler) removeStaleWorkload(ctx context.Context, workload *runnersv1.Workload, reason string) {
-	if workload == nil {
-		return
-	}
 	workloadID := workload.GetMeta().GetId()
 	if workloadID == "" {
 		log.Printf("reconciler: warn: stale workload missing id (%s)", reason)

@@ -122,9 +122,6 @@ func run() error {
 		runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 		runnerDialer = runnerdial.NewFallbackDialer(runnerClient)
 	}
-	if runnerDialer == nil {
-		return fmt.Errorf("runner dialer not configured")
-	}
 	defer runnerDialer.Close()
 	defer closeConn(zitiMgmtConn)
 

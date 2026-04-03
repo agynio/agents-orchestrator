@@ -10,6 +10,18 @@ import (
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 )
 
+const (
+	dockerStateRunning    = "running"
+	dockerStateCreated    = "created"
+	dockerStateRestarting = "restarting"
+	dockerStateStarting   = "starting"
+	dockerStatePaused     = "paused"
+	dockerStateExited     = "exited"
+	dockerStateDead       = "dead"
+	dockerStateRemoving   = "removing"
+	dockerStateStopped    = "stopped"
+)
+
 func (r *Reconciler) updateWorkloadStatuses(ctx context.Context) error {
 	workloads, err := r.listActiveWorkloads(ctx)
 	if err != nil {
@@ -60,13 +72,13 @@ func workloadStatusFromInspect(resp *runnerv1.InspectWorkloadResponse) (runnersv
 	}
 	status := strings.ToLower(resp.GetStateStatus())
 	switch status {
-	case "running":
+	case dockerStateRunning:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, nil
-	case "created", "restarting", "starting":
+	case dockerStateCreated, dockerStateRestarting, dockerStateStarting:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, nil
-	case "paused":
+	case dockerStatePaused:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, nil
-	case "", "exited", "dead", "removing", "stopped":
+	case "", dockerStateExited, dockerStateDead, dockerStateRemoving, dockerStateStopped:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED, nil
 	default:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED, fmt.Errorf("unknown runner state %q", status)

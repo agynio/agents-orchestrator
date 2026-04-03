@@ -166,13 +166,11 @@ func (r *Reconciler) compensateIdentity(ctx context.Context, zitiIdentityID *str
 }
 
 func (r *Reconciler) rollbackWorkload(ctx context.Context, runner runnerv1.RunnerServiceClient, workloadID string, zitiIdentityID *string, reason string) {
-	if runner != nil {
-		if _, err := runner.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
-			WorkloadId: workloadID,
-			TimeoutSec: r.stopSec,
-		}); err != nil {
-			log.Printf("reconciler: stop workload %s after %s: %v", workloadID, reason, err)
-		}
+	if _, err := runner.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
+		WorkloadId: workloadID,
+		TimeoutSec: r.stopSec,
+	}); err != nil {
+		log.Printf("reconciler: stop workload %s after %s: %v", workloadID, reason, err)
 	}
 	r.compensateIdentity(ctx, zitiIdentityID, reason)
 }
@@ -253,21 +251,21 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workload) {
 	workloadID := workload.GetMeta().GetId()
 	runnerID := workload.GetRunnerId()
-	if runnerID != "" {
-		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
-		if err != nil {
-			log.Printf("reconciler: dial runner %s for workload %s: %v", runnerID, workloadID, err)
-		} else {
-			if _, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
-				WorkloadId: workloadID,
-				TimeoutSec: r.stopSec,
-			}); err != nil {
-				log.Printf("reconciler: stop workload %s: %v", workloadID, err)
-				return
-			}
-		}
-	} else {
+	if runnerID == "" {
 		log.Printf("reconciler: workload %s missing runner id", workloadID)
+		return
+	}
+	runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
+	if err != nil {
+		log.Printf("reconciler: dial runner %s for workload %s: %v", runnerID, workloadID, err)
+		return
+	}
+	if _, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
+		WorkloadId: workloadID,
+		TimeoutSec: r.stopSec,
+	}); err != nil {
+		log.Printf("reconciler: stop workload %s: %v", workloadID, err)
+		return
 	}
 	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
 		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {

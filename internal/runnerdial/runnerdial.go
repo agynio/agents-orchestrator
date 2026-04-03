@@ -77,9 +77,6 @@ func (d *Dialer) Close() {
 }
 
 func (d *Dialer) dial(ctx context.Context, runnerID string) (*grpc.ClientConn, error) {
-	if d.dialFunc == nil {
-		d.dialFunc = d.dialRunner
-	}
 	return d.dialFunc(ctx, runnerID)
 }
 
