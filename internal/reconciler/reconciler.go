@@ -12,51 +12,49 @@ import (
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
+	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 )
 
 const reconcileTimeout = 30 * time.Second
 
 type Reconciler struct {
-	threads   threadsv1.ThreadsServiceClient
-	agents    agentsv1.AgentsServiceClient
-	runner    runnerv1.RunnerServiceClient
-	runners   runnersv1.RunnersServiceClient
-	zitiMgmt  zitimgmtv1.ZitiManagementServiceClient
-	assembler *assembler.Assembler
-	runnerID  string
-	wake      <-chan struct{}
-	poll      time.Duration
-	idle      time.Duration
-	stopSec   uint32
+	threads      threadsv1.ThreadsServiceClient
+	agents       agentsv1.AgentsServiceClient
+	runnerDialer runnerdial.RunnerDialer
+	runners      runnersv1.RunnersServiceClient
+	zitiMgmt     zitimgmtv1.ZitiManagementServiceClient
+	assembler    *assembler.Assembler
+	wake         <-chan struct{}
+	poll         time.Duration
+	idle         time.Duration
+	stopSec      uint32
 }
 
 type Config struct {
-	Threads   threadsv1.ThreadsServiceClient
-	Agents    agentsv1.AgentsServiceClient
-	Runner    runnerv1.RunnerServiceClient
-	Runners   runnersv1.RunnersServiceClient
-	ZitiMgmt  zitimgmtv1.ZitiManagementServiceClient
-	Assembler *assembler.Assembler
-	RunnerID  string
-	Wake      <-chan struct{}
-	Poll      time.Duration
-	Idle      time.Duration
-	StopSec   uint32
+	Threads      threadsv1.ThreadsServiceClient
+	Agents       agentsv1.AgentsServiceClient
+	RunnerDialer runnerdial.RunnerDialer
+	Runners      runnersv1.RunnersServiceClient
+	ZitiMgmt     zitimgmtv1.ZitiManagementServiceClient
+	Assembler    *assembler.Assembler
+	Wake         <-chan struct{}
+	Poll         time.Duration
+	Idle         time.Duration
+	StopSec      uint32
 }
 
 func New(cfg Config) *Reconciler {
 	return &Reconciler{
-		threads:   cfg.Threads,
-		agents:    cfg.Agents,
-		runner:    cfg.Runner,
-		runners:   cfg.Runners,
-		zitiMgmt:  cfg.ZitiMgmt,
-		assembler: cfg.Assembler,
-		runnerID:  cfg.RunnerID,
-		wake:      cfg.Wake,
-		poll:      cfg.Poll,
-		idle:      cfg.Idle,
-		stopSec:   cfg.StopSec,
+		threads:      cfg.Threads,
+		agents:       cfg.Agents,
+		runnerDialer: cfg.RunnerDialer,
+		runners:      cfg.Runners,
+		zitiMgmt:     cfg.ZitiMgmt,
+		assembler:    cfg.Assembler,
+		wake:         cfg.Wake,
+		poll:         cfg.Poll,
+		idle:         cfg.Idle,
+		stopSec:      cfg.StopSec,
 	}
 }
 
@@ -104,6 +102,9 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 	}
 	for _, workload := range actions.ToStop {
 		r.stopWorkload(ctx, workload)
+	}
+	if err := r.updateWorkloadStatuses(ctx); err != nil {
+		return err
 	}
 	if r.zitiMgmt != nil {
 		if err := r.reconcileOrphanIdentities(ctx); err != nil {
@@ -164,12 +165,14 @@ func (r *Reconciler) compensateIdentity(ctx context.Context, zitiIdentityID *str
 	}
 }
 
-func (r *Reconciler) rollbackWorkload(ctx context.Context, workloadID string, zitiIdentityID *string, reason string) {
-	if _, err := r.runner.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
-		WorkloadId: workloadID,
-		TimeoutSec: r.stopSec,
-	}); err != nil {
-		log.Printf("reconciler: stop workload %s after %s: %v", workloadID, reason, err)
+func (r *Reconciler) rollbackWorkload(ctx context.Context, runner runnerv1.RunnerServiceClient, workloadID string, zitiIdentityID *string, reason string) {
+	if runner != nil {
+		if _, err := runner.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
+			WorkloadId: workloadID,
+			TimeoutSec: r.stopSec,
+		}); err != nil {
+			log.Printf("reconciler: stop workload %s after %s: %v", workloadID, reason, err)
+		}
 	}
 	r.compensateIdentity(ctx, zitiIdentityID, reason)
 }
@@ -178,6 +181,17 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 	assembled, err := r.assembler.Assemble(ctx, target.AgentID, target.ThreadID)
 	if err != nil {
 		log.Printf("reconciler: assemble workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
+		return
+	}
+	selectedRunner, err := r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels)
+	if err != nil {
+		log.Printf("reconciler: select runner for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
+		return
+	}
+	runnerID := selectedRunner.GetMeta().GetId()
+	runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
+	if err != nil {
+		log.Printf("reconciler: dial runner %s for agent %s thread %s: %v", runnerID, target.AgentID.String(), target.ThreadID.String(), err)
 		return
 	}
 	request := assembled.Request
@@ -194,7 +208,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 			return
 		}
 	}
-	resp, err := r.runner.StartWorkload(ctx, request)
+	resp, err := runnerClient.StartWorkload(ctx, request)
 	if err != nil {
 		log.Printf("reconciler: start workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		r.compensateIdentity(ctx, zitiIdentityID, "start failure")
@@ -213,7 +227,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 	status, err := runnerStatus(resp.GetStatus())
 	if err != nil {
 		log.Printf("reconciler: map workload status for workload %s: %v", resp.GetId(), err)
-		r.rollbackWorkload(ctx, resp.GetId(), zitiIdentityID, "status map failure")
+		r.rollbackWorkload(ctx, runnerClient, resp.GetId(), zitiIdentityID, "status map failure")
 		return
 	}
 	containers := buildContainers(request, resp)
@@ -223,7 +237,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 	}
 	if _, err := r.runners.CreateWorkload(ctx, &runnersv1.CreateWorkloadRequest{
 		Id:             resp.GetId(),
-		RunnerId:       r.runnerID,
+		RunnerId:       runnerID,
 		ThreadId:       target.ThreadID.String(),
 		AgentId:        target.AgentID.String(),
 		OrganizationId: assembled.OrganizationID,
@@ -232,26 +246,36 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		ZitiIdentityId: zitiIdentityValue,
 	}); err != nil {
 		log.Printf("reconciler: create workload %s for agent %s thread %s: %v", resp.GetId(), target.AgentID.String(), target.ThreadID.String(), err)
-		r.rollbackWorkload(ctx, resp.GetId(), zitiIdentityID, "create failure")
+		r.rollbackWorkload(ctx, runnerClient, resp.GetId(), zitiIdentityID, "create failure")
 	}
 }
 
 func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workload) {
-	_, err := r.runner.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
-		WorkloadId: workload.GetMeta().GetId(),
-		TimeoutSec: r.stopSec,
-	})
-	if err != nil {
-		log.Printf("reconciler: stop workload %s: %v", workload.GetMeta().GetId(), err)
-		return
+	workloadID := workload.GetMeta().GetId()
+	runnerID := workload.GetRunnerId()
+	if runnerID != "" {
+		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
+		if err != nil {
+			log.Printf("reconciler: dial runner %s for workload %s: %v", runnerID, workloadID, err)
+		} else {
+			if _, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
+				WorkloadId: workloadID,
+				TimeoutSec: r.stopSec,
+			}); err != nil {
+				log.Printf("reconciler: stop workload %s: %v", workloadID, err)
+				return
+			}
+		}
+	} else {
+		log.Printf("reconciler: workload %s missing runner id", workloadID)
 	}
 	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
 		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
-			log.Printf("reconciler: delete ziti identity %s after stopping workload %s: %v", workload.GetZitiIdentityId(), workload.GetMeta().GetId(), err)
+			log.Printf("reconciler: delete ziti identity %s after stopping workload %s: %v", workload.GetZitiIdentityId(), workloadID, err)
 		}
 	}
-	if _, err := r.runners.DeleteWorkload(ctx, &runnersv1.DeleteWorkloadRequest{Id: workload.GetMeta().GetId()}); err != nil {
-		log.Printf("reconciler: delete workload %s from runners: %v", workload.GetMeta().GetId(), err)
+	if _, err := r.runners.DeleteWorkload(ctx, &runnersv1.DeleteWorkloadRequest{Id: workloadID}); err != nil {
+		log.Printf("reconciler: delete workload %s from runners: %v", workloadID, err)
 	}
 }
 

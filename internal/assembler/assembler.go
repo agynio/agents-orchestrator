@@ -45,6 +45,7 @@ type Assembler struct {
 type AssembleResult struct {
 	Request        *runnerv1.StartWorkloadRequest
 	OrganizationID string
+	RunnerLabels   map[string]string
 }
 
 func New(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
@@ -56,6 +57,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err != nil {
 		return nil, err
 	}
+	runnerLabels := agentRunnerLabels(agent)
 
 	resolver := newEnvResolver(a.secrets)
 	volumeResolver := newVolumeResolver(a.agents, agentID)
@@ -185,7 +187,26 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Searches:    []string{zitiDNSSearchService, zitiDNSSearchCluster},
 		}
 	}
-	return &AssembleResult{Request: request, OrganizationID: agent.GetOrganizationId()}, nil
+	return &AssembleResult{
+		Request:        request,
+		OrganizationID: agent.GetOrganizationId(),
+		RunnerLabels:   runnerLabels,
+	}, nil
+}
+
+type runnerLabeler interface {
+	GetRunnerLabels() map[string]string
+}
+
+func agentRunnerLabels(agent *agentsv1.Agent) map[string]string {
+	if agent == nil {
+		return nil
+	}
+	labeler, ok := interface{}(agent).(runnerLabeler)
+	if !ok {
+		return nil
+	}
+	return labeler.GetRunnerLabels()
 }
 
 func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {

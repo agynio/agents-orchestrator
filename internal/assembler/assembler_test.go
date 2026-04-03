@@ -89,6 +89,9 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if result.OrganizationID != agent.GetOrganizationId() {
 		t.Fatalf("expected organization id %q, got %q", agent.GetOrganizationId(), result.OrganizationID)
 	}
+	if len(result.RunnerLabels) != 0 {
+		t.Fatalf("expected no runner labels, got %v", result.RunnerLabels)
+	}
 	request := result.Request
 	if request.Main == nil {
 		t.Fatal("expected main container")
@@ -232,6 +235,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 	if result.OrganizationID != agent.GetOrganizationId() {
 		t.Fatalf("expected organization id %q, got %q", agent.GetOrganizationId(), result.OrganizationID)
+	}
+	if len(result.RunnerLabels) != 0 {
+		t.Fatalf("expected no runner labels, got %v", result.RunnerLabels)
 	}
 	request := result.Request
 	if request.DnsConfig == nil {

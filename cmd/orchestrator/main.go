@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,6 +22,7 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/leader"
 	"github.com/agynio/agents-orchestrator/internal/reconciler"
+	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/agynio/agents-orchestrator/internal/subscriber"
 	"github.com/openziti/sdk-golang/ziti"
 	"golang.org/x/sync/errgroup"
@@ -94,7 +94,7 @@ func run() error {
 	defer closeConn(runnersConn)
 
 	var (
-		runnerConn     *grpc.ClientConn
+		runnerDialer   runnerdial.RunnerDialer
 		zitiMgmtConn   *grpc.ClientConn
 		zitiMgmtClient zitimgmtv1.ZitiManagementServiceClient
 	)
@@ -112,49 +112,40 @@ func run() error {
 			return err
 		}
 		go renewLease(ctx, zitiMgmtClient, identityID, cfg.ZitiLeaseRenewalInterval)
-		runnerConn, err = grpc.NewClient(
-			"passthrough:///runner",
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-				return dialZitiWithRetry(ctx, zitiCtx, "runner")
-			}),
-		)
-		if err != nil {
-			return fmt.Errorf("dial runner: %w", err)
-		}
+		runnerDialer = runnerdial.NewDialer(zitiCtx)
 	} else {
-		runnerConn, err = grpc.NewClient(cfg.RunnerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		runnerConn, err := grpc.NewClient(cfg.RunnerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			return fmt.Errorf("dial runner: %w", err)
 		}
+		defer closeConn(runnerConn)
+		runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
+		runnerDialer = runnerdial.NewFallbackDialer(runnerClient)
 	}
-	defer closeConn(runnerConn)
+	if runnerDialer == nil {
+		return fmt.Errorf("runner dialer not configured")
+	}
+	defer runnerDialer.Close()
 	defer closeConn(zitiMgmtConn)
 
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	notificationsClient := notificationsv1.NewNotificationsServiceClient(notificationsConn)
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
-	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
-	runnerID, err := resolveRunnerID(ctx, runnersClient)
-	if err != nil {
-		return err
-	}
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
-		Threads:   threadsClient,
-		Agents:    agentsClient,
-		Runner:    runnerClient,
-		ZitiMgmt:  zitiMgmtClient,
-		Runners:   runnersClient,
-		Assembler: assembler,
-		RunnerID:  runnerID,
-		Wake:      subscriber.Wake(),
-		Poll:      cfg.PollInterval,
-		Idle:      cfg.IdleTimeout,
-		StopSec:   cfg.StopTimeoutSec,
+		Threads:      threadsClient,
+		Agents:       agentsClient,
+		RunnerDialer: runnerDialer,
+		ZitiMgmt:     zitiMgmtClient,
+		Runners:      runnersClient,
+		Assembler:    assembler,
+		Wake:         subscriber.Wake(),
+		Poll:         cfg.PollInterval,
+		Idle:         cfg.IdleTimeout,
+		StopSec:      cfg.StopTimeoutSec,
 	})
 
 	start := func(leadCtx context.Context) {
@@ -220,28 +211,6 @@ func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServ
 	return zitiCtx, identityID, nil
 }
 
-func resolveRunnerID(ctx context.Context, client runnersv1.RunnersServiceClient) (string, error) {
-	resp, err := client.ListRunners(ctx, &runnersv1.ListRunnersRequest{})
-	if err != nil {
-		return "", fmt.Errorf("list runners: %w", err)
-	}
-	runners := resp.GetRunners()
-	if len(runners) == 0 {
-		return "", fmt.Errorf("list runners: no runners registered")
-	}
-	if len(runners) > 1 {
-		log.Printf("orchestrator: warn: multiple runners registered (%d), using first", len(runners))
-	}
-	if runners[0] == nil {
-		return "", fmt.Errorf("list runners: missing runner entry")
-	}
-	meta := runners[0].GetMeta()
-	if meta == nil || meta.GetId() == "" {
-		return "", fmt.Errorf("list runners: missing runner id")
-	}
-	return meta.GetId(), nil
-}
-
 func retryWithBackoff(ctx context.Context, operationName string, fn func(context.Context) error) error {
 	backoff := retryInitialBackoff
 	attempt := 1
@@ -288,43 +257,6 @@ func isRetryableGrpcError(err error) bool {
 		return false
 	}
 	return statusErr.Code() == codes.Unavailable || statusErr.Code() == codes.Unknown
-}
-
-func dialZitiWithRetry(ctx context.Context, zitiCtx ziti.Context, service string) (net.Conn, error) {
-	const (
-		maxAttempts    = 5
-		initialBackoff = 500 * time.Millisecond
-		maxBackoff     = 10 * time.Second
-	)
-	backoff := initialBackoff
-	var lastErr error
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		conn, err := zitiCtx.DialContext(ctx, service)
-		if err == nil {
-			return conn, nil
-		}
-		log.Printf("dial ziti service %s: attempt %d/%d failed: %v", service, attempt, maxAttempts, err)
-		lastErr = err
-		if attempt == maxAttempts {
-			break
-		}
-		timer := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, ctx.Err()
-		case <-timer.C:
-		}
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
-	}
-	return nil, fmt.Errorf("dial ziti service %s: %w", service, lastErr)
 }
 
 func renewLease(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, identityID string, interval time.Duration) {
