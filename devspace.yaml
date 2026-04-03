@@ -241,17 +241,14 @@ dev:
             excludePaths:
               - .git/
               - .devspace/
-              - /.gen/
               - /tmp/
             uploadExcludePaths:
               - .git/
               - .devspace/
-              - /.gen/
               - /tmp/
             downloadExcludePaths:
               - .git/
               - .devspace/
-              - /.gen/
               - /tmp/
         logs:
           enabled: true
@@ -269,7 +266,6 @@ dev:
         excludePaths:
           - .git/
           - .devspace/
-          - /.gen/
           - /tmp/
 
   # One-shot variant of agents-orchestrator for CI deploy pipeline. Keep sync excludePaths in sync.
@@ -287,17 +283,14 @@ dev:
             excludePaths:
               - .git/
               - .devspace/
-              - /.gen/
               - /tmp/
             uploadExcludePaths:
               - .git/
               - .devspace/
-              - /.gen/
               - /tmp/
             downloadExcludePaths:
               - .git/
               - .devspace/
-              - /.gen/
               - /tmp/
 
   # One-shot variant of e2e-runner for CI test pipeline. Keep sync excludePaths in sync.
@@ -313,5 +306,4 @@ dev:
         excludePaths:
           - .git/
           - .devspace/
-          - /.gen/
           - /tmp/
