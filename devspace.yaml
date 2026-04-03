@@ -40,7 +40,7 @@ functions:
         -d '{"name":"k8s-runner"}' \
         http://runners:50051/agynio.api.runners.v1.RunnersService/RegisterRunner 2>&1 || true
     echo "Updating runner status to enrolled..."
-    kubectl exec -n ${ORCHESTRATOR_NAMESPACE} deploy/runners-db -- \
+    kubectl exec -n ${ORCHESTRATOR_NAMESPACE} runners-db-0 -- \
       psql -U runners -d runners -c "UPDATE runners SET status = 'enrolled' WHERE name = 'k8s-runner'" || true
     echo "Runner setup complete."
     echo "Patching agents-orchestrator deployment for DevSpace..."
