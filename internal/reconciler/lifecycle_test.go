@@ -19,6 +19,8 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const testOrganizationID = "org-1"
@@ -761,6 +763,10 @@ func (f *fakeRunnersClient) ListRunners(ctx context.Context, req *runnersv1.List
 
 func (f *fakeRunnersClient) UpdateRunner(context.Context, *runnersv1.UpdateRunnerRequest, ...grpc.CallOption) (*runnersv1.UpdateRunnerResponse, error) {
 	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) EnrollRunner(ctx context.Context, in *runnersv1.EnrollRunnerRequest, opts ...grpc.CallOption) (*runnersv1.EnrollRunnerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
 func (f *fakeRunnersClient) DeleteRunner(context.Context, *runnersv1.DeleteRunnerRequest, ...grpc.CallOption) (*runnersv1.DeleteRunnerResponse, error) {
