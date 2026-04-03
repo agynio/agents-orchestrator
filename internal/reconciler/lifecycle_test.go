@@ -19,6 +19,8 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const testOrganizationID = "org-1"
@@ -68,6 +70,15 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			}, nil
 		},
 	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
 
 	runners := &fakeRunnersClient{
 		createWorkload: func(_ context.Context, req *runnersv1.CreateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
@@ -106,18 +117,20 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			}
 			return &runnersv1.CreateWorkloadResponse{}, nil
 		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
 	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		Runners:   runners,
-		ZitiMgmt:  zitiMgmt,
-		Assembler: testAssembler,
-		RunnerID:  runnerID,
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		ZitiMgmt:     zitiMgmt,
+		Assembler:    testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
-	if !reflect.DeepEqual(calls, []string{"create", "start", "create-workload"}) {
+	if !reflect.DeepEqual(calls, []string{"dial", "create", "start", "create-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -154,6 +167,15 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			}, nil
 		},
 	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
 
 	runners := &fakeRunnersClient{
 		createWorkload: func(_ context.Context, req *runnersv1.CreateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
@@ -175,17 +197,19 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			}
 			return &runnersv1.CreateWorkloadResponse{}, nil
 		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
 	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		Runners:   runners,
-		Assembler: testAssembler,
-		RunnerID:  runnerID,
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
-	if !reflect.DeepEqual(calls, []string{"start", "create-workload"}) {
+	if !reflect.DeepEqual(calls, []string{"dial", "start", "create-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -195,6 +219,7 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 	agentID := uuid.New()
 	threadID := uuid.New()
 	zitiID := "ziti-identity"
+	runnerID := "runner-1"
 	testAssembler := newTestAssembler(agentID, true)
 
 	var calls []string
@@ -218,23 +243,35 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 			return nil, errors.New("runner error")
 		},
 	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
 
 	runners := &fakeRunnersClient{
 		createWorkload: func(context.Context, *runnersv1.CreateWorkloadRequest, ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
 			calls = append(calls, "create-workload")
 			return nil, errors.New("unexpected create workload")
 		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
 	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		ZitiMgmt:  zitiMgmt,
-		Runners:   runners,
-		Assembler: testAssembler,
+		RunnerDialer: runnerDialer,
+		ZitiMgmt:     zitiMgmt,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
-	if !reflect.DeepEqual(calls, []string{"create", "start", "delete"}) {
+	if !reflect.DeepEqual(calls, []string{"dial", "create", "start", "delete"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -283,24 +320,35 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 			return &runnerv1.StopWorkloadResponse{}, nil
 		},
 	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
 
 	runners := &fakeRunnersClient{
 		createWorkload: func(_ context.Context, _ *runnersv1.CreateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
 			calls = append(calls, "create-workload")
 			return nil, errors.New("create error")
 		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
 	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		ZitiMgmt:  zitiMgmt,
-		Runners:   runners,
-		Assembler: testAssembler,
-		RunnerID:  runnerID,
+		RunnerDialer: runnerDialer,
+		ZitiMgmt:     zitiMgmt,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
-	if !reflect.DeepEqual(calls, []string{"create", "start", "create-workload", "stop", "delete"}) {
+	if !reflect.DeepEqual(calls, []string{"dial", "create", "start", "create-workload", "stop", "delete"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -309,6 +357,7 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
 	testAssembler := newTestAssembler(agentID, true)
+	runnerID := "runner-1"
 	zitiID := "ziti-identity"
 
 	var calls []string
@@ -316,6 +365,15 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 		stopWorkload: func(_ context.Context, _ *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
 			calls = append(calls, "stop")
 			return &runnerv1.StopWorkloadResponse{}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
 		},
 	}
 
@@ -334,14 +392,14 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		ZitiMgmt:  zitiMgmt,
-		Runners:   runners,
-		Assembler: testAssembler,
+		RunnerDialer: runnerDialer,
+		ZitiMgmt:     zitiMgmt,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
-	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, ZitiIdentityId: zitiID})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, ZitiIdentityId: zitiID})
 
-	if !reflect.DeepEqual(calls, []string{"stop", "delete", "delete-workload"}) {
+	if !reflect.DeepEqual(calls, []string{"dial", "stop", "delete", "delete-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -350,11 +408,20 @@ func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
 	testAssembler := newTestAssembler(agentID, true)
+	runnerID := "runner-1"
 
 	deleteCalled := false
 	runner := &fakeRunnerClient{
 		stopWorkload: func(_ context.Context, _ *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
 			return &runnerv1.StopWorkloadResponse{}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
 		},
 	}
 
@@ -372,12 +439,12 @@ func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		ZitiMgmt:  zitiMgmt,
-		Runners:   runners,
-		Assembler: testAssembler,
+		RunnerDialer: runnerDialer,
+		ZitiMgmt:     zitiMgmt,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
-	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID})
 
 	if deleteCalled {
 		t.Fatal("expected no delete identity call")
@@ -389,12 +456,22 @@ func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	agentID := uuid.New()
 	testAssembler := newTestAssembler(agentID, false)
 	zitiID := "ziti-identity"
+	runnerID := "runner-1"
 
 	var calls []string
 	runner := &fakeRunnerClient{
 		stopWorkload: func(_ context.Context, _ *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
 			calls = append(calls, "stop")
 			return &runnerv1.StopWorkloadResponse{}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
 		},
 	}
 
@@ -406,13 +483,13 @@ func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		Runners:   runners,
-		Assembler: testAssembler,
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
-	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, ZitiIdentityId: zitiID})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, ZitiIdentityId: zitiID})
 
-	if !reflect.DeepEqual(calls, []string{"stop", "delete-workload"}) {
+	if !reflect.DeepEqual(calls, []string{"dial", "stop", "delete-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -453,12 +530,13 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 			return &zitimgmtv1.DeleteIdentityResponse{}, nil
 		},
 	}
+	runnerDialer := &fakeRunnerDialer{}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    &fakeRunnerClient{},
-		ZitiMgmt:  zitiMgmt,
-		Runners:   runners,
-		Assembler: testAssembler,
+		RunnerDialer: runnerDialer,
+		ZitiMgmt:     zitiMgmt,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
 	if err := reconciler.reconcileOrphanIdentities(ctx); err != nil {
 		t.Fatalf("reconcile orphan identities: %v", err)
@@ -474,12 +552,13 @@ func TestFetchActualDeletesIdentityForStaleWorkload(t *testing.T) {
 	agentID := uuid.New()
 	testAssembler := newTestAssembler(agentID, true)
 	zitiID := "ziti-id"
+	runnerID := "runner-1"
 
 	deleteCalled := false
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, ZitiIdentityId: zitiID},
+				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, ZitiIdentityId: zitiID},
 			}}, nil
 		},
 		deleteWorkload: func(_ context.Context, req *runnersv1.DeleteWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error) {
@@ -505,12 +584,20 @@ func TestFetchActualDeletesIdentityForStaleWorkload(t *testing.T) {
 			return &runnerv1.FindWorkloadsByLabelsResponse{TargetIds: []string{}}, nil
 		},
 	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		ZitiMgmt:  zitiMgmt,
-		Runners:   runners,
-		Assembler: testAssembler,
+		RunnerDialer: runnerDialer,
+		ZitiMgmt:     zitiMgmt,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
 	if _, err := reconciler.fetchActual(ctx); err != nil {
 		t.Fatalf("fetch actual: %v", err)
@@ -525,12 +612,13 @@ func TestFetchActualSkipsIdentityCleanupWhenZitiMgmtNil(t *testing.T) {
 	agentID := uuid.New()
 	testAssembler := newTestAssembler(agentID, false)
 	zitiID := "ziti-id"
+	runnerID := "runner-1"
 
 	deleted := false
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, ZitiIdentityId: zitiID},
+				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, ZitiIdentityId: zitiID},
 			}}, nil
 		},
 		deleteWorkload: func(_ context.Context, _ *runnersv1.DeleteWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error) {
@@ -544,11 +632,19 @@ func TestFetchActualSkipsIdentityCleanupWhenZitiMgmtNil(t *testing.T) {
 			return &runnerv1.FindWorkloadsByLabelsResponse{TargetIds: []string{}}, nil
 		},
 	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
 
 	reconciler := newTestReconciler(Config{
-		Runner:    runner,
-		Runners:   runners,
-		Assembler: testAssembler,
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
 	})
 	if _, err := reconciler.fetchActual(ctx); err != nil {
 		t.Fatalf("fetch actual: %v", err)
@@ -567,6 +663,9 @@ func newTestReconciler(cfg Config) *Reconciler {
 	}
 	if cfg.StopSec == 0 {
 		cfg.StopSec = 30
+	}
+	if cfg.RunnerDialer == nil {
+		cfg.RunnerDialer = &fakeRunnerDialer{}
 	}
 	return New(cfg)
 }
@@ -618,10 +717,33 @@ func envMap(envs []*runnerv1.EnvVar) map[string]string {
 	return result
 }
 
+func buildRunner(id string) *runnersv1.Runner {
+	orgID := testOrganizationID
+	return &runnersv1.Runner{
+		Meta:           &runnersv1.EntityMeta{Id: id},
+		OrganizationId: &orgID,
+		Status:         runnersv1.RunnerStatus_RUNNER_STATUS_ENROLLED,
+	}
+}
+
+type fakeRunnerDialer struct {
+	dial func(context.Context, string) (runnerv1.RunnerServiceClient, error)
+}
+
+func (f *fakeRunnerDialer) Dial(ctx context.Context, runnerID string) (runnerv1.RunnerServiceClient, error) {
+	if f.dial != nil {
+		return f.dial(ctx, runnerID)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnerDialer) Close() {}
+
 type fakeRunnersClient struct {
 	createWorkload func(context.Context, *runnersv1.CreateWorkloadRequest, ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error)
 	deleteWorkload func(context.Context, *runnersv1.DeleteWorkloadRequest, ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error)
 	listWorkloads  func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error)
+	listRunners    func(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error)
 }
 
 func (f *fakeRunnersClient) RegisterRunner(context.Context, *runnersv1.RegisterRunnerRequest, ...grpc.CallOption) (*runnersv1.RegisterRunnerResponse, error) {
@@ -632,8 +754,19 @@ func (f *fakeRunnersClient) GetRunner(context.Context, *runnersv1.GetRunnerReque
 	return nil, errNotImplemented
 }
 
-func (f *fakeRunnersClient) ListRunners(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+func (f *fakeRunnersClient) ListRunners(ctx context.Context, req *runnersv1.ListRunnersRequest, opts ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+	if f.listRunners != nil {
+		return f.listRunners(ctx, req, opts...)
+	}
 	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) UpdateRunner(context.Context, *runnersv1.UpdateRunnerRequest, ...grpc.CallOption) (*runnersv1.UpdateRunnerResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) EnrollRunner(ctx context.Context, in *runnersv1.EnrollRunnerRequest, opts ...grpc.CallOption) (*runnersv1.EnrollRunnerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
 func (f *fakeRunnersClient) DeleteRunner(context.Context, *runnersv1.DeleteRunnerRequest, ...grpc.CallOption) (*runnersv1.DeleteRunnerResponse, error) {
@@ -755,8 +888,10 @@ func (f *fakeRunnerClient) CancelExecution(context.Context, *runnerv1.CancelExec
 type fakeZitiMgmtClient struct {
 	createAgentIdentity    func(context.Context, *zitimgmtv1.CreateAgentIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error)
 	createAppIdentity      func(context.Context, *zitimgmtv1.CreateAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAppIdentityResponse, error)
+	createRunnerIdentity   func(context.Context, *zitimgmtv1.CreateRunnerIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateRunnerIdentityResponse, error)
 	deleteAppIdentity      func(context.Context, *zitimgmtv1.DeleteAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteAppIdentityResponse, error)
 	deleteIdentity         func(context.Context, *zitimgmtv1.DeleteIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error)
+	deleteRunnerIdentity   func(context.Context, *zitimgmtv1.DeleteRunnerIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteRunnerIdentityResponse, error)
 	listManagedIdentities  func(context.Context, *zitimgmtv1.ListManagedIdentitiesRequest, ...grpc.CallOption) (*zitimgmtv1.ListManagedIdentitiesResponse, error)
 	requestServiceIdentity func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error)
 	extendIdentityLease    func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error)
@@ -776,6 +911,13 @@ func (f *fakeZitiMgmtClient) CreateAppIdentity(ctx context.Context, req *zitimgm
 	return nil, errNotImplemented
 }
 
+func (f *fakeZitiMgmtClient) CreateRunnerIdentity(ctx context.Context, req *zitimgmtv1.CreateRunnerIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateRunnerIdentityResponse, error) {
+	if f.createRunnerIdentity != nil {
+		return f.createRunnerIdentity(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
 func (f *fakeZitiMgmtClient) DeleteAppIdentity(ctx context.Context, req *zitimgmtv1.DeleteAppIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.DeleteAppIdentityResponse, error) {
 	if f.deleteAppIdentity != nil {
 		return f.deleteAppIdentity(ctx, req, opts...)
@@ -786,6 +928,13 @@ func (f *fakeZitiMgmtClient) DeleteAppIdentity(ctx context.Context, req *zitimgm
 func (f *fakeZitiMgmtClient) DeleteIdentity(ctx context.Context, req *zitimgmtv1.DeleteIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error) {
 	if f.deleteIdentity != nil {
 		return f.deleteIdentity(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) DeleteRunnerIdentity(ctx context.Context, req *zitimgmtv1.DeleteRunnerIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.DeleteRunnerIdentityResponse, error) {
+	if f.deleteRunnerIdentity != nil {
+		return f.deleteRunnerIdentity(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
