@@ -61,6 +61,8 @@ functions:
               env:
                 - name: AGENT_LLM_BASE_URL
                   value: "https://testllm.dev/v1/org/agynio/suite/codex"
+                - name: LLM_ADDRESS
+                  value: "llm:50051"
                 - name: AGENT_GATEWAY_ADDRESS
                   value: "gateway-gateway.platform.svc.cluster.local:8080"
                 - name: ZITI_ENABLED
