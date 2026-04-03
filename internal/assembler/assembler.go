@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -140,6 +141,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err != nil {
 		return nil, fmt.Errorf("list mcps: %w", err)
 	}
+	log.Printf("assembler: agent %s: found %d MCP servers", agentID, len(mcps))
 	mcpAssignments, err := assignMcpPorts(mcps)
 	if err != nil {
 		return nil, fmt.Errorf("assign mcp ports: %w", err)
@@ -513,16 +515,21 @@ func (a *Assembler) resolveModelOverride(ctx context.Context, modelID string) st
 	defer cancel()
 	resp, err := a.llm.GetModel(rctx, &llmv1.GetModelRequest{Id: modelID})
 	if err != nil {
+		log.Printf("assembler: resolveModelOverride: GetModel(%s) error: %v", modelID, err)
 		return ""
 	}
 	if resp == nil {
+		log.Printf("assembler: resolveModelOverride: GetModel(%s) returned nil response", modelID)
 		return ""
 	}
 	model := resp.GetModel()
 	if model == nil {
+		log.Printf("assembler: resolveModelOverride: GetModel(%s) returned nil model", modelID)
 		return ""
 	}
-	return model.GetRemoteName()
+	remoteName := model.GetRemoteName()
+	log.Printf("assembler: resolveModelOverride: GetModel(%s) resolved to %q", modelID, remoteName)
+	return remoteName
 }
 
 type skillPayload struct {
