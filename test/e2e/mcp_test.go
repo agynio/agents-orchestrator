@@ -4,10 +4,6 @@ package e2e
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io"
-	"strings"
 	"testing"
 	"time"
 
@@ -123,114 +119,8 @@ func TestMCPToolsE2E(t *testing.T) {
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 7*time.Minute)
 	defer pollCancel()
-	truncateBody := func(body string) string {
-		if body == "" {
-			return body
-		}
-		bodyRunes := []rune(body)
-		if len(bodyRunes) <= 200 {
-			return body
-		}
-		return string(bodyRunes[:200])
-	}
-	agentBody := ""
-	pollCount := 0
-	if err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
-		pollCount++
-		logDiagnostics := pollCount%10 == 0
-		resp, err := threadsClient.GetMessages(ctx, &threadsv1.GetMessagesRequest{
-			ThreadId: threadID,
-			PageSize: 50,
-		})
-		if err != nil {
-			return fmt.Errorf("get messages: %w", err)
-		}
-		agentMessage := ""
-		for _, msg := range resp.GetMessages() {
-			if logDiagnostics {
-				t.Logf("diagnostics: message sender=%s body=%s", msg.GetSenderId(), truncateBody(msg.GetBody()))
-			}
-			if agentMessage == "" && msg.GetSenderId() == agentID {
-				agentMessage = msg.GetBody()
-			}
-		}
-		if agentMessage != "" {
-			agentBody = agentMessage
-			return nil
-		}
-		if logDiagnostics {
-			ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
-			if err != nil {
-				t.Logf("diagnostics: find workloads: %v", err)
-			} else if len(ids) == 0 {
-				t.Log("diagnostics: no workloads found")
-			} else {
-				t.Logf("diagnostics: workloads=%v", ids)
-				for _, workloadID := range ids {
-					inspect, err := runnerClient.InspectWorkload(ctx, &runnerv1.InspectWorkloadRequest{WorkloadId: workloadID})
-					if err != nil {
-						t.Logf("diagnostics: workload=%s inspect error: %v", workloadID, err)
-						continue
-					}
-					t.Logf("diagnostics: workload=%s state_status=%s state_running=%t", workloadID, inspect.GetStateStatus(), inspect.GetStateRunning())
-
-					logsCtx, cancelLogs := context.WithTimeout(ctx, 2*time.Second)
-					stream, err := runnerClient.StreamWorkloadLogs(logsCtx, &runnerv1.StreamWorkloadLogsRequest{
-						WorkloadId: workloadID,
-						Tail:       50,
-						Stdout:     true,
-						Stderr:     true,
-						Timestamps: true,
-					})
-					if err != nil {
-						t.Logf("diagnostics: workload=%s stream logs error: %v", workloadID, err)
-						cancelLogs()
-						continue
-					}
-
-					logLines := 0
-					for logLines < 5 {
-						resp, err := stream.Recv()
-						if err != nil {
-							if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-								break
-							}
-							t.Logf("diagnostics: workload=%s log stream recv error: %v", workloadID, err)
-							break
-						}
-						if resp.GetError() != nil {
-							t.Logf("diagnostics: workload=%s log stream error: %s", workloadID, resp.GetError().GetMessage())
-							break
-						}
-						if resp.GetEnd() != nil {
-							break
-						}
-						chunk := resp.GetChunk()
-						if chunk == nil {
-							continue
-						}
-						data := strings.TrimSpace(string(chunk.GetData()))
-						if data == "" {
-							continue
-						}
-						for _, line := range strings.Split(data, "\n") {
-							line = strings.TrimSpace(line)
-							if line == "" {
-								continue
-							}
-							t.Logf("diagnostics: workload=%s log=%s", workloadID, truncateBody(line))
-							logLines++
-							if logLines >= 5 {
-								break
-							}
-						}
-					}
-					cancelLogs()
-				}
-			}
-		}
-		return fmt.Errorf("agent response not found")
-	}); err != nil {
+	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels)
+	if err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}
 
