@@ -23,7 +23,6 @@ type Config struct {
 	DefaultInitImage         string
 	AgentGatewayAddress      string
 	AgentLLMBaseURL          string
-	AgentModelOverride       string
 	PollInterval             time.Duration
 	IdleTimeout              time.Duration
 	StopTimeoutSec           uint32
@@ -78,7 +77,7 @@ func FromEnv() (Config, error) {
 		if cfg.ZitiEnabled {
 			cfg.AgentLLMBaseURL = "http://llm-proxy.ziti/v1"
 		} else {
-			cfg.AgentLLMBaseURL = "http://llm-proxy:8080/v1"
+			cfg.AgentLLMBaseURL = "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1"
 		}
 	}
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
@@ -123,8 +122,6 @@ func FromEnv() (Config, error) {
 	if cfg.DefaultInitImage == "" {
 		return Config{}, fmt.Errorf("DEFAULT_INIT_IMAGE must be set")
 	}
-	cfg.AgentModelOverride = os.Getenv("AGENT_MODEL_OVERRIDE")
-
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {
 		cfg.PollInterval = 30 * time.Second

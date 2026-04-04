@@ -38,7 +38,11 @@ functions:
         --protocol grpc \
         --http2-prior-knowledge \
         -d '{"name":"k8s-runner"}' \
-        http://runners:50051/agynio.api.runners.v1.RunnersService/RegisterRunner || true
+        http://runners:50051/agynio.api.runners.v1.RunnersService/RegisterRunner 2>&1 || true
+    echo "Updating runner status to enrolled..."
+    kubectl exec -n ${ORCHESTRATOR_NAMESPACE} runners-db-0 -- \
+      psql -U runners -d runners -c "UPDATE runners SET status = 'enrolled' WHERE name = 'k8s-runner'" || true
+    echo "Runner setup complete."
     echo "Patching agents-orchestrator deployment for DevSpace..."
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
     spec:
@@ -56,15 +60,13 @@ functions:
               image: ghcr.io/agynio/devcontainer-go:1 # keep in sync with DEV_IMAGE
               env:
                 - name: AGENT_LLM_BASE_URL
-                  value: "https://testllm.dev/v1/org/agynio/suite/codex"
+                  value: "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1"
                 - name: AGENT_GATEWAY_ADDRESS
                   value: "gateway-gateway.platform.svc.cluster.local:8080"
-                - name: AGENT_MODEL_OVERRIDE
-                  value: "simple-hello"
                 - name: ZITI_ENABLED
                   value: "false"
                 - name: DEFAULT_INIT_IMAGE
-                  value: "ghcr.io/agynio/agent-init-codex:0.5.0"
+                  value: "ghcr.io/agynio/agent-init-codex:0.12.0"
               workingDir: /opt/app/data
               command:
                 - sh
@@ -84,7 +86,11 @@ functions:
                     --path agynio/api/notifications/v1 \
                     --path agynio/api/agents/v1 \
                     --path agynio/api/secrets/v1 \
-                    --path agynio/api/ziti_management/v1
+                    --path agynio/api/ziti_management/v1 \
+                    --path agynio/api/identity/v1 \
+                    --path agynio/api/llm/v1 \
+                    --path agynio/api/users/v1 \
+                    --path agynio/api/organizations/v1
                   exec go run ./cmd/orchestrator
               volumeMounts:
                 - name: data
@@ -153,6 +159,14 @@ deployments:
                 value: "agents:50051"
               - name: THREADS_ADDRESS
                 value: "threads:50051"
+              - name: IDENTITY_ADDRESS
+                value: "identity:50051"
+              - name: LLM_ADDRESS
+                value: "llm:50051"
+              - name: USERS_ADDRESS
+                value: "users:50051"
+              - name: ORGANIZATIONS_ADDRESS
+                value: "tenants:50051"
               - name: RUNNER_ADDRESS
                 value: "k8s-runner:50051"
             volumeMounts:
@@ -208,7 +222,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
         -n ${ORCHESTRATOR_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --include-imports --path agynio/api/runner/v1 --path agynio/api/runners/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 --path agynio/api/ziti_management/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
+        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --include-imports --path agynio/api/runner/v1 --path agynio/api/runners/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 --path agynio/api/ziti_management/v1 --path agynio/api/identity/v1 --path agynio/api/llm/v1 --path agynio/api/users/v1 --path agynio/api/organizations/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
       EXIT_CODE=$?
       purge_deployments e2e-runner
       exit $EXIT_CODE

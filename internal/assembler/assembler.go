@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +26,7 @@ const (
 	agynBinBinaryPath                    = "/agyn-bin/agynd"
 	agentWorkspaceDir                    = "/tmp"
 	agentHomeDir                         = "/root"
+	mcpBasePort                          = 8100
 	ZitiSidecarInitContainerName         = "ziti-sidecar"
 	zitiIdentityVolumeName               = "ziti-identity"
 	zitiIdentityMountPath                = "/netfoundry"
@@ -95,7 +98,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, fmt.Errorf("resolve agent mounts: %w", err)
 	}
 
-	mainEnv := baseAgentEnvVars(a.cfg, agent, agentID, threadID, skillsJSON, agentInitScript)
+	mainEnv := a.baseAgentEnvVars(ctx, agent, agentID, threadID, skillsJSON, agentInitScript)
 	mainEnv = append(mainEnv, agentEnvVars...)
 
 	initImage := agent.GetInitImage()
@@ -136,18 +139,25 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err != nil {
 		return nil, fmt.Errorf("list mcps: %w", err)
 	}
+	log.Printf("assembler: agent %s: found %d MCP servers", agentID, len(mcps))
+	mcpAssignments, err := assignMcpPorts(mcps)
+	if err != nil {
+		return nil, fmt.Errorf("assign mcp ports: %w", err)
+	}
 	hooks, err := a.listHooks(ctx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("list hooks: %w", err)
 	}
 
-	sidecars := make([]*runnerv1.ContainerSpec, 0, len(mcps)+len(hooks))
-	for _, mcp := range mcps {
-		sidecar, err := a.buildMcpSidecar(ctx, resolver, volumeResolver, mcp)
+	sidecars := make([]*runnerv1.ContainerSpec, 0, len(mcpAssignments)+len(hooks))
+	mcpServers := make([]string, 0, len(mcpAssignments))
+	for _, assignment := range mcpAssignments {
+		sidecar, err := a.buildMcpSidecar(ctx, resolver, volumeResolver, assignment.mcp, assignment.port)
 		if err != nil {
 			return nil, err
 		}
 		sidecars = append(sidecars, sidecar)
+		mcpServers = append(mcpServers, fmt.Sprintf("%s:%d", assignment.name, assignment.port))
 	}
 	for _, hook := range hooks {
 		sidecar, err := a.buildHookSidecar(ctx, resolver, volumeResolver, hook)
@@ -155,6 +165,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			return nil, err
 		}
 		sidecars = append(sidecars, sidecar)
+	}
+	if len(mcpServers) > 0 {
+		main.Env = append(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
 	}
 
 	agynBinVolume := &runnerv1.VolumeSpec{
@@ -369,7 +382,41 @@ func (a *Assembler) listVolumeAttachments(ctx context.Context, req *agentsv1.Lis
 	}
 }
 
-func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, mcp *agentsv1.Mcp) (*runnerv1.ContainerSpec, error) {
+type mcpAssignment struct {
+	mcp  *agentsv1.Mcp
+	id   string
+	name string
+	port int
+}
+
+func assignMcpPorts(mcps []*agentsv1.Mcp) ([]mcpAssignment, error) {
+	assignments := make([]mcpAssignment, 0, len(mcps))
+	for _, mcp := range mcps {
+		if mcp == nil {
+			return nil, fmt.Errorf("mcp is nil")
+		}
+		meta := mcp.GetMeta()
+		if meta == nil {
+			return nil, fmt.Errorf("mcp meta missing")
+		}
+		id := meta.GetId()
+		if id == "" {
+			return nil, fmt.Errorf("mcp meta id missing")
+		}
+		name := mcp.GetName()
+		if name == "" {
+			return nil, fmt.Errorf("mcp name missing")
+		}
+		assignments = append(assignments, mcpAssignment{mcp: mcp, id: id, name: name})
+	}
+	sort.Slice(assignments, func(i, j int) bool { return assignments[i].id < assignments[j].id })
+	for i := range assignments {
+		assignments[i].port = mcpBasePort + i
+	}
+	return assignments, nil
+}
+
+func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, mcp *agentsv1.Mcp, port int) (*runnerv1.ContainerSpec, error) {
 	if mcp == nil {
 		return nil, fmt.Errorf("mcp is nil")
 	}
@@ -392,6 +439,7 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	if err != nil {
 		return nil, err
 	}
+	envVars = append(envVars, &runnerv1.EnvVar{Name: "MCP_PORT", Value: strconv.Itoa(port)})
 	return &runnerv1.ContainerSpec{
 		Image:  mcp.GetImage(),
 		Name:   fmt.Sprintf("mcp-%s", mcpID.String()[:8]),
@@ -433,7 +481,7 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 	}, nil
 }
 
-func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
+func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_ID", Value: agentID.String()},
 		{Name: "AGENT_NAME", Value: agent.GetName()},
@@ -441,14 +489,11 @@ func baseAgentEnvVars(cfg *config.Config, agent *agentsv1.Agent, agentID, thread
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
 		{Name: "THREAD_ID", Value: threadID.String()},
-		{Name: "GATEWAY_ADDRESS", Value: cfg.AgentGatewayAddress},
-		{Name: "LLM_BASE_URL", Value: cfg.AgentLLMBaseURL},
+		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
+		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
 		{Name: "WORKSPACE_DIR", Value: agentWorkspaceDir},
 		{Name: "HOME", Value: agentHomeDir},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
-	}
-	if cfg.AgentModelOverride != "" {
-		vars = append(vars, &runnerv1.EnvVar{Name: "MODEL_OVERRIDE", Value: cfg.AgentModelOverride})
 	}
 	if initScript != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -167,9 +168,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
 	assertEnv(t, envs, "WORKSPACE_DIR", agentWorkspaceDir)
 	assertEnv(t, envs, "HOME", agentHomeDir)
-	if _, ok := envs["MODEL_OVERRIDE"]; ok {
-		t.Fatal("expected MODEL_OVERRIDE to be absent")
-	}
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo ready")
 	var parsedSkills []skillPayload
@@ -320,7 +318,6 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	t.Setenv("DEFAULT_INIT_IMAGE", "init-image")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
-	t.Setenv("AGENT_MODEL_OVERRIDE", "")
 	t.Setenv("POLL_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")
 	t.Setenv("STOP_TIMEOUT_SEC", "")
@@ -341,30 +338,11 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 		Configuration: "{}",
 	}
 
-	envs := envMap(baseAgentEnvVars(&cfg, agent, agentID, threadID, "[]", ""))
+	ctx := context.Background()
+	assembler := New(&fakeAgentsClient{}, &fakeSecretsClient{}, &cfg)
+	envs := envMap(assembler.baseAgentEnvVars(ctx, agent, agentID, threadID, "[]", ""))
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
-}
-
-func TestAssemblerModelOverrideEnv(t *testing.T) {
-	agentID := uuid.New()
-	threadID := uuid.New()
-
-	cfg := config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-		AgentModelOverride:  "override-model",
-	}
-
-	agent := &agentsv1.Agent{
-		Name:          "assistant",
-		Role:          "ops",
-		Model:         "gpt-test",
-		Configuration: "{}",
-	}
-
-	envs := envMap(baseAgentEnvVars(&cfg, agent, agentID, threadID, "[]", ""))
-	assertEnv(t, envs, "MODEL_OVERRIDE", "override-model")
 }
 
 func TestAssemblerInitImageOverride(t *testing.T) {
@@ -507,7 +485,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 		},
 		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{
-				{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Image: "mcp-image", Command: "run-mcp"},
+				{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Name: "test-mcp", Image: "mcp-image", Command: "run-mcp"},
 			}}, nil
 		},
 		listEnvs: func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
@@ -608,6 +586,120 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	envs := envMap(sidecar.Env)
 	assertEnv(t, envs, "MCP_ENV", "enabled")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo mcp")
+}
+
+func TestAssemblerMcpPortAllocation(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	lowID := "11111111-1111-1111-1111-111111111111"
+	highID := "22222222-2222-2222-2222-222222222222"
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{
+				{Meta: &agentsv1.EntityMeta{Id: highID}, Name: "filesystem", Image: "fs-image", Command: "run-fs"},
+				{Meta: &agentsv1.EntityMeta{Id: lowID}, Name: "memory", Image: "mem-image", Command: "run-mem"},
+			}}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	request := result.Request
+	if len(request.Sidecars) != 2 {
+		t.Fatalf("expected 2 sidecars, got %d", len(request.Sidecars))
+	}
+	mainEnvs := envMap(request.Main.Env)
+	expectedServers := fmt.Sprintf("%s:%d,%s:%d", "memory", mcpBasePort, "filesystem", mcpBasePort+1)
+	assertEnv(t, mainEnvs, "AGENT_MCP_SERVERS", expectedServers)
+
+	ports := map[string]string{}
+	for _, sidecar := range request.Sidecars {
+		envs := envMap(sidecar.Env)
+		port, ok := envs["MCP_PORT"]
+		if !ok {
+			t.Fatalf("missing MCP_PORT for sidecar %s", sidecar.Name)
+		}
+		ports[sidecar.Name] = port
+	}
+	expectedMemoryName := "mcp-" + lowID[:8]
+	expectedFilesystemName := "mcp-" + highID[:8]
+	if ports[expectedMemoryName] != fmt.Sprintf("%d", mcpBasePort) {
+		t.Fatalf("expected %s MCP_PORT %d, got %q", expectedMemoryName, mcpBasePort, ports[expectedMemoryName])
+	}
+	if ports[expectedFilesystemName] != fmt.Sprintf("%d", mcpBasePort+1) {
+		t.Fatalf("expected %s MCP_PORT %d, got %q", expectedFilesystemName, mcpBasePort+1, ports[expectedFilesystemName])
+	}
+}
+
+func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	envs := envMap(result.Request.Main.Env)
+	if _, ok := envs["AGENT_MCP_SERVERS"]; ok {
+		t.Fatal("expected AGENT_MCP_SERVERS to be absent")
+	}
 }
 
 func envMap(envs []*runnerv1.EnvVar) map[string]string {

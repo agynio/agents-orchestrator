@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -18,8 +17,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestWorkloadStartsOnUnackedMessage(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+func TestMCPToolsE2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	t.Cleanup(cancel)
 
 	agentsConn := dialGRPC(t, agentsAddr)
@@ -47,13 +46,13 @@ func TestWorkloadStartsOnUnackedMessage(t *testing.T) {
 	if providerID == "" {
 		t.Fatal("create llm provider: missing id")
 	}
-	model := createModel(t, ctx, llmClient, "e2e-model-"+uuid.NewString(), providerID, "simple-hello", orgID)
+	model := createModel(t, ctx, llmClient, "e2e-model-"+uuid.NewString(), providerID, "mcp-tools-test", orgID)
 	modelID := model.GetMeta().GetId()
 	if modelID == "" {
 		t.Fatal("create model: missing id")
 	}
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-start-%s", uuid.NewString()), modelID, orgID)
+	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString(), modelID, orgID)
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
@@ -61,6 +60,36 @@ func TestWorkloadStartsOnUnackedMessage(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 	registerAgentIdentity(t, ctx, identityClient, agentID)
+	memoryMCP := createMCP(
+		t,
+		ctx,
+		agentsClient,
+		agentID,
+		"memory",
+		"node:22-slim",
+		`npx -y supergateway --stdio "npx -y @modelcontextprotocol/server-memory" --outputTransport streamableHttp --port $MCP_PORT --streamableHttpPath /mcp`,
+	)
+	memoryMcpID := memoryMCP.GetMeta().GetId()
+	if memoryMcpID == "" {
+		t.Fatal("create memory mcp: missing id")
+	}
+	t.Cleanup(func() { deleteMCP(t, ctx, agentsClient, memoryMcpID) })
+	createMCPEnv(t, ctx, agentsClient, memoryMcpID, "MEMORY_FILE_PATH", "/tmp/memory.json")
+
+	filesystemMCP := createMCP(
+		t,
+		ctx,
+		agentsClient,
+		agentID,
+		"filesystem",
+		"node:22-slim",
+		`mkdir -p /test-data && printf 'hello' > /test-data/hello.txt && npx -y supergateway --stdio "npx -y @modelcontextprotocol/server-filesystem /test-data" --outputTransport streamableHttp --port $MCP_PORT --streamableHttpPath /mcp`,
+	)
+	filesystemMcpID := filesystemMCP.GetMeta().GetId()
+	if filesystemMcpID == "" {
+		t.Fatal("create filesystem mcp: missing id")
+	}
+	t.Cleanup(func() { deleteMCP(t, ctx, agentsClient, filesystemMcpID) })
 
 	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
 	threadID := thread.GetId()
@@ -69,38 +98,34 @@ func TestWorkloadStartsOnUnackedMessage(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	_ = sendMessage(t, ctx, threadsClient, threadID, identityID, "e2e test message")
+	sendMessage(t, ctx, threadsClient, threadID, identityID, "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data")
+	t.Logf("test setup complete: agentID=%s threadID=%s memoryMcpID=%s filesystemMcpID=%s", agentID, threadID, memoryMcpID, filesystemMcpID)
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
 		labelAgentID:   agentID,
 		labelThreadID:  threadID,
 	}
-
-	pollCtx, pollCancel := context.WithTimeout(ctx, 90*time.Second)
-	defer pollCancel()
-	workloadID := ""
-	if err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
+	t.Cleanup(func() {
 		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
 		if err != nil {
-			return err
+			t.Logf("cleanup: find workloads: %v", err)
+			return
 		}
-		if len(ids) != 1 {
-			return fmt.Errorf("expected 1 workload, got %d", len(ids))
+		for _, workloadID := range ids {
+			cleanupWorkload(t, ctx, runnerClient, workloadID)
 		}
-		workloadID = ids[0]
-		return nil
-	}); err != nil {
-		t.Fatalf("wait for workload: %v", err)
-	}
+	})
 
-	t.Cleanup(func() { cleanupWorkload(t, ctx, runnerClient, workloadID) })
-
-	labelsResp, err := getWorkloadLabels(ctx, runnerClient, workloadID)
+	pollCtx, pollCancel := context.WithTimeout(ctx, 7*time.Minute)
+	defer pollCancel()
+	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels)
 	if err != nil {
-		t.Fatalf("get workload labels: %v", err)
+		t.Fatalf("wait for agent response: %v", err)
 	}
-	assertLabel(t, labelsResp, labelManagedBy, managedByValue)
-	assertLabel(t, labelsResp, labelAgentID, agentID)
-	assertLabel(t, labelsResp, labelThreadID, threadID)
+
+	expected := "I've created the entity 'test_project' (type: project) with the observation 'A test project'. The /test-data directory contains one file: hello.txt."
+	if agentBody != expected {
+		t.Fatalf("expected agent response %q, got %q", expected, agentBody)
+	}
 }

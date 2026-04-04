@@ -4,13 +4,17 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
+	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
@@ -22,7 +26,7 @@ const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
 
-	testOrganizationID = "33333333-3333-3333-3333-333333333333"
+	testLLMEndpoint = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
 
 	labelManagedBy = "managed-by"
 	labelAgentID   = "agent-id"
@@ -31,9 +35,13 @@ const (
 )
 
 var (
-	agentsAddr  = envOrDefault("AGENTS_ADDRESS", "agents:50051")
-	threadsAddr = envOrDefault("THREADS_ADDRESS", "threads:50051")
-	runnerAddr  = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
+	agentsAddr   = envOrDefault("AGENTS_ADDRESS", "agents:50051")
+	threadsAddr  = envOrDefault("THREADS_ADDRESS", "threads:50051")
+	identityAddr = envOrDefault("IDENTITY_ADDRESS", "identity:50051")
+	llmAddr      = envOrDefault("LLM_ADDRESS", "llm:50051")
+	usersAddr    = envOrDefault("USERS_ADDRESS", "users:50051")
+	orgsAddr     = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
+	runnerAddr   = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 )
 
 func envOrDefault(key, fallback string) string {
@@ -93,17 +101,74 @@ func newUserID() string {
 	return uuid.New().String()
 }
 
+func registerIdentity(t *testing.T, ctx context.Context, client identityv1.IdentityServiceClient, identityID string) {
+	t.Helper()
+	_, err := client.RegisterIdentity(ctx, &identityv1.RegisterIdentityRequest{
+		IdentityId:   identityID,
+		IdentityType: identityv1.IdentityType_IDENTITY_TYPE_USER,
+	})
+	if err != nil {
+		t.Fatalf("register identity %s: %v", identityID, err)
+	}
+}
+
+func registerAgentIdentity(t *testing.T, ctx context.Context, client identityv1.IdentityServiceClient, identityID string) {
+	t.Helper()
+	_, err := client.RegisterIdentity(ctx, &identityv1.RegisterIdentityRequest{
+		IdentityId:   identityID,
+		IdentityType: identityv1.IdentityType_IDENTITY_TYPE_AGENT,
+	})
+	if err != nil {
+		t.Fatalf("register agent identity %s: %v", identityID, err)
+	}
+}
+
+func createLLMProvider(t *testing.T, ctx context.Context, client llmv1.LLMServiceClient, endpoint, orgID string) *llmv1.LLMProvider {
+	t.Helper()
+	resp, err := client.CreateLLMProvider(ctx, &llmv1.CreateLLMProviderRequest{
+		Endpoint:       endpoint,
+		AuthMethod:     llmv1.AuthMethod_AUTH_METHOD_BEARER,
+		Token:          "test-token",
+		OrganizationId: orgID,
+	})
+	if err != nil {
+		t.Fatalf("create llm provider: %v", err)
+	}
+	provider := resp.GetProvider()
+	if provider == nil || provider.GetMeta() == nil {
+		t.Fatal("create llm provider: nil response")
+	}
+	return provider
+}
+
+func createModel(t *testing.T, ctx context.Context, client llmv1.LLMServiceClient, name, providerID, remoteName, orgID string) *llmv1.Model {
+	t.Helper()
+	resp, err := client.CreateModel(ctx, &llmv1.CreateModelRequest{
+		Name:           name,
+		LlmProviderId:  providerID,
+		RemoteName:     remoteName,
+		OrganizationId: orgID,
+	})
+	if err != nil {
+		t.Fatalf("create model %q: %v", name, err)
+	}
+	model := resp.GetModel()
+	if model == nil || model.GetMeta() == nil {
+		t.Fatal("create model: nil response")
+	}
+	return model
+}
+
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name string) *agentsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model, organizationID string) *agentsv1.Agent {
 	t.Helper()
-	modelValue := uuid.New().String()
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:           name,
 		Role:           "assistant",
-		Model:          modelValue,
+		Model:          model,
 		Image:          "alpine:3.21",
-		OrganizationId: testOrganizationID,
+		OrganizationId: organizationID,
 	})
 	if err != nil {
 		t.Fatalf("create agent %q: %v", name, err)
@@ -121,6 +186,66 @@ func deleteAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServic
 	if err != nil {
 		t.Logf("cleanup: delete agent %s: %v", agentID, err)
 	}
+}
+
+func createAgentEnv(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, agentID, name, value string) *agentsv1.Env {
+	t.Helper()
+	resp, err := client.CreateEnv(ctx, &agentsv1.CreateEnvRequest{
+		Name:   name,
+		Target: &agentsv1.CreateEnvRequest_AgentId{AgentId: agentID},
+		Source: &agentsv1.CreateEnvRequest_Value{Value: value},
+	})
+	if err != nil {
+		t.Fatalf("create agent env %q: %v", name, err)
+	}
+	env := resp.GetEnv()
+	if env == nil || env.GetMeta() == nil {
+		t.Fatal("create agent env: nil response")
+	}
+	return env
+}
+
+func createMCP(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, agentID, name, image, command string) *agentsv1.Mcp {
+	t.Helper()
+	resp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
+		AgentId: agentID,
+		Name:    name,
+		Image:   image,
+		Command: command,
+	})
+	if err != nil {
+		t.Fatalf("create mcp %q: %v", name, err)
+	}
+	mcp := resp.GetMcp()
+	if mcp == nil || mcp.GetMeta() == nil {
+		t.Fatal("create mcp: nil response")
+	}
+	return mcp
+}
+
+func deleteMCP(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, mcpID string) {
+	t.Helper()
+	_, err := client.DeleteMcp(ctx, &agentsv1.DeleteMcpRequest{Id: mcpID})
+	if err != nil {
+		t.Logf("cleanup: delete mcp %s: %v", mcpID, err)
+	}
+}
+
+func createMCPEnv(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, mcpID, name, value string) *agentsv1.Env {
+	t.Helper()
+	resp, err := client.CreateEnv(ctx, &agentsv1.CreateEnvRequest{
+		Name:   name,
+		Target: &agentsv1.CreateEnvRequest_McpId{McpId: mcpID},
+		Source: &agentsv1.CreateEnvRequest_Value{Value: value},
+	})
+	if err != nil {
+		t.Fatalf("create mcp env %q: %v", name, err)
+	}
+	env := resp.GetEnv()
+	if env == nil || env.GetMeta() == nil {
+		t.Fatal("create mcp env: nil response")
+	}
+	return env
 }
 
 func createThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantIDs []string) *threadsv1.Thread {
@@ -175,6 +300,131 @@ func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServ
 }
 
 // --- Verification Helpers ---
+
+func pollForAgentResponse(
+	t *testing.T,
+	ctx context.Context,
+	threadsClient threadsv1.ThreadsServiceClient,
+	runnerClient runnerv1.RunnerServiceClient,
+	threadID string,
+	agentID string,
+	labels map[string]string,
+) (string, error) {
+	t.Helper()
+	truncateBody := func(body string) string {
+		if body == "" {
+			return body
+		}
+		bodyRunes := []rune(body)
+		if len(bodyRunes) <= 200 {
+			return body
+		}
+		return string(bodyRunes[:200])
+	}
+
+	agentBody := ""
+	pollCount := 0
+	err := pollUntil(ctx, pollInterval, func(ctx context.Context) error {
+		pollCount++
+		logDiagnostics := pollCount%10 == 0
+		resp, err := threadsClient.GetMessages(ctx, &threadsv1.GetMessagesRequest{
+			ThreadId: threadID,
+			PageSize: 50,
+		})
+		if err != nil {
+			return fmt.Errorf("get messages: %w", err)
+		}
+		agentMessage := ""
+		for _, msg := range resp.GetMessages() {
+			if logDiagnostics {
+				t.Logf("diagnostics: message sender=%s body=%s", msg.GetSenderId(), truncateBody(msg.GetBody()))
+			}
+			if agentMessage == "" && msg.GetSenderId() == agentID {
+				agentMessage = msg.GetBody()
+			}
+		}
+		if agentMessage != "" {
+			agentBody = agentMessage
+			return nil
+		}
+		if logDiagnostics {
+			ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
+			if err != nil {
+				t.Logf("diagnostics: find workloads: %v", err)
+			} else if len(ids) == 0 {
+				t.Log("diagnostics: no workloads found")
+			} else {
+				t.Logf("diagnostics: workloads=%v", ids)
+				for _, workloadID := range ids {
+					inspect, err := runnerClient.InspectWorkload(ctx, &runnerv1.InspectWorkloadRequest{WorkloadId: workloadID})
+					if err != nil {
+						t.Logf("diagnostics: workload=%s inspect error: %v", workloadID, err)
+						continue
+					}
+					t.Logf("diagnostics: workload=%s state_status=%s state_running=%t", workloadID, inspect.GetStateStatus(), inspect.GetStateRunning())
+
+					logsCtx, cancelLogs := context.WithTimeout(ctx, 2*time.Second)
+					stream, err := runnerClient.StreamWorkloadLogs(logsCtx, &runnerv1.StreamWorkloadLogsRequest{
+						WorkloadId: workloadID,
+						Tail:       50,
+						Stdout:     true,
+						Stderr:     true,
+						Timestamps: true,
+					})
+					if err != nil {
+						t.Logf("diagnostics: workload=%s stream logs error: %v", workloadID, err)
+						cancelLogs()
+						continue
+					}
+
+					logLines := 0
+					for logLines < 5 {
+						resp, err := stream.Recv()
+						if err != nil {
+							if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+								break
+							}
+							t.Logf("diagnostics: workload=%s log stream recv error: %v", workloadID, err)
+							break
+						}
+						if resp.GetError() != nil {
+							t.Logf("diagnostics: workload=%s log stream error: %s", workloadID, resp.GetError().GetMessage())
+							break
+						}
+						if resp.GetEnd() != nil {
+							break
+						}
+						chunk := resp.GetChunk()
+						if chunk == nil {
+							continue
+						}
+						data := strings.TrimSpace(string(chunk.GetData()))
+						if data == "" {
+							continue
+						}
+						for _, line := range strings.Split(data, "\n") {
+							line = strings.TrimSpace(line)
+							if line == "" {
+								continue
+							}
+							t.Logf("diagnostics: workload=%s log=%s", workloadID, truncateBody(line))
+							logLines++
+							if logLines >= 5 {
+								break
+							}
+						}
+					}
+					cancelLogs()
+				}
+			}
+		}
+		return fmt.Errorf("agent response not found")
+	})
+	if err != nil {
+		return "", err
+	}
+	return agentBody, nil
+}
 
 func findWorkloadsByLabels(ctx context.Context, client runnerv1.RunnerServiceClient, labels map[string]string) ([]string, error) {
 	resp, err := client.FindWorkloadsByLabels(ctx, &runnerv1.FindWorkloadsByLabelsRequest{
