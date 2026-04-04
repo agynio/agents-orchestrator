@@ -9,7 +9,6 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
-	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
@@ -83,7 +82,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
 
-	assembler := New(agentsClient, &fakeLLMClient{}, &fakeSecretsClient{}, &cfg)
+	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -169,9 +168,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
 	assertEnv(t, envs, "WORKSPACE_DIR", agentWorkspaceDir)
 	assertEnv(t, envs, "HOME", agentHomeDir)
-	if _, ok := envs["MODEL_OVERRIDE"]; ok {
-		t.Fatal("expected MODEL_OVERRIDE to be absent")
-	}
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo ready")
 	var parsedSkills []skillPayload
@@ -230,7 +226,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		ClusterDNS:          "10.43.0.10",
 	}
 
-	assembler := New(agentsClient, &fakeLLMClient{}, &fakeSecretsClient{}, &cfg)
+	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -322,7 +318,6 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	t.Setenv("DEFAULT_INIT_IMAGE", "init-image")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
-	t.Setenv("LLM_ADDRESS", "")
 	t.Setenv("POLL_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")
 	t.Setenv("STOP_TIMEOUT_SEC", "")
@@ -344,41 +339,10 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	assembler := New(&fakeAgentsClient{}, &fakeLLMClient{}, &fakeSecretsClient{}, &cfg)
+	assembler := New(&fakeAgentsClient{}, &fakeSecretsClient{}, &cfg)
 	envs := envMap(assembler.baseAgentEnvVars(ctx, agent, agentID, threadID, "[]", ""))
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
-}
-
-func TestAssemblerModelOverrideEnv(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	threadID := uuid.New()
-
-	agent := &agentsv1.Agent{
-		Name:          "assistant",
-		Role:          "ops",
-		Model:         "gpt-test",
-		Configuration: "{}",
-	}
-
-	llmClient := &fakeLLMClient{
-		getModel: func(_ context.Context, req *llmv1.GetModelRequest, _ ...grpc.CallOption) (*llmv1.GetModelResponse, error) {
-			if req.GetId() != agent.GetModel() {
-				return nil, errors.New("unexpected model id")
-			}
-			return &llmv1.GetModelResponse{Model: &llmv1.Model{RemoteName: "override-model"}}, nil
-		},
-	}
-
-	cfg := config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-	}
-
-	assembler := New(&fakeAgentsClient{}, llmClient, &fakeSecretsClient{}, &cfg)
-	envs := envMap(assembler.baseAgentEnvVars(ctx, agent, agentID, threadID, "[]", ""))
-	assertEnv(t, envs, "MODEL_OVERRIDE", "override-model")
 }
 
 func TestAssemblerInitImageOverride(t *testing.T) {
@@ -426,7 +390,7 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
 
-	assembler := New(agentsClient, &fakeLLMClient{}, &fakeSecretsClient{}, &cfg)
+	assembler := New(agentsClient, &fakeSecretsClient{}, &cfg)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -487,7 +451,7 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &fakeLLMClient{}, secretsClient, &config.Config{
+	assembler := New(agentsClient, secretsClient, &config.Config{
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
@@ -563,7 +527,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &fakeLLMClient{}, &fakeSecretsClient{}, &config.Config{
+	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
@@ -658,7 +622,7 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &fakeLLMClient{}, &fakeSecretsClient{}, &config.Config{
+	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
@@ -723,7 +687,7 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &fakeLLMClient{}, &fakeSecretsClient{}, &config.Config{
+	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{
 		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
@@ -1034,56 +998,5 @@ func (f *fakeSecretsClient) ResolveSecret(ctx context.Context, req *secretsv1.Re
 	if f.resolveSecret != nil {
 		return f.resolveSecret(ctx, req, opts...)
 	}
-	return nil, errNotImplemented
-}
-
-type fakeLLMClient struct {
-	getModel func(context.Context, *llmv1.GetModelRequest, ...grpc.CallOption) (*llmv1.GetModelResponse, error)
-}
-
-func (f *fakeLLMClient) CreateLLMProvider(context.Context, *llmv1.CreateLLMProviderRequest, ...grpc.CallOption) (*llmv1.CreateLLMProviderResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) GetLLMProvider(context.Context, *llmv1.GetLLMProviderRequest, ...grpc.CallOption) (*llmv1.GetLLMProviderResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) UpdateLLMProvider(context.Context, *llmv1.UpdateLLMProviderRequest, ...grpc.CallOption) (*llmv1.UpdateLLMProviderResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) DeleteLLMProvider(context.Context, *llmv1.DeleteLLMProviderRequest, ...grpc.CallOption) (*llmv1.DeleteLLMProviderResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) ListLLMProviders(context.Context, *llmv1.ListLLMProvidersRequest, ...grpc.CallOption) (*llmv1.ListLLMProvidersResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) CreateModel(context.Context, *llmv1.CreateModelRequest, ...grpc.CallOption) (*llmv1.CreateModelResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) GetModel(ctx context.Context, req *llmv1.GetModelRequest, opts ...grpc.CallOption) (*llmv1.GetModelResponse, error) {
-	if f.getModel != nil {
-		return f.getModel(ctx, req, opts...)
-	}
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) UpdateModel(context.Context, *llmv1.UpdateModelRequest, ...grpc.CallOption) (*llmv1.UpdateModelResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) DeleteModel(context.Context, *llmv1.DeleteModelRequest, ...grpc.CallOption) (*llmv1.DeleteModelResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) ListModels(context.Context, *llmv1.ListModelsRequest, ...grpc.CallOption) (*llmv1.ListModelsResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeLLMClient) ResolveModel(context.Context, *llmv1.ResolveModelRequest, ...grpc.CallOption) (*llmv1.ResolveModelResponse, error) {
 	return nil, errNotImplemented
 }

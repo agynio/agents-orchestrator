@@ -12,7 +12,6 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
-	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
@@ -88,12 +87,6 @@ func run() error {
 	}
 	defer closeConn(secretsConn)
 
-	llmConn, err := grpc.DialContext(ctx, cfg.LLMAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("dial llm: %w", err)
-	}
-	defer closeConn(llmConn)
-
 	runnersConn, err := grpc.NewClient(cfg.RunnersAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial runners: %w", err)
@@ -135,11 +128,10 @@ func run() error {
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	notificationsClient := notificationsv1.NewNotificationsServiceClient(notificationsConn)
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
-	llmClient := llmv1.NewLLMServiceClient(llmConn)
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 	subscriber := subscriber.New(notificationsClient)
-	assembler := assembler.New(agentsClient, llmClient, secretsClient, &cfg)
+	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
 		Threads:      threadsClient,
 		Agents:       agentsClient,

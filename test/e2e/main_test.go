@@ -24,8 +24,7 @@ const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
 
-	testOrganizationID = "33333333-3333-3333-3333-333333333333"
-	testLLMEndpoint    = "https://testllm.dev/v1/org/agynio/suite/codex"
+	testLLMEndpoint = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
 
 	labelManagedBy = "managed-by"
 	labelAgentID   = "agent-id"
@@ -38,6 +37,8 @@ var (
 	threadsAddr  = envOrDefault("THREADS_ADDRESS", "threads:50051")
 	identityAddr = envOrDefault("IDENTITY_ADDRESS", "identity:50051")
 	llmAddr      = envOrDefault("LLM_ADDRESS", "llm:50051")
+	usersAddr    = envOrDefault("USERS_ADDRESS", "users:50051")
+	orgsAddr     = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
 	runnerAddr   = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 )
 
@@ -158,14 +159,14 @@ func createModel(t *testing.T, ctx context.Context, client llmv1.LLMServiceClien
 
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model string) *agentsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model, organizationID string) *agentsv1.Agent {
 	t.Helper()
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:           name,
 		Role:           "assistant",
 		Model:          model,
 		Image:          "alpine:3.21",
-		OrganizationId: testOrganizationID,
+		OrganizationId: organizationID,
 	})
 	if err != nil {
 		t.Fatalf("create agent %q: %v", name, err)

@@ -22,9 +22,6 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.AgentLLMBaseURL != "http://llm-proxy:8080/v1" {
 		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy:8080/v1", cfg.AgentLLMBaseURL)
 	}
-	if cfg.LLMAddress != "llm:50051" {
-		t.Fatalf("expected llm address %q, got %q", "llm:50051", cfg.LLMAddress)
-	}
 	if cfg.ZitiSidecarImage != "openziti/ziti-tunnel:2.0.0-pre8" {
 		t.Fatalf("expected ziti sidecar image %q, got %q", "openziti/ziti-tunnel:2.0.0-pre8", cfg.ZitiSidecarImage)
 	}
@@ -50,9 +47,6 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.AgentLLMBaseURL != "http://llm-proxy.ziti/v1" {
 		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy.ziti/v1", cfg.AgentLLMBaseURL)
 	}
-	if cfg.LLMAddress != "llm:50051" {
-		t.Fatalf("expected llm address %q, got %q", "llm:50051", cfg.LLMAddress)
-	}
 	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
 		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
 	}
@@ -74,7 +68,6 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("DEFAULT_INIT_IMAGE", "init-image")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
-	t.Setenv("LLM_ADDRESS", "")
 	t.Setenv("POLL_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")
 	t.Setenv("STOP_TIMEOUT_SEC", "")

@@ -706,7 +706,7 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 		ZitiSidecarImage:    "ziti-sidecar-image",
 		ClusterDNS:          "10.43.0.10",
 	}
-	return assembler.New(agentsClient, nil, &fakeSecretsClient{}, cfg)
+	return assembler.New(agentsClient, &fakeSecretsClient{}, cfg)
 }
 
 func envMap(envs []*runnerv1.EnvVar) map[string]string {

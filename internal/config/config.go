@@ -23,7 +23,6 @@ type Config struct {
 	DefaultInitImage         string
 	AgentGatewayAddress      string
 	AgentLLMBaseURL          string
-	LLMAddress               string
 	PollInterval             time.Duration
 	IdleTimeout              time.Duration
 	StopTimeoutSec           uint32
@@ -80,10 +79,6 @@ func FromEnv() (Config, error) {
 		} else {
 			cfg.AgentLLMBaseURL = "http://llm-proxy:8080/v1"
 		}
-	}
-	cfg.LLMAddress = os.Getenv("LLM_ADDRESS")
-	if cfg.LLMAddress == "" {
-		cfg.LLMAddress = "llm:50051"
 	}
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
 	if cfg.ZitiManagementAddress == "" {

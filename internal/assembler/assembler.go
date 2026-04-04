@@ -11,7 +11,6 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
-	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
@@ -42,7 +41,6 @@ const (
 
 type Assembler struct {
 	agents  agentsv1.AgentsServiceClient
-	llm     llmv1.LLMServiceClient
 	secrets secretsv1.SecretsServiceClient
 	cfg     *config.Config
 }
@@ -53,8 +51,8 @@ type AssembleResult struct {
 	RunnerLabels   map[string]string
 }
 
-func New(agents agentsv1.AgentsServiceClient, llm llmv1.LLMServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
-	return &Assembler{agents: agents, llm: llm, secrets: secrets, cfg: cfg}
+func New(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
+	return &Assembler{agents: agents, secrets: secrets, cfg: cfg}
 }
 
 func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (*AssembleResult, error) {
@@ -497,39 +495,10 @@ func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent,
 		{Name: "HOME", Value: agentHomeDir},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
 	}
-	modelOverride := a.resolveModelOverride(ctx, agent.GetModel())
-	if modelOverride != "" {
-		vars = append(vars, &runnerv1.EnvVar{Name: "MODEL_OVERRIDE", Value: modelOverride})
-	}
 	if initScript != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
 	}
 	return vars
-}
-
-func (a *Assembler) resolveModelOverride(ctx context.Context, modelID string) string {
-	if a.llm == nil || modelID == "" {
-		return ""
-	}
-	rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-	defer cancel()
-	resp, err := a.llm.GetModel(rctx, &llmv1.GetModelRequest{Id: modelID})
-	if err != nil {
-		log.Printf("assembler: resolveModelOverride: GetModel(%s) error: %v", modelID, err)
-		return ""
-	}
-	if resp == nil {
-		log.Printf("assembler: resolveModelOverride: GetModel(%s) returned nil response", modelID)
-		return ""
-	}
-	model := resp.GetModel()
-	if model == nil {
-		log.Printf("assembler: resolveModelOverride: GetModel(%s) returned nil model", modelID)
-		return ""
-	}
-	remoteName := model.GetRemoteName()
-	log.Printf("assembler: resolveModelOverride: GetModel(%s) resolved to %q", modelID, remoteName)
-	return remoteName
 }
 
 type skillPayload struct {
