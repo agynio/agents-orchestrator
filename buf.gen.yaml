@@ -17,6 +17,7 @@ inputs:
       - agynio/api/secrets/v1
       - agynio/api/ziti_management/v1
       - agynio/api/identity/v1
+      - agynio/api/llm/v1
       - agynio/api/users/v1
       - agynio/api/organizations/v1
 
