@@ -77,7 +77,7 @@ func FromEnv() (Config, error) {
 		if cfg.ZitiEnabled {
 			cfg.AgentLLMBaseURL = "http://llm-proxy.ziti/v1"
 		} else {
-			cfg.AgentLLMBaseURL = "http://llm-proxy:8080/v1"
+			cfg.AgentLLMBaseURL = "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1"
 		}
 	}
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")

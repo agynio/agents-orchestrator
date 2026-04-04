@@ -60,7 +60,7 @@ functions:
               image: ghcr.io/agynio/devcontainer-go:1 # keep in sync with DEV_IMAGE
               env:
                 - name: AGENT_LLM_BASE_URL
-                  value: "http://llm-proxy-llm-proxy:8080/v1"
+                  value: "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1"
                 - name: AGENT_GATEWAY_ADDRESS
                   value: "gateway-gateway.platform.svc.cluster.local:8080"
                 - name: ZITI_ENABLED

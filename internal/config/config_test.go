@@ -19,8 +19,8 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.AgentGatewayAddress != "gateway:8080" {
 		t.Fatalf("expected gateway address %q, got %q", "gateway:8080", cfg.AgentGatewayAddress)
 	}
-	if cfg.AgentLLMBaseURL != "http://llm-proxy:8080/v1" {
-		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy:8080/v1", cfg.AgentLLMBaseURL)
+	if cfg.AgentLLMBaseURL != "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1" {
+		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1", cfg.AgentLLMBaseURL)
 	}
 	if cfg.ZitiSidecarImage != "openziti/ziti-tunnel:2.0.0-pre8" {
 		t.Fatalf("expected ziti sidecar image %q, got %q", "openziti/ziti-tunnel:2.0.0-pre8", cfg.ZitiSidecarImage)
