@@ -20,6 +20,10 @@ const (
 	dockerStateDead       = "dead"
 	dockerStateRemoving   = "removing"
 	dockerStateStopped    = "stopped"
+	k8sPhasePending       = "pending"
+	k8sPhaseSucceeded     = "succeeded"
+	k8sPhaseFailed        = "failed"
+	k8sPhaseUnknown       = "unknown"
 )
 
 func (r *Reconciler) updateWorkloadStatuses(ctx context.Context) error {
@@ -78,6 +82,14 @@ func workloadStatusFromInspect(resp *runnerv1.InspectWorkloadResponse) (runnersv
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, nil
 	case dockerStatePaused:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, nil
+	case k8sPhasePending:
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, nil
+	case k8sPhaseSucceeded:
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED, nil
+	case k8sPhaseFailed:
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED, nil
+	case k8sPhaseUnknown:
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED, fmt.Errorf("pod phase unknown for workload")
 	case "", dockerStateExited, dockerStateDead, dockerStateRemoving, dockerStateStopped:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED, nil
 	default:
