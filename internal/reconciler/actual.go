@@ -13,7 +13,7 @@ import (
 const activeWorkloadPageSize int32 = 100
 
 func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, error) {
-	tracked, err := r.listActiveWorkloads(ctx)
+	tracked, err := r.listTrackedWorkloads(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +51,11 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, er
 				actual = append(actual, workload)
 				continue
 			}
+			status := workload.GetStatus()
+			if status == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED || status == runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+				actual = append(actual, workload)
+				continue
+			}
 			r.removeStaleWorkload(ctx, workload, "missing on runner")
 		}
 	}
@@ -81,17 +86,30 @@ func (r *Reconciler) removeStaleWorkload(ctx context.Context, workload *runnersv
 	}
 }
 
+func (r *Reconciler) listTrackedWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
+	return r.listWorkloadsByStatus(ctx, []runnersv1.WorkloadStatus{
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
+	})
+}
+
 func (r *Reconciler) listActiveWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
-	active := []*runnersv1.Workload{}
+	return r.listWorkloadsByStatus(ctx, []runnersv1.WorkloadStatus{
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+	})
+}
+
+func (r *Reconciler) listWorkloadsByStatus(ctx context.Context, statuses []runnersv1.WorkloadStatus) ([]*runnersv1.Workload, error) {
+	workloads := []*runnersv1.Workload{}
 	pageToken := ""
 	for {
 		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
-			Statuses: []runnersv1.WorkloadStatus{
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-			},
+			Statuses:  statuses,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list workloads: %w", err)
@@ -107,12 +125,12 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context) ([]*runnersv1.Work
 			if meta.GetId() == "" {
 				return nil, fmt.Errorf("workload meta id missing")
 			}
-			active = append(active, workload)
+			workloads = append(workloads, workload)
 		}
 		pageToken = resp.GetNextPageToken()
 		if pageToken == "" {
 			break
 		}
 	}
-	return active, nil
+	return workloads, nil
 }

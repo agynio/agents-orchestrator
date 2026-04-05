@@ -19,7 +19,6 @@ import (
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 const (
@@ -101,13 +100,16 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	sendMessage(t, ctx, threadsClient, threadID, identityID, "e2e image pull secret")
+	sendMessage(t, ctx, threadsClient, threadID, identityID, "hello")
 
 	labelsMap := map[string]string{
 		labelManagedBy: managedByValue,
 		labelAgentID:   agentID,
 		labelThreadID:  threadID,
 	}
+
+	clientset := kubeClientset(t)
+	namespace := workloadNamespace(t)
 
 	workloadID := ""
 	t.Cleanup(func() {
@@ -117,46 +119,40 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 		cleanupWorkload(t, ctx, runnerClient, workloadID)
 	})
 
+	var workloadPod *corev1.Pod
 	pollCtx, pollCancel := context.WithTimeout(ctx, 90*time.Second)
 	defer pollCancel()
 	if err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
-		ids, err := findWorkloadsByLabels(ctx, runnerClient, labelsMap)
-		if err != nil {
+		reportError := func(err error) error {
+			if err != nil {
+				t.Logf("poll attempt: %v", err)
+			}
 			return err
 		}
-		if len(ids) != 1 {
-			return fmt.Errorf("expected 1 workload, got %d", len(ids))
+		ids, err := findWorkloadsByLabels(ctx, runnerClient, labelsMap)
+		if err != nil {
+			return reportError(fmt.Errorf("find workloads: %w", err))
+		}
+		if len(ids) == 0 {
+			return reportError(fmt.Errorf("no workloads found yet"))
+		}
+		if len(ids) > 1 {
+			return reportError(fmt.Errorf("expected 1 workload, got %d", len(ids)))
 		}
 		workloadID = ids[0]
+
+		podName := "workload-" + workloadID
+		pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+		if err != nil {
+			return reportError(fmt.Errorf("get pod %s: %w", podName, err))
+		}
+		if len(pod.Spec.ImagePullSecrets) == 0 {
+			return reportError(fmt.Errorf("pod %s has no image pull secrets", podName))
+		}
+		workloadPod = pod
 		return nil
 	}); err != nil {
-		t.Fatalf("wait for workload: %v", err)
-	}
-
-	clientset := kubeClientset(t)
-	namespace := currentNamespace(t)
-	labelSelector := labels.Set(labelsMap).String()
-
-	var workloadPod *corev1.Pod
-	podCtx, podCancel := context.WithTimeout(ctx, 90*time.Second)
-	defer podCancel()
-	if err := pollUntil(podCtx, pollInterval, func(ctx context.Context) error {
-		pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-		if err != nil {
-			return fmt.Errorf("list pods: %w", err)
-		}
-		if len(pods.Items) == 0 {
-			return fmt.Errorf("expected at least 1 pod, got 0")
-		}
-		for i := range pods.Items {
-			if len(pods.Items[i].Spec.ImagePullSecrets) > 0 {
-				workloadPod = &pods.Items[i]
-				return nil
-			}
-		}
-		return fmt.Errorf("pod image pull secrets not set")
-	}); err != nil {
-		t.Fatalf("wait for pod image pull secrets: %v", err)
+		t.Fatalf("wait for pod with image pull secrets: %v", err)
 	}
 	secretName := workloadPod.Spec.ImagePullSecrets[0].Name
 	if secretName == "" {

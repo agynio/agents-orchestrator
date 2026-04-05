@@ -1,0 +1,27 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agents-orchestrator-e2e
+  namespace: agyn-workloads
+  labels:
+    app.kubernetes.io/component: e2e-runner
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "secrets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agents-orchestrator-e2e
+  namespace: agyn-workloads
+  labels:
+    app.kubernetes.io/component: e2e-runner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agents-orchestrator-e2e
+subjects:
+  - kind: ServiceAccount
+    name: agents-orchestrator-e2e
+    namespace: platform

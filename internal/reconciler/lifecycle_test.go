@@ -655,6 +655,111 @@ func TestFetchActualSkipsIdentityCleanupWhenZitiMgmtNil(t *testing.T) {
 	}
 }
 
+func TestFetchActualKeepsTerminalWorkloadWhenMissingOnRunner(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	testAssembler := newTestAssembler(agentID, false)
+	runnerID := "runner-1"
+	workloadID := "workload-1"
+
+	deleted := false
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED},
+			}}, nil
+		},
+		deleteWorkload: func(_ context.Context, req *runnersv1.DeleteWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error) {
+			deleted = true
+			return &runnersv1.DeleteWorkloadResponse{}, nil
+		},
+	}
+
+	runner := &fakeRunnerClient{
+		findWorkloadsByLabels: func(_ context.Context, _ *runnerv1.FindWorkloadsByLabelsRequest, _ ...grpc.CallOption) (*runnerv1.FindWorkloadsByLabelsResponse, error) {
+			return &runnerv1.FindWorkloadsByLabelsResponse{TargetIds: []string{}}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	actual, err := reconciler.fetchActual(ctx)
+	if err != nil {
+		t.Fatalf("fetch actual: %v", err)
+	}
+	if deleted {
+		t.Fatal("expected terminal workload to be retained")
+	}
+	if len(actual) != 1 {
+		t.Fatalf("expected 1 workload, got %d", len(actual))
+	}
+	if actual[0].GetMeta().GetId() != workloadID {
+		t.Fatalf("unexpected workload id: %s", actual[0].GetMeta().GetId())
+	}
+}
+
+func TestFetchActualRemovesRunningWorkloadWhenMissingOnRunner(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	testAssembler := newTestAssembler(agentID, false)
+	runnerID := "runner-1"
+	workloadID := "workload-1"
+
+	deleted := []string{}
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
+			}}, nil
+		},
+		deleteWorkload: func(_ context.Context, req *runnersv1.DeleteWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error) {
+			deleted = append(deleted, req.GetId())
+			return &runnersv1.DeleteWorkloadResponse{}, nil
+		},
+	}
+
+	runner := &fakeRunnerClient{
+		findWorkloadsByLabels: func(_ context.Context, _ *runnerv1.FindWorkloadsByLabelsRequest, _ ...grpc.CallOption) (*runnerv1.FindWorkloadsByLabelsResponse, error) {
+			return &runnerv1.FindWorkloadsByLabelsResponse{TargetIds: []string{}}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	actual, err := reconciler.fetchActual(ctx)
+	if err != nil {
+		t.Fatalf("fetch actual: %v", err)
+	}
+	if len(actual) != 0 {
+		t.Fatalf("expected 0 workloads, got %d", len(actual))
+	}
+	if !reflect.DeepEqual(deleted, []string{workloadID}) {
+		t.Fatalf("unexpected delete ids: %v", deleted)
+	}
+}
+
 func newTestReconciler(cfg Config) *Reconciler {
 	if cfg.Poll == 0 {
 		cfg.Poll = time.Second
