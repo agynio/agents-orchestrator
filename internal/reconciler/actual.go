@@ -51,6 +51,11 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, er
 				actual = append(actual, workload)
 				continue
 			}
+			status := workload.GetStatus()
+			if status == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED || status == runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+				actual = append(actual, workload)
+				continue
+			}
 			r.removeStaleWorkload(ctx, workload, "missing on runner")
 		}
 	}
