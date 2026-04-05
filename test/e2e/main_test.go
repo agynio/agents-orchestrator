@@ -13,7 +13,6 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
-	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
@@ -36,14 +35,13 @@ const (
 )
 
 var (
-	agentsAddr   = envOrDefault("AGENTS_ADDRESS", "agents:50051")
-	threadsAddr  = envOrDefault("THREADS_ADDRESS", "threads:50051")
-	identityAddr = envOrDefault("IDENTITY_ADDRESS", "identity:50051")
-	llmAddr      = envOrDefault("LLM_ADDRESS", "llm:50051")
-	usersAddr    = envOrDefault("USERS_ADDRESS", "users:50051")
-	orgsAddr     = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
-	runnerAddr   = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
-	secretsAddr  = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
+	agentsAddr  = envOrDefault("AGENTS_ADDRESS", "agents:50051")
+	threadsAddr = envOrDefault("THREADS_ADDRESS", "threads:50051")
+	llmAddr     = envOrDefault("LLM_ADDRESS", "llm:50051")
+	usersAddr   = envOrDefault("USERS_ADDRESS", "users:50051")
+	orgsAddr    = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
+	runnerAddr  = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
+	secretsAddr = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
 )
 
 func envOrDefault(key, fallback string) string {
@@ -83,28 +81,6 @@ func pollUntil(ctx context.Context, interval time.Duration, check func(ctx conte
 // newUserID returns a random UUID to use as a fake user participant.
 func newUserID() string {
 	return uuid.New().String()
-}
-
-func registerIdentity(t *testing.T, ctx context.Context, client identityv1.IdentityServiceClient, identityID string) {
-	t.Helper()
-	_, err := client.RegisterIdentity(ctx, &identityv1.RegisterIdentityRequest{
-		IdentityId:   identityID,
-		IdentityType: identityv1.IdentityType_IDENTITY_TYPE_USER,
-	})
-	if err != nil {
-		t.Fatalf("register identity %s: %v", identityID, err)
-	}
-}
-
-func registerAgentIdentity(t *testing.T, ctx context.Context, client identityv1.IdentityServiceClient, identityID string) {
-	t.Helper()
-	_, err := client.RegisterIdentity(ctx, &identityv1.RegisterIdentityRequest{
-		IdentityId:   identityID,
-		IdentityType: identityv1.IdentityType_IDENTITY_TYPE_AGENT,
-	})
-	if err != nil {
-		t.Fatalf("register agent identity %s: %v", identityID, err)
-	}
 }
 
 func createLLMProvider(t *testing.T, ctx context.Context, client llmv1.LLMServiceClient, endpoint, orgID string) *llmv1.LLMProvider {

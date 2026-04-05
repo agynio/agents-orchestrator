@@ -8,7 +8,6 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
-	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	organizationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/organizations/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
@@ -29,7 +28,6 @@ func TestMCPToolsE2E(t *testing.T) {
 
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
-	identityClient := identityv1.NewIdentityServiceClient(dialGRPC(t, identityAddr))
 	llmConn := dialGRPC(t, llmAddr)
 	llmClient := llmv1.NewLLMServiceClient(llmConn)
 	usersClient := usersv1.NewUsersServiceClient(usersConn)
@@ -39,7 +37,6 @@ func TestMCPToolsE2E(t *testing.T) {
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
-	registerIdentity(t, ctx, identityClient, identityID)
 
 	provider := createLLMProvider(t, ctx, llmClient, testLLMEndpoint, orgID)
 	providerID := provider.GetMeta().GetId()
@@ -59,7 +56,6 @@ func TestMCPToolsE2E(t *testing.T) {
 	}
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
-	registerAgentIdentity(t, ctx, identityClient, agentID)
 	memoryMCP := createMCP(
 		t,
 		ctx,
