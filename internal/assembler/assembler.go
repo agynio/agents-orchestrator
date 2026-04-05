@@ -156,6 +156,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err != nil {
 		return nil, fmt.Errorf("list hooks: %w", err)
 	}
+	hookAssignments, err := assignHooks(hooks)
+	if err != nil {
+		return nil, fmt.Errorf("assign hooks: %w", err)
+	}
 	for _, assignment := range mcpAssignments {
 		mcpAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{McpId: assignment.id})
 		if err != nil {
@@ -165,19 +169,8 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			return nil, fmt.Errorf("resolve mcp image pull secrets: %w", err)
 		}
 	}
-	for _, hook := range hooks {
-		if hook == nil {
-			return nil, fmt.Errorf("hook is nil")
-		}
-		meta := hook.GetMeta()
-		if meta == nil {
-			return nil, fmt.Errorf("hook meta missing")
-		}
-		hookID, err := uuidutil.ParseUUID(meta.GetId(), "hook.meta.id")
-		if err != nil {
-			return nil, err
-		}
-		hookAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{HookId: hookID.String()})
+	for _, assignment := range hookAssignments {
+		hookAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{HookId: assignment.id.String()})
 		if err != nil {
 			return nil, fmt.Errorf("list hook image pull secret attachments: %w", err)
 		}
@@ -186,7 +179,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		}
 	}
 
-	sidecars := make([]*runnerv1.ContainerSpec, 0, len(mcpAssignments)+len(hooks))
+	sidecars := make([]*runnerv1.ContainerSpec, 0, len(mcpAssignments)+len(hookAssignments))
 	mcpServers := make([]string, 0, len(mcpAssignments))
 	for _, assignment := range mcpAssignments {
 		sidecar, err := a.buildMcpSidecar(ctx, resolver, volumeResolver, assignment.mcp, assignment.port)
@@ -196,8 +189,8 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		sidecars = append(sidecars, sidecar)
 		mcpServers = append(mcpServers, fmt.Sprintf("%s:%d", assignment.name, assignment.port))
 	}
-	for _, hook := range hooks {
-		sidecar, err := a.buildHookSidecar(ctx, resolver, volumeResolver, hook)
+	for _, assignment := range hookAssignments {
+		sidecar, err := a.buildHookSidecar(ctx, resolver, volumeResolver, assignment)
 		if err != nil {
 			return nil, err
 		}
@@ -456,6 +449,11 @@ type mcpAssignment struct {
 	port int
 }
 
+type hookAssignment struct {
+	hook *agentsv1.Hook
+	id   uuid.UUID
+}
+
 func assignMcpPorts(mcps []*agentsv1.Mcp) ([]mcpAssignment, error) {
 	assignments := make([]mcpAssignment, 0, len(mcps))
 	for _, mcp := range mcps {
@@ -479,6 +477,25 @@ func assignMcpPorts(mcps []*agentsv1.Mcp) ([]mcpAssignment, error) {
 	sort.Slice(assignments, func(i, j int) bool { return assignments[i].id < assignments[j].id })
 	for i := range assignments {
 		assignments[i].port = mcpBasePort + i
+	}
+	return assignments, nil
+}
+
+func assignHooks(hooks []*agentsv1.Hook) ([]hookAssignment, error) {
+	assignments := make([]hookAssignment, 0, len(hooks))
+	for _, hook := range hooks {
+		if hook == nil {
+			return nil, fmt.Errorf("hook is nil")
+		}
+		meta := hook.GetMeta()
+		if meta == nil {
+			return nil, fmt.Errorf("hook meta missing")
+		}
+		hookID, err := uuidutil.ParseUUID(meta.GetId(), "hook.meta.id")
+		if err != nil {
+			return nil, err
+		}
+		assignments = append(assignments, hookAssignment{hook: hook, id: hookID})
 	}
 	return assignments, nil
 }
@@ -516,33 +533,22 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	}, nil
 }
 
-func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, hook *agentsv1.Hook) (*runnerv1.ContainerSpec, error) {
-	if hook == nil {
-		return nil, fmt.Errorf("hook is nil")
-	}
-	meta := hook.GetMeta()
-	if meta == nil {
-		return nil, fmt.Errorf("hook meta missing")
-	}
-	hookID, err := uuidutil.ParseUUID(meta.GetId(), "hook.meta.id")
-	if err != nil {
-		return nil, err
-	}
+func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, assignment hookAssignment) (*runnerv1.ContainerSpec, error) {
 	envVars, mounts, err := a.resolveSidecarResources(
 		ctx,
 		resolver,
 		volumeResolver,
-		&agentsv1.ListEnvsRequest{HookId: hookID.String()},
-		&agentsv1.ListInitScriptsRequest{HookId: hookID.String()},
-		&agentsv1.ListVolumeAttachmentsRequest{HookId: hookID.String()},
+		&agentsv1.ListEnvsRequest{HookId: assignment.id.String()},
+		&agentsv1.ListInitScriptsRequest{HookId: assignment.id.String()},
+		&agentsv1.ListVolumeAttachmentsRequest{HookId: assignment.id.String()},
 	)
 	if err != nil {
 		return nil, err
 	}
 	return &runnerv1.ContainerSpec{
-		Image:  hook.GetImage(),
-		Name:   fmt.Sprintf("hook-%s", hookID.String()[:8]),
-		Cmd:    []string{"/bin/sh", "-c", hook.GetFunction()},
+		Image:  assignment.hook.GetImage(),
+		Name:   fmt.Sprintf("hook-%s", assignment.id.String()[:8]),
+		Cmd:    []string{"/bin/sh", "-c", assignment.hook.GetFunction()},
 		Env:    envVars,
 		Mounts: mounts,
 	}, nil
