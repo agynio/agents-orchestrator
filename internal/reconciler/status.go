@@ -64,24 +64,8 @@ func (r *Reconciler) updateWorkloadStatuses(ctx context.Context) error {
 			log.Printf("reconciler: warn: update workload %s status: %v", workloadID, err)
 			continue
 		}
-		if isTerminalWorkloadStatus(status) {
-			if err := r.stopRunnerWorkload(ctx, runnerClient, workloadID); err != nil {
-				log.Printf("reconciler: warn: stop workload %s after terminal status: %v", workloadID, err)
-			}
-			r.deleteWorkloadRecord(ctx, workloadID, workload.GetZitiIdentityId())
-		}
 	}
 	return nil
-}
-
-func isTerminalWorkloadStatus(status runnersv1.WorkloadStatus) bool {
-	switch status {
-	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED:
-		return true
-	default:
-		return false
-	}
 }
 
 func workloadStatusFromInspect(resp *runnerv1.InspectWorkloadResponse) (runnersv1.WorkloadStatus, error) {

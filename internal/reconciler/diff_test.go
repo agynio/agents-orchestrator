@@ -26,6 +26,8 @@ func TestComputeActions(t *testing.T) {
 	workload2 := makeWorkload(agent3, thread3, now.Add(-20*time.Minute))
 	workload3 := makeWorkload(agent1, thread1, now.Add(-20*time.Minute))
 	workload4 := makeWorkload(agent1, thread1, now.Add(-5*time.Minute))
+	terminalWorkload := makeWorkload(agent2, thread2, now)
+	terminalWorkload.Status = runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
 
 	cases := []struct {
 		name     string
@@ -62,6 +64,11 @@ func TestComputeActions(t *testing.T) {
 			name:    "match",
 			desired: []AgentThread{{AgentID: agent1, ThreadID: thread1}},
 			actual:  []*runnersv1.Workload{workload1},
+		},
+		{
+			name:    "terminal actual blocks start",
+			desired: []AgentThread{{AgentID: agent2, ThreadID: thread2}},
+			actual:  []*runnersv1.Workload{terminalWorkload},
 		},
 		{
 			name: "mixed",

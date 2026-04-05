@@ -13,7 +13,7 @@ import (
 const activeWorkloadPageSize int32 = 100
 
 func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, error) {
-	tracked, err := r.listActiveWorkloads(ctx)
+	tracked, err := r.listTrackedWorkloads(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +79,44 @@ func (r *Reconciler) removeStaleWorkload(ctx context.Context, workload *runnersv
 			log.Printf("reconciler: warn: delete ziti identity %s for stale workload %s: %v", workload.GetZitiIdentityId(), workloadID, err)
 		}
 	}
+}
+
+func (r *Reconciler) listTrackedWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
+	tracked := []*runnersv1.Workload{}
+	pageToken := ""
+	for {
+		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
+			PageSize:  activeWorkloadPageSize,
+			PageToken: pageToken,
+			Statuses: []runnersv1.WorkloadStatus{
+				runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
+				runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
+				runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list workloads: %w", err)
+		}
+		for _, workload := range resp.GetWorkloads() {
+			if workload == nil {
+				return nil, fmt.Errorf("workload is nil")
+			}
+			meta := workload.GetMeta()
+			if meta == nil {
+				return nil, fmt.Errorf("workload meta missing")
+			}
+			if meta.GetId() == "" {
+				return nil, fmt.Errorf("workload meta id missing")
+			}
+			tracked = append(tracked, workload)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	return tracked, nil
 }
 
 func (r *Reconciler) listActiveWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
