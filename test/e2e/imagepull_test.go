@@ -23,6 +23,12 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
+const (
+	testImagePullRegistry = "registry.example.com"
+	testImagePullUsername = "e2e-user"
+	testImagePullPassword = "e2e-password"
+)
+
 func TestImagePullSecretAttachedToPod(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	t.Cleanup(cancel)
@@ -65,9 +71,9 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 		ctx,
 		secretsClient,
 		fmt.Sprintf("e2e-image-pull-%s", uuid.NewString()),
-		"registry.example.com",
-		"e2e-user",
-		"e2e-password",
+		testImagePullRegistry,
+		testImagePullUsername,
+		testImagePullPassword,
 		orgID,
 	)
 	imagePullSecretID := imagePullSecret.GetMeta().GetId()
@@ -156,9 +162,6 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("wait for pod image pull secrets: %v", err)
 	}
-	if workloadPod == nil {
-		t.Fatal("expected workload pod")
-	}
 	secretName := workloadPod.Spec.ImagePullSecrets[0].Name
 	if secretName == "" {
 		t.Fatal("image pull secret name missing")
@@ -184,11 +187,11 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	if err := json.Unmarshal(configJSON, &config); err != nil {
 		t.Fatalf("parse docker config json: %v", err)
 	}
-	auth, ok := config.Auths["registry.example.com"]
+	auth, ok := config.Auths[testImagePullRegistry]
 	if !ok {
-		t.Fatal("missing auths entry for registry.example.com")
+		t.Fatalf("missing auths entry for %s", testImagePullRegistry)
 	}
-	if auth.Username != "e2e-user" {
-		t.Fatalf("expected username %q, got %q", "e2e-user", auth.Username)
+	if auth.Username != testImagePullUsername {
+		t.Fatalf("expected username %q, got %q", testImagePullUsername, auth.Username)
 	}
 }
