@@ -105,6 +105,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err := imagePullResolver.Resolve(ctx, agentImagePullAttachments); err != nil {
 		return nil, fmt.Errorf("resolve agent image pull secrets: %w", err)
 	}
+	log.Printf("assembler: agent %s: found %d image pull secret attachments", agentID, len(agentImagePullAttachments))
 
 	mainEnv := a.baseAgentEnvVars(ctx, agent, agentID, threadID, skillsJSON, agentInitScript)
 	mainEnv = append(mainEnv, agentEnvVars...)

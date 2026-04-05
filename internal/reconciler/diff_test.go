@@ -21,6 +21,10 @@ func TestComputeActions(t *testing.T) {
 	thread2 := uuid.New()
 	agent3 := uuid.New()
 	thread3 := uuid.New()
+	agent4 := uuid.New()
+	thread4 := uuid.New()
+	agent5 := uuid.New()
+	thread5 := uuid.New()
 
 	workload1 := makeWorkload(agent1, thread1, now)
 	workload2 := makeWorkload(agent3, thread3, now.Add(-20*time.Minute))
@@ -28,6 +32,10 @@ func TestComputeActions(t *testing.T) {
 	workload4 := makeWorkload(agent1, thread1, now.Add(-5*time.Minute))
 	terminalWorkload := makeWorkload(agent2, thread2, now)
 	terminalWorkload.Status = runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
+	stoppedWorkload := makeWorkload(agent4, thread4, now.Add(-20*time.Minute))
+	stoppedWorkload.Status = runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
+	failedWorkload := makeWorkload(agent5, thread5, now.Add(-20*time.Minute))
+	failedWorkload.Status = runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED
 
 	cases := []struct {
 		name     string
@@ -69,6 +77,14 @@ func TestComputeActions(t *testing.T) {
 			name:    "terminal actual blocks start",
 			desired: []AgentThread{{AgentID: agent2, ThreadID: thread2}},
 			actual:  []*runnersv1.Workload{terminalWorkload},
+		},
+		{
+			name:   "skip stopped workload",
+			actual: []*runnersv1.Workload{stoppedWorkload},
+		},
+		{
+			name:   "skip failed workload",
+			actual: []*runnersv1.Workload{failedWorkload},
 		},
 		{
 			name: "mixed",
