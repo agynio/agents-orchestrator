@@ -1138,6 +1138,22 @@ func (f *fakeAgentsClient) CreateAgent(context.Context, *agentsv1.CreateAgentReq
 	return nil, errNotImplemented
 }
 
+func (f *fakeAgentsClient) CreateImagePullSecretAttachment(context.Context, *agentsv1.CreateImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.CreateImagePullSecretAttachmentResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) GetImagePullSecretAttachment(context.Context, *agentsv1.GetImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.GetImagePullSecretAttachmentResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) DeleteImagePullSecretAttachment(context.Context, *agentsv1.DeleteImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.DeleteImagePullSecretAttachmentResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) ListImagePullSecretAttachments(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+	return nil, errNotImplemented
+}
+
 func (f *fakeAgentsClient) GetAgent(ctx context.Context, req *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
 	if f.getAgent != nil {
 		return f.getAgent(ctx, req, opts...)
@@ -1359,6 +1375,30 @@ func (f *fakeSecretsClient) ListSecretProviders(context.Context, *secretsv1.List
 }
 
 func (f *fakeSecretsClient) CreateSecret(context.Context, *secretsv1.CreateSecretRequest, ...grpc.CallOption) (*secretsv1.CreateSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) CreateImagePullSecret(context.Context, *secretsv1.CreateImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.CreateImagePullSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) GetImagePullSecret(context.Context, *secretsv1.GetImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.GetImagePullSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) UpdateImagePullSecret(context.Context, *secretsv1.UpdateImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.UpdateImagePullSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) DeleteImagePullSecret(context.Context, *secretsv1.DeleteImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.DeleteImagePullSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) ListImagePullSecrets(context.Context, *secretsv1.ListImagePullSecretsRequest, ...grpc.CallOption) (*secretsv1.ListImagePullSecretsResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) ResolveImagePullSecret(context.Context, *secretsv1.ResolveImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
 	return nil, errNotImplemented
 }
 

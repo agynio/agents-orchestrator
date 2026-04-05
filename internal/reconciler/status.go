@@ -78,6 +78,14 @@ func workloadStatusFromInspect(resp *runnerv1.InspectWorkloadResponse) (runnersv
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, nil
 	case dockerStatePaused:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, nil
+	case "pending":
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, nil
+	case "succeeded":
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED, nil
+	case "failed":
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED, nil
+	case "unknown":
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED, fmt.Errorf("pod phase unknown for workload")
 	case "", dockerStateExited, dockerStateDead, dockerStateRemoving, dockerStateStopped:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED, nil
 	default:
