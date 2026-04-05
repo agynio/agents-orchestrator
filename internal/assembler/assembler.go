@@ -64,6 +64,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 
 	resolver := newEnvResolver(a.secrets)
 	volumeResolver := newVolumeResolver(a.agents, agentID)
+	imagePullResolver := newImagePullResolver(a.secrets)
 
 	agentEnvs, err := a.listEnvs(ctx, &agentsv1.ListEnvsRequest{AgentId: agentID.String()})
 	if err != nil {
@@ -96,6 +97,13 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	agentMounts, err := volumeResolver.mountsFor(ctx, agentAttachments)
 	if err != nil {
 		return nil, fmt.Errorf("resolve agent mounts: %w", err)
+	}
+	agentImagePullAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{AgentId: agentID.String()})
+	if err != nil {
+		return nil, fmt.Errorf("list agent image pull secret attachments: %w", err)
+	}
+	if err := imagePullResolver.Resolve(ctx, agentImagePullAttachments); err != nil {
+		return nil, fmt.Errorf("resolve agent image pull secrets: %w", err)
 	}
 
 	mainEnv := a.baseAgentEnvVars(ctx, agent, agentID, threadID, skillsJSON, agentInitScript)
@@ -148,6 +156,35 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err != nil {
 		return nil, fmt.Errorf("list hooks: %w", err)
 	}
+	for _, assignment := range mcpAssignments {
+		mcpAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{McpId: assignment.id})
+		if err != nil {
+			return nil, fmt.Errorf("list mcp image pull secret attachments: %w", err)
+		}
+		if err := imagePullResolver.Resolve(ctx, mcpAttachments); err != nil {
+			return nil, fmt.Errorf("resolve mcp image pull secrets: %w", err)
+		}
+	}
+	for _, hook := range hooks {
+		if hook == nil {
+			return nil, fmt.Errorf("hook is nil")
+		}
+		meta := hook.GetMeta()
+		if meta == nil {
+			return nil, fmt.Errorf("hook meta missing")
+		}
+		hookID, err := uuidutil.ParseUUID(meta.GetId(), "hook.meta.id")
+		if err != nil {
+			return nil, err
+		}
+		hookAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{HookId: hookID.String()})
+		if err != nil {
+			return nil, fmt.Errorf("list hook image pull secret attachments: %w", err)
+		}
+		if err := imagePullResolver.Resolve(ctx, hookAttachments); err != nil {
+			return nil, fmt.Errorf("resolve hook image pull secrets: %w", err)
+		}
+	}
 
 	sidecars := make([]*runnerv1.ContainerSpec, 0, len(mcpAssignments)+len(hooks))
 	mcpServers := make([]string, 0, len(mcpAssignments))
@@ -169,6 +206,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if len(mcpServers) > 0 {
 		main.Env = append(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
 	}
+	imagePullCredentials, err := imagePullResolver.Credentials()
+	if err != nil {
+		return nil, fmt.Errorf("image pull credentials: %w", err)
+	}
 
 	agynBinVolume := &runnerv1.VolumeSpec{
 		Name: agynBinVolumeName,
@@ -184,10 +225,11 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
 
 	request := &runnerv1.StartWorkloadRequest{
-		Main:           main,
-		Sidecars:       sidecars,
-		Volumes:        volumes,
-		InitContainers: initContainers,
+		Main:                 main,
+		Sidecars:             sidecars,
+		Volumes:              volumes,
+		InitContainers:       initContainers,
+		ImagePullCredentials: imagePullCredentials,
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
@@ -375,6 +417,31 @@ func (a *Assembler) listVolumeAttachments(ctx context.Context, req *agentsv1.Lis
 			return nil, err
 		}
 		resp = append(resp, page.GetVolumeAttachments()...)
+		token = page.GetNextPageToken()
+		if token == "" {
+			return resp, nil
+		}
+	}
+}
+
+func (a *Assembler) listImagePullSecretAttachments(ctx context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest) ([]*agentsv1.ImagePullSecretAttachment, error) {
+	resp := []*agentsv1.ImagePullSecretAttachment{}
+	token := ""
+	for {
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		page, err := a.agents.ListImagePullSecretAttachments(rctx, &agentsv1.ListImagePullSecretAttachmentsRequest{
+			ImagePullSecretId: req.GetImagePullSecretId(),
+			AgentId:           req.GetAgentId(),
+			McpId:             req.GetMcpId(),
+			HookId:            req.GetHookId(),
+			PageSize:          listPageSize,
+			PageToken:         token,
+		})
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		resp = append(resp, page.GetImagePullSecretAttachments()...)
 		token = page.GetNextPageToken()
 		if token == "" {
 			return resp, nil
