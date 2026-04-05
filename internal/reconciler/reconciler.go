@@ -260,16 +260,25 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 		log.Printf("reconciler: dial runner %s for workload %s: %v", runnerID, workloadID, err)
 		return
 	}
-	if _, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
-		WorkloadId: workloadID,
-		TimeoutSec: r.stopSec,
-	}); err != nil {
+	if err := r.stopRunnerWorkload(ctx, runnerClient, workloadID); err != nil {
 		log.Printf("reconciler: stop workload %s: %v", workloadID, err)
 		return
 	}
-	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
-		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
-			log.Printf("reconciler: delete ziti identity %s after stopping workload %s: %v", workload.GetZitiIdentityId(), workloadID, err)
+	r.deleteWorkloadRecord(ctx, workloadID, workload.GetZitiIdentityId())
+}
+
+func (r *Reconciler) stopRunnerWorkload(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workloadID string) error {
+	_, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
+		WorkloadId: workloadID,
+		TimeoutSec: r.stopSec,
+	})
+	return err
+}
+
+func (r *Reconciler) deleteWorkloadRecord(ctx context.Context, workloadID string, zitiIdentityID string) {
+	if r.zitiMgmt != nil && zitiIdentityID != "" {
+		if err := r.deleteIdentity(ctx, zitiIdentityID); err != nil {
+			log.Printf("reconciler: delete ziti identity %s after stopping workload %s: %v", zitiIdentityID, workloadID, err)
 		}
 	}
 	if _, err := r.runners.DeleteWorkload(ctx, &runnersv1.DeleteWorkloadRequest{Id: workloadID}); err != nil {
