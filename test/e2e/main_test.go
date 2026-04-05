@@ -338,19 +338,6 @@ func kubeClientset(t *testing.T) *kubernetes.Clientset {
 	return clientset
 }
 
-func currentNamespace(t *testing.T) string {
-	t.Helper()
-	data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-	if err != nil {
-		t.Fatalf("read namespace: %v", err)
-	}
-	namespace := strings.TrimSpace(string(data))
-	if namespace == "" {
-		t.Fatal("namespace is empty")
-	}
-	return namespace
-}
-
 func workloadNamespace(t *testing.T) string {
 	t.Helper()
 	namespace := os.Getenv("WORKLOAD_NAMESPACE")
