@@ -16,10 +16,11 @@ import (
 	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
+	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const (
@@ -42,6 +43,7 @@ var (
 	usersAddr    = envOrDefault("USERS_ADDRESS", "users:50051")
 	orgsAddr     = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
 	runnerAddr   = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
+	secretsAddr  = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
 )
 
 func envOrDefault(key, fallback string) string {
@@ -54,24 +56,6 @@ func envOrDefault(key, fallback string) string {
 		return fallback
 	}
 	return trimmed
-}
-
-// dialGRPC creates an insecure gRPC connection. The test fails immediately on error.
-func dialGRPC(t *testing.T, addr string, opts ...grpc.DialOption) *grpc.ClientConn {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	options := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	}
-	options = append(options, opts...)
-	conn, err := grpc.DialContext(ctx, addr, options...)
-	if err != nil {
-		t.Fatalf("dial %s: %v", addr, err)
-	}
-	t.Cleanup(func() { conn.Close() })
-	return conn
 }
 
 // pollUntil retries check at interval until it returns nil or ctx expires.
@@ -205,6 +189,72 @@ func createAgentEnv(t *testing.T, ctx context.Context, client agentsv1.AgentsSer
 	return env
 }
 
+func createImagePullSecret(
+	t *testing.T,
+	ctx context.Context,
+	client secretsv1.SecretsServiceClient,
+	description string,
+	registry string,
+	username string,
+	password string,
+	orgID string,
+) *secretsv1.ImagePullSecret {
+	t.Helper()
+	resp, err := client.CreateImagePullSecret(ctx, &secretsv1.CreateImagePullSecretRequest{
+		Description:    description,
+		Registry:       registry,
+		Username:       username,
+		Source:         &secretsv1.CreateImagePullSecretRequest_Value{Value: password},
+		OrganizationId: orgID,
+	})
+	if err != nil {
+		t.Fatalf("create image pull secret %q: %v", description, err)
+	}
+	secret := resp.GetImagePullSecret()
+	if secret == nil || secret.GetMeta() == nil {
+		t.Fatal("create image pull secret: nil response")
+	}
+	return secret
+}
+
+func deleteImagePullSecret(t *testing.T, ctx context.Context, client secretsv1.SecretsServiceClient, id string) {
+	t.Helper()
+	_, err := client.DeleteImagePullSecret(ctx, &secretsv1.DeleteImagePullSecretRequest{Id: id})
+	if err != nil {
+		t.Logf("cleanup: delete image pull secret %s: %v", id, err)
+	}
+}
+
+func createImagePullSecretAttachment(
+	t *testing.T,
+	ctx context.Context,
+	client agentsv1.AgentsServiceClient,
+	imagePullSecretID string,
+	agentID string,
+) *agentsv1.ImagePullSecretAttachment {
+	t.Helper()
+	resp, err := client.CreateImagePullSecretAttachment(ctx, &agentsv1.CreateImagePullSecretAttachmentRequest{
+		ImagePullSecretId: imagePullSecretID,
+		Target:            &agentsv1.CreateImagePullSecretAttachmentRequest_AgentId{AgentId: agentID},
+	})
+	if err != nil {
+		t.Fatalf("create image pull secret attachment: %v", err)
+	}
+	attachment := resp.GetImagePullSecretAttachment()
+	if attachment == nil || attachment.GetMeta() == nil {
+		t.Fatal("create image pull secret attachment: nil response")
+	}
+	return attachment
+}
+
+func deleteImagePullSecretAttachment(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, id string) {
+	t.Helper()
+	_, err := client.DeleteImagePullSecretAttachment(ctx, &agentsv1.DeleteImagePullSecretAttachmentRequest{Id: id})
+	if err != nil {
+		t.Logf("cleanup: delete image pull secret attachment %s: %v", id, err)
+	}
+}
+
 func createMCP(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, agentID, name, image, command string) *agentsv1.Mcp {
 	t.Helper()
 	resp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
@@ -297,6 +347,32 @@ func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServ
 	if err != nil {
 		t.Fatalf("ack messages for %s: %v", participantID, err)
 	}
+}
+
+func kubeClientset(t *testing.T) *kubernetes.Clientset {
+	t.Helper()
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		t.Fatalf("load in-cluster config: %v", err)
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		t.Fatalf("create kubernetes clientset: %v", err)
+	}
+	return clientset
+}
+
+func currentNamespace(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		t.Fatalf("read namespace: %v", err)
+	}
+	namespace := strings.TrimSpace(string(data))
+	if namespace == "" {
+		t.Fatal("namespace is empty")
+	}
+	return namespace
 }
 
 // --- Verification Helpers ---

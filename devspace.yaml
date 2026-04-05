@@ -169,6 +169,8 @@ deployments:
                 value: "tenants:50051"
               - name: RUNNER_ADDRESS
                 value: "k8s-runner:50051"
+              - name: SECRETS_ADDRESS
+                value: "secrets:50051"
             volumeMounts:
               - containerPath: /opt/app/data
                 volume:
@@ -176,6 +178,15 @@ deployments:
         volumes:
           - name: data
             emptyDir: {}
+        serviceAccount:
+          create: true
+          name: "agents-orchestrator-e2e"
+        rbac:
+          roles:
+            - rules:
+                - apiGroups: [""]
+                  resources: ["pods", "secrets"]
+                  verbs: ["get", "list"]
         labels:
           app.kubernetes.io/name: agents-orchestrator-e2e
 
