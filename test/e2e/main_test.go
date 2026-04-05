@@ -351,6 +351,15 @@ func currentNamespace(t *testing.T) string {
 	return namespace
 }
 
+func workloadNamespace(t *testing.T) string {
+	t.Helper()
+	namespace := os.Getenv("WORKLOAD_NAMESPACE")
+	if namespace == "" {
+		namespace = "agyn-workloads"
+	}
+	return namespace
+}
+
 // --- Verification Helpers ---
 
 func pollForAgentResponse(

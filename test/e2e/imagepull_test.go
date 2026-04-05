@@ -101,7 +101,7 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	sendMessage(t, ctx, threadsClient, threadID, identityID, "e2e image pull secret")
+	sendMessage(t, ctx, threadsClient, threadID, identityID, "hello")
 
 	labelsMap := map[string]string{
 		labelManagedBy: managedByValue,
@@ -134,7 +134,7 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	}
 
 	clientset := kubeClientset(t)
-	namespace := currentNamespace(t)
+	namespace := workloadNamespace(t)
 	labelSelector := labels.Set(labelsMap).String()
 
 	var workloadPod *corev1.Pod
