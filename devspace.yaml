@@ -178,17 +178,15 @@ deployments:
         volumes:
           - name: data
             emptyDir: {}
-        serviceAccount:
-          create: true
-          name: "agents-orchestrator-e2e"
-        rbac:
-          roles:
-            - rules:
-                - apiGroups: [""]
-                  resources: ["pods", "secrets"]
-                  verbs: ["get", "list"]
+        serviceAccountName: "agents-orchestrator-e2e"
         labels:
           app.kubernetes.io/name: agents-orchestrator-e2e
+
+  e2e-rbac:
+    namespace: ${ORCHESTRATOR_NAMESPACE}
+    kubectl:
+      manifests:
+        - test/e2e/rbac/
 
 commands:
   test-e2e: |-
@@ -227,6 +225,7 @@ pipelines:
 
   test-e2e:
     run: |-
+      create_deployments e2e-rbac
       create_deployments e2e-runner
       start_dev e2e-runner-test
       echo "Sync complete. Running e2e tests..."
