@@ -82,54 +82,29 @@ func (r *Reconciler) removeStaleWorkload(ctx context.Context, workload *runnersv
 }
 
 func (r *Reconciler) listTrackedWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
-	tracked := []*runnersv1.Workload{}
-	pageToken := ""
-	for {
-		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
-			PageSize:  activeWorkloadPageSize,
-			PageToken: pageToken,
-			Statuses: []runnersv1.WorkloadStatus{
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
-			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list workloads: %w", err)
-		}
-		for _, workload := range resp.GetWorkloads() {
-			if workload == nil {
-				return nil, fmt.Errorf("workload is nil")
-			}
-			meta := workload.GetMeta()
-			if meta == nil {
-				return nil, fmt.Errorf("workload meta missing")
-			}
-			if meta.GetId() == "" {
-				return nil, fmt.Errorf("workload meta id missing")
-			}
-			tracked = append(tracked, workload)
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
-		}
-	}
-	return tracked, nil
+	return r.listWorkloadsByStatus(ctx, []runnersv1.WorkloadStatus{
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
+	})
 }
 
 func (r *Reconciler) listActiveWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
-	active := []*runnersv1.Workload{}
+	return r.listWorkloadsByStatus(ctx, []runnersv1.WorkloadStatus{
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+	})
+}
+
+func (r *Reconciler) listWorkloadsByStatus(ctx context.Context, statuses []runnersv1.WorkloadStatus) ([]*runnersv1.Workload, error) {
+	workloads := []*runnersv1.Workload{}
 	pageToken := ""
 	for {
 		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
-			Statuses: []runnersv1.WorkloadStatus{
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-			},
+			Statuses:  statuses,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list workloads: %w", err)
@@ -145,12 +120,12 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context) ([]*runnersv1.Work
 			if meta.GetId() == "" {
 				return nil, fmt.Errorf("workload meta id missing")
 			}
-			active = append(active, workload)
+			workloads = append(workloads, workload)
 		}
 		pageToken = resp.GetNextPageToken()
 		if pageToken == "" {
 			break
 		}
 	}
-	return active, nil
+	return workloads, nil
 }

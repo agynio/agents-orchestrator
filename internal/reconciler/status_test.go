@@ -129,7 +129,7 @@ func TestWorkloadStatusFromInspect(t *testing.T) {
 	}
 }
 
-func TestUpdateWorkloadStatusesSkipsCleanupForNonTerminal(t *testing.T) {
+func TestUpdateWorkloadStatusesOnlyUpdatesStatus(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
 	workloadID := "workload-1"
