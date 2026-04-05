@@ -48,6 +48,27 @@ func TestWorkloadStatusFromInspect(t *testing.T) {
 			want: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 		},
 		{
+			name: "phase pending",
+			resp: &runnerv1.InspectWorkloadResponse{StateStatus: k8sPhasePending},
+			want: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
+		},
+		{
+			name: "phase succeeded",
+			resp: &runnerv1.InspectWorkloadResponse{StateStatus: k8sPhaseSucceeded},
+			want: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
+		},
+		{
+			name: "phase failed",
+			resp: &runnerv1.InspectWorkloadResponse{StateStatus: k8sPhaseFailed},
+			want: runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
+		},
+		{
+			name:    "phase unknown",
+			resp:    &runnerv1.InspectWorkloadResponse{StateStatus: k8sPhaseUnknown},
+			want:    runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED,
+			wantErr: true,
+		},
+		{
 			name: "status exited",
 			resp: &runnerv1.InspectWorkloadResponse{StateStatus: dockerStateExited},
 			want: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
