@@ -159,8 +159,6 @@ deployments:
                 value: "agents:50051"
               - name: THREADS_ADDRESS
                 value: "threads:50051"
-              - name: IDENTITY_ADDRESS
-                value: "identity:50051"
               - name: LLM_ADDRESS
                 value: "llm:50051"
               - name: USERS_ADDRESS
