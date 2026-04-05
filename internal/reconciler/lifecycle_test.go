@@ -744,10 +744,11 @@ func (f *fakeRunnerDialer) Dial(ctx context.Context, runnerID string) (runnerv1.
 func (f *fakeRunnerDialer) Close() {}
 
 type fakeRunnersClient struct {
-	createWorkload func(context.Context, *runnersv1.CreateWorkloadRequest, ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error)
-	deleteWorkload func(context.Context, *runnersv1.DeleteWorkloadRequest, ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error)
-	listWorkloads  func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error)
-	listRunners    func(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error)
+	createWorkload       func(context.Context, *runnersv1.CreateWorkloadRequest, ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error)
+	deleteWorkload       func(context.Context, *runnersv1.DeleteWorkloadRequest, ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error)
+	listWorkloads        func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error)
+	listRunners          func(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error)
+	updateWorkloadStatus func(context.Context, *runnersv1.UpdateWorkloadStatusRequest, ...grpc.CallOption) (*runnersv1.UpdateWorkloadStatusResponse, error)
 }
 
 func (f *fakeRunnersClient) RegisterRunner(context.Context, *runnersv1.RegisterRunnerRequest, ...grpc.CallOption) (*runnersv1.RegisterRunnerResponse, error) {
@@ -788,7 +789,10 @@ func (f *fakeRunnersClient) CreateWorkload(ctx context.Context, req *runnersv1.C
 	return nil, errNotImplemented
 }
 
-func (f *fakeRunnersClient) UpdateWorkloadStatus(context.Context, *runnersv1.UpdateWorkloadStatusRequest, ...grpc.CallOption) (*runnersv1.UpdateWorkloadStatusResponse, error) {
+func (f *fakeRunnersClient) UpdateWorkloadStatus(ctx context.Context, req *runnersv1.UpdateWorkloadStatusRequest, opts ...grpc.CallOption) (*runnersv1.UpdateWorkloadStatusResponse, error) {
+	if f.updateWorkloadStatus != nil {
+		return f.updateWorkloadStatus(ctx, req, opts...)
+	}
 	return nil, errNotImplemented
 }
 
@@ -817,6 +821,7 @@ func (f *fakeRunnersClient) ListWorkloads(ctx context.Context, req *runnersv1.Li
 type fakeRunnerClient struct {
 	startWorkload         func(context.Context, *runnerv1.StartWorkloadRequest, ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error)
 	stopWorkload          func(context.Context, *runnerv1.StopWorkloadRequest, ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error)
+	inspectWorkload       func(context.Context, *runnerv1.InspectWorkloadRequest, ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error)
 	findWorkloadsByLabels func(context.Context, *runnerv1.FindWorkloadsByLabelsRequest, ...grpc.CallOption) (*runnerv1.FindWorkloadsByLabelsResponse, error)
 }
 
@@ -842,7 +847,10 @@ func (f *fakeRunnerClient) RemoveWorkload(context.Context, *runnerv1.RemoveWorkl
 	return nil, errNotImplemented
 }
 
-func (f *fakeRunnerClient) InspectWorkload(context.Context, *runnerv1.InspectWorkloadRequest, ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+func (f *fakeRunnerClient) InspectWorkload(ctx context.Context, req *runnerv1.InspectWorkloadRequest, opts ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+	if f.inspectWorkload != nil {
+		return f.inspectWorkload(ctx, req, opts...)
+	}
 	return nil, errNotImplemented
 }
 
