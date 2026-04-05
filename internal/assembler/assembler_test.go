@@ -68,6 +68,9 @@ func TestAssemblerMainContainer(t *testing.T) {
 		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
+		listImagePullSecretAttachments: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
 		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
 		},
@@ -125,6 +128,9 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 	if request.Volumes[0].Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
 		t.Fatalf("expected agyn-bin volume kind ephemeral, got %v", request.Volumes[0].Kind)
+	}
+	if request.ImagePullCredentials != nil {
+		t.Fatalf("expected no image pull credentials, got %+v", request.ImagePullCredentials)
 	}
 	if len(request.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
@@ -208,6 +214,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		},
 		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listImagePullSecretAttachments: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
 		},
 		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
@@ -376,6 +385,9 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
+		listImagePullSecretAttachments: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
 		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
 		},
@@ -442,6 +454,9 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		},
 		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listImagePullSecretAttachments: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
 		},
 		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
@@ -511,6 +526,9 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 				}}, nil
 			}
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listImagePullSecretAttachments: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
 		},
 		getVolume: func(_ context.Context, req *agentsv1.GetVolumeRequest, _ ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
 			if req.GetId() != volumeID.String() {
@@ -617,6 +635,9 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
+		listImagePullSecretAttachments: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
 		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
 			return &agentsv1.ListHooksResponse{}, nil
 		},
@@ -679,6 +700,9 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
+		listImagePullSecretAttachments: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
 		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
 		},
@@ -699,6 +723,345 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 	envs := envMap(result.Request.Main.Env)
 	if _, ok := envs["AGENT_MCP_SERVERS"]; ok {
 		t.Fatal("expected AGENT_MCP_SERVERS to be absent")
+	}
+}
+
+func TestAssemblerImagePullCredentials(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	mcpID := uuid.New()
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				return nil, errors.New("unexpected agent id")
+			}
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listImagePullSecretAttachments: func(_ context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			switch {
+			case req.GetAgentId() == agentID.String():
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, ImagePullSecretId: "secret-b", Target: &agentsv1.ImagePullSecretAttachment_AgentId{AgentId: agentID.String()}},
+				}}, nil
+			case req.GetMcpId() == mcpID.String():
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, ImagePullSecretId: "secret-a", Target: &agentsv1.ImagePullSecretAttachment_McpId{McpId: mcpID.String()}},
+				}}, nil
+			default:
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+			}
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Name: "test", Image: "mcp-image", Command: "run"}}}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	secretsClient := &fakeSecretsClient{
+		resolveImagePullSecret: func(_ context.Context, req *secretsv1.ResolveImagePullSecretRequest, _ ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
+			switch req.GetId() {
+			case "secret-a":
+				return &secretsv1.ResolveImagePullSecretResponse{Registry: "registry-a", Username: "user-a", Password: "pass-a"}, nil
+			case "secret-b":
+				return &secretsv1.ResolveImagePullSecretResponse{Registry: "registry-b", Username: "user-b", Password: "pass-b"}, nil
+			default:
+				return nil, errors.New("unexpected image pull secret id")
+			}
+		},
+	}
+
+	assembler := New(agentsClient, secretsClient, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	creds := result.Request.ImagePullCredentials
+	if len(creds) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(creds))
+	}
+	if creds[0].GetRegistry() != "registry-a" || creds[0].GetUsername() != "user-a" || creds[0].GetPassword() != "pass-a" {
+		t.Fatalf("unexpected first credential: %+v", creds[0])
+	}
+	if creds[1].GetRegistry() != "registry-b" || creds[1].GetUsername() != "user-b" || creds[1].GetPassword() != "pass-b" {
+		t.Fatalf("unexpected second credential: %+v", creds[1])
+	}
+}
+
+func TestAssemblerImagePullCredentialsCaching(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	mcpID := uuid.New()
+	hookID := uuid.New()
+
+	resolveCalls := 0
+	secretsClient := &fakeSecretsClient{
+		resolveImagePullSecret: func(_ context.Context, req *secretsv1.ResolveImagePullSecretRequest, _ ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
+			resolveCalls++
+			if req.GetId() != "secret-1" {
+				return nil, errors.New("unexpected image pull secret id")
+			}
+			return &secretsv1.ResolveImagePullSecretResponse{Registry: "registry", Username: "user", Password: "pass"}, nil
+		},
+	}
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listImagePullSecretAttachments: func(_ context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			attachment := &agentsv1.ImagePullSecretAttachment{
+				Meta:              &agentsv1.EntityMeta{Id: uuid.NewString()},
+				ImagePullSecretId: "secret-1",
+			}
+			switch {
+			case req.GetAgentId() == agentID.String():
+				attachment.Target = &agentsv1.ImagePullSecretAttachment_AgentId{AgentId: agentID.String()}
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{attachment}}, nil
+			case req.GetMcpId() == mcpID.String():
+				attachment.Target = &agentsv1.ImagePullSecretAttachment_McpId{McpId: mcpID.String()}
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{attachment}}, nil
+			case req.GetHookId() == hookID.String():
+				attachment.Target = &agentsv1.ImagePullSecretAttachment_HookId{HookId: hookID.String()}
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{attachment}}, nil
+			default:
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+			}
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Name: "cache", Image: "mcp-image", Command: "run"}}}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{Hooks: []*agentsv1.Hook{{Meta: &agentsv1.EntityMeta{Id: hookID.String()}, Image: "hook-image", Function: "exec"}}}, nil
+		},
+	}
+
+	assembler := New(agentsClient, secretsClient, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("expected 1 resolve call, got %d", resolveCalls)
+	}
+	creds := result.Request.ImagePullCredentials
+	if len(creds) != 1 {
+		t.Fatalf("expected 1 credential, got %d", len(creds))
+	}
+	if creds[0].GetRegistry() != "registry" || creds[0].GetUsername() != "user" || creds[0].GetPassword() != "pass" {
+		t.Fatalf("unexpected credential: %+v", creds[0])
+	}
+}
+
+func TestAssemblerImagePullCredentialsRegistryConflict(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	mcpID := uuid.New()
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listImagePullSecretAttachments: func(_ context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			switch {
+			case req.GetAgentId() == agentID.String():
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, ImagePullSecretId: "secret-a", Target: &agentsv1.ImagePullSecretAttachment_AgentId{AgentId: agentID.String()}},
+				}}, nil
+			case req.GetMcpId() == mcpID.String():
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, ImagePullSecretId: "secret-b", Target: &agentsv1.ImagePullSecretAttachment_McpId{McpId: mcpID.String()}},
+				}}, nil
+			default:
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+			}
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Name: "test", Image: "mcp-image", Command: "run"}}}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	secretsClient := &fakeSecretsClient{
+		resolveImagePullSecret: func(_ context.Context, _ *secretsv1.ResolveImagePullSecretRequest, _ ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
+			return &secretsv1.ResolveImagePullSecretResponse{Registry: "registry", Username: "user", Password: "pass"}, nil
+		},
+	}
+
+	assembler := New(agentsClient, secretsClient, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	_, err := assembler.Assemble(ctx, agentID, threadID)
+	if err == nil {
+		t.Fatal("expected registry conflict error")
+	}
+	expected := fmt.Sprintf("image pull credentials: registry conflict: registry %q is targeted by image pull secrets %s and %s", "registry", "secret-a", "secret-b")
+	if err.Error() != expected {
+		t.Fatalf("expected error %q, got %q", expected, err.Error())
+	}
+}
+
+func TestAssemblerNoImagePullSecretAttachments(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listImagePullSecretAttachments: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	assembler := New(agentsClient, &fakeSecretsClient{}, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if result.Request.ImagePullCredentials != nil {
+		t.Fatalf("expected no image pull credentials, got %+v", result.Request.ImagePullCredentials)
+	}
+}
+
+func TestAssemblerImagePullCredentialsHookOnly(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	hookID := uuid.New()
+
+	agentsClient := &fakeAgentsClient{
+		getAgent: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+		},
+		listSkills: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		listEnvs: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		listInitScripts: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		listVolumeAttachments: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		listImagePullSecretAttachments: func(_ context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			if req.GetHookId() == hookID.String() {
+				return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, ImagePullSecretId: "secret-1", Target: &agentsv1.ImagePullSecretAttachment_HookId{HookId: hookID.String()}},
+				}}, nil
+			}
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		listMcps: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		listHooks: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{Hooks: []*agentsv1.Hook{{Meta: &agentsv1.EntityMeta{Id: hookID.String()}, Image: "hook-image", Function: "exec"}}}, nil
+		},
+	}
+
+	secretsClient := &fakeSecretsClient{
+		resolveImagePullSecret: func(_ context.Context, req *secretsv1.ResolveImagePullSecretRequest, _ ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
+			if req.GetId() != "secret-1" {
+				return nil, errors.New("unexpected image pull secret id")
+			}
+			return &secretsv1.ResolveImagePullSecretResponse{Registry: "registry", Username: "user", Password: "pass"}, nil
+		},
+	}
+
+	assembler := New(agentsClient, secretsClient, &config.Config{
+		DefaultInitImage:    "default-init-image",
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	creds := result.Request.ImagePullCredentials
+	if len(creds) != 1 {
+		t.Fatalf("expected 1 credential, got %d", len(creds))
+	}
+	if creds[0].GetRegistry() != "registry" || creds[0].GetUsername() != "user" || creds[0].GetPassword() != "pass" {
+		t.Fatalf("unexpected credential: %+v", creds[0])
 	}
 }
 
@@ -758,14 +1121,15 @@ func equalStringSlice(left, right []string) bool {
 }
 
 type fakeAgentsClient struct {
-	getAgent              func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
-	listSkills            func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
-	listEnvs              func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
-	listInitScripts       func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
-	listVolumeAttachments func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error)
-	listMcps              func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
-	listHooks             func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error)
-	getVolume             func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
+	getAgent                       func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
+	listSkills                     func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
+	listEnvs                       func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
+	listInitScripts                func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
+	listVolumeAttachments          func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error)
+	listImagePullSecretAttachments func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error)
+	listMcps                       func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
+	listHooks                      func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error)
+	getVolume                      func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
 }
 
 var errNotImplemented = errors.New("not implemented")
@@ -831,6 +1195,25 @@ func (f *fakeAgentsClient) DeleteVolumeAttachment(context.Context, *agentsv1.Del
 func (f *fakeAgentsClient) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVolumeAttachmentsRequest, opts ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 	if f.listVolumeAttachments != nil {
 		return f.listVolumeAttachments(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) CreateImagePullSecretAttachment(context.Context, *agentsv1.CreateImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.CreateImagePullSecretAttachmentResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) GetImagePullSecretAttachment(context.Context, *agentsv1.GetImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.GetImagePullSecretAttachmentResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) DeleteImagePullSecretAttachment(context.Context, *agentsv1.DeleteImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.DeleteImagePullSecretAttachmentResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) ListImagePullSecretAttachments(ctx context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, opts ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+	if f.listImagePullSecretAttachments != nil {
+		return f.listImagePullSecretAttachments(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
@@ -951,7 +1334,8 @@ func (f *fakeAgentsClient) ListInitScripts(ctx context.Context, req *agentsv1.Li
 }
 
 type fakeSecretsClient struct {
-	resolveSecret func(context.Context, *secretsv1.ResolveSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretResponse, error)
+	resolveSecret          func(context.Context, *secretsv1.ResolveSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretResponse, error)
+	resolveImagePullSecret func(context.Context, *secretsv1.ResolveImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error)
 }
 
 func (f *fakeSecretsClient) CreateSecretProvider(context.Context, *secretsv1.CreateSecretProviderRequest, ...grpc.CallOption) (*secretsv1.CreateSecretProviderResponse, error) {
@@ -994,9 +1378,36 @@ func (f *fakeSecretsClient) ListSecrets(context.Context, *secretsv1.ListSecretsR
 	return nil, errNotImplemented
 }
 
+func (f *fakeSecretsClient) CreateImagePullSecret(context.Context, *secretsv1.CreateImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.CreateImagePullSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) GetImagePullSecret(context.Context, *secretsv1.GetImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.GetImagePullSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) UpdateImagePullSecret(context.Context, *secretsv1.UpdateImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.UpdateImagePullSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) DeleteImagePullSecret(context.Context, *secretsv1.DeleteImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.DeleteImagePullSecretResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) ListImagePullSecrets(context.Context, *secretsv1.ListImagePullSecretsRequest, ...grpc.CallOption) (*secretsv1.ListImagePullSecretsResponse, error) {
+	return nil, errNotImplemented
+}
+
 func (f *fakeSecretsClient) ResolveSecret(ctx context.Context, req *secretsv1.ResolveSecretRequest, opts ...grpc.CallOption) (*secretsv1.ResolveSecretResponse, error) {
 	if f.resolveSecret != nil {
 		return f.resolveSecret(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeSecretsClient) ResolveImagePullSecret(ctx context.Context, req *secretsv1.ResolveImagePullSecretRequest, opts ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
+	if f.resolveImagePullSecret != nil {
+		return f.resolveImagePullSecret(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
