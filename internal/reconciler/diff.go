@@ -51,6 +51,13 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 		if _, ok := desiredSet[key]; ok {
 			continue
 		}
+		status := entry.workload.GetStatus()
+		if status == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED || status == runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+			continue
+		}
+		if entry.startedAt.IsZero() || entry.startedAt.Year() < 2020 {
+			return Actions{}, fmt.Errorf("workload %s has invalid createdAt: %v", entry.workload.GetMeta().GetId(), entry.startedAt)
+		}
 		if now.Sub(entry.startedAt) > idleTimeout {
 			result.ToStop = append(result.ToStop, entry.workload)
 		}
