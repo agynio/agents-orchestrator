@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,7 @@ type RunnerDialer interface {
 
 type ZitiDialer interface {
 	DialContext(ctx context.Context, service string) (edge.Conn, error)
+	NotifyAuthFailure(ctx context.Context)
 }
 
 type Dialer struct {
@@ -165,6 +167,13 @@ func dialZitiWithRetry(ctx context.Context, zitiCtx ZitiDialer, service string) 
 		}
 		log.Printf("dial ziti service %s: attempt %d/%d failed: %v", service, attempt, retryMaxAttempts, err)
 		lastErr = err
+		if isAuthFailure(err) {
+			zitiCtx.NotifyAuthFailure(ctx)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			continue
+		}
 		if attempt == retryMaxAttempts {
 			break
 		}
@@ -181,4 +190,12 @@ func dialZitiWithRetry(ctx context.Context, zitiCtx ZitiDialer, service string) 
 		}
 	}
 	return nil, fmt.Errorf("dial ziti service %s: %w", service, lastErr)
+}
+
+func isAuthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "INVALID_AUTH") || strings.Contains(msg, "no apiSession")
 }

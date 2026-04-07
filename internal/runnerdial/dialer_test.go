@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/openziti/sdk-golang/ziti/edge"
 	"google.golang.org/grpc"
@@ -17,6 +19,8 @@ type stubZitiDialer struct{}
 func (stubZitiDialer) DialContext(context.Context, string) (edge.Conn, error) {
 	return nil, errors.New("unused")
 }
+
+func (stubZitiDialer) NotifyAuthFailure(context.Context) {}
 
 func TestDialerCachesConnections(t *testing.T) {
 	ctx := context.Background()
@@ -135,5 +139,115 @@ func TestDialerErrorsOnMissingRunnerID(t *testing.T) {
 	dialer := NewDialer(stubZitiDialer{})
 	if _, err := dialer.Dial(context.Background(), ""); err == nil {
 		t.Fatal("expected error for missing runner id")
+	}
+}
+
+func TestIsAuthFailure(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "invalid auth",
+			err:      errors.New("INVALID_AUTH: session expired"),
+			expected: true,
+		},
+		{
+			name:     "no apiSession",
+			err:      errors.New("no apiSession for identity"),
+			expected: true,
+		},
+		{
+			name:     "other",
+			err:      errors.New("other"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		if got := isAuthFailure(tt.err); got != tt.expected {
+			t.Fatalf("%s: expected %v, got %v", tt.name, tt.expected, got)
+		}
+	}
+}
+
+func TestDialZitiWithRetryAuthFailureWaits(t *testing.T) {
+	dialer := &authFailureDialer{
+		dialErrors:    []error{errors.New("INVALID_AUTH: session expired"), nil},
+		notifyStarted: make(chan struct{}, 1),
+		notifyRelease: make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := dialZitiWithRetry(ctx, dialer, "service-a")
+		errCh <- err
+	}()
+
+	select {
+	case <-dialer.notifyStarted:
+	case <-time.After(500 * time.Millisecond):
+		close(dialer.notifyRelease)
+		t.Fatal("expected NotifyAuthFailure call")
+	}
+	if dialer.dialCalls.Load() != 1 {
+		close(dialer.notifyRelease)
+		t.Fatalf("expected 1 dial before release, got %d", dialer.dialCalls.Load())
+	}
+	close(dialer.notifyRelease)
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("dialZitiWithRetry: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected dialZitiWithRetry to finish")
+	}
+
+	if dialer.notifyCalls.Load() != 1 {
+		t.Fatalf("expected 1 notify call, got %d", dialer.notifyCalls.Load())
+	}
+	if dialer.dialCalls.Load() != 2 {
+		t.Fatalf("expected 2 dial attempts, got %d", dialer.dialCalls.Load())
+	}
+}
+
+type authFailureDialer struct {
+	dialErrors    []error
+	dialCalls     atomic.Int32
+	notifyCalls   atomic.Int32
+	notifyStarted chan struct{}
+	notifyRelease chan struct{}
+}
+
+func (a *authFailureDialer) DialContext(context.Context, string) (edge.Conn, error) {
+	a.dialCalls.Add(1)
+	if len(a.dialErrors) == 0 {
+		return nil, nil
+	}
+	err := a.dialErrors[0]
+	a.dialErrors = a.dialErrors[1:]
+	return nil, err
+}
+
+func (a *authFailureDialer) NotifyAuthFailure(ctx context.Context) {
+	a.notifyCalls.Add(1)
+	if a.notifyStarted != nil {
+		a.notifyStarted <- struct{}{}
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-a.notifyRelease:
 	}
 }

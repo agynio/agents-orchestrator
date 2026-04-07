@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
@@ -24,17 +22,10 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/reconciler"
 	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/agynio/agents-orchestrator/internal/subscriber"
-	"github.com/openziti/sdk-golang/ziti"
+	"github.com/agynio/agents-orchestrator/internal/zitimanager"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
-)
-
-const (
-	retryInitialBackoff = 1 * time.Second
-	retryMaxBackoff     = 15 * time.Second
 )
 
 func main() {
@@ -107,12 +98,12 @@ func run() error {
 			return fmt.Errorf("dial ziti management: %w", err)
 		}
 		zitiMgmtClient = zitimgmtv1.NewZitiManagementServiceClient(zitiMgmtConn)
-		zitiCtx, identityID, err := setupZitiIdentity(ctx, zitiMgmtClient, cfg.ZitiEnrollmentTimeout)
+		manager, err := zitimanager.New(ctx, zitiMgmtClient, cfg.ZitiEnrollmentTimeout, cfg.ZitiLeaseRenewalInterval)
 		if err != nil {
 			return err
 		}
-		go renewLease(ctx, zitiMgmtClient, identityID, cfg.ZitiLeaseRenewalInterval)
-		runnerDialer = runnerdial.NewDialer(zitiCtx)
+		go manager.RunLeaseRenewal(ctx)
+		runnerDialer = runnerdial.NewDialer(manager)
 	} else {
 		runnerConn, err := grpc.NewClient(cfg.RunnerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
@@ -168,108 +159,4 @@ func run() error {
 		return err
 	}
 	return nil
-}
-
-func setupZitiIdentity(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, timeout time.Duration) (ziti.Context, string, error) {
-	enrollmentCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	var identityResp *zitimgmtv1.RequestServiceIdentityResponse
-	if err := retryWithBackoff(enrollmentCtx, "ziti enrollment", func(attemptCtx context.Context) error {
-		var requestErr error
-		identityResp, requestErr = client.RequestServiceIdentity(attemptCtx, &zitimgmtv1.RequestServiceIdentityRequest{
-			ServiceType: zitimgmtv1.ServiceType_SERVICE_TYPE_ORCHESTRATOR,
-		})
-		return requestErr
-	}); err != nil {
-		return nil, "", fmt.Errorf("request ziti service identity: %w", err)
-	}
-	identityID := identityResp.GetZitiIdentityId()
-	if identityID == "" {
-		return nil, "", fmt.Errorf("request ziti service identity: missing identity id")
-	}
-	identityJSON := identityResp.GetIdentityJson()
-	if len(identityJSON) == 0 {
-		return nil, "", fmt.Errorf("request ziti service identity: missing identity json")
-	}
-	identityConfig := &ziti.Config{}
-	if err := json.Unmarshal(identityJSON, identityConfig); err != nil {
-		return nil, "", fmt.Errorf("parse ziti identity: %w", err)
-	}
-	zitiCtx, err := ziti.NewContext(identityConfig)
-	if err != nil {
-		return nil, "", fmt.Errorf("load ziti identity: %w", err)
-	}
-	ctxImpl, ok := zitiCtx.(*ziti.ContextImpl)
-	if !ok {
-		return nil, "", fmt.Errorf("unexpected ziti context type %T; cannot disable OIDC", zitiCtx)
-	}
-	ctxImpl.CtrlClt.SetUseOidc(false)
-	return zitiCtx, identityID, nil
-}
-
-func retryWithBackoff(ctx context.Context, operationName string, fn func(context.Context) error) error {
-	backoff := retryInitialBackoff
-	attempt := 1
-	for {
-		err := fn(ctx)
-		if err == nil {
-			return nil
-		}
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		if !isRetryableGrpcError(err) {
-			return err
-		}
-
-		delay := backoff
-		if delay > retryMaxBackoff {
-			delay = retryMaxBackoff
-		}
-
-		log.Printf("%s failed (attempt %d), retrying in %s: %v", operationName, attempt, delay, err)
-
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-
-		backoff *= 2
-		if backoff > retryMaxBackoff {
-			backoff = retryMaxBackoff
-		}
-		attempt++
-	}
-}
-
-func isRetryableGrpcError(err error) bool {
-	statusErr, ok := status.FromError(err)
-	if !ok {
-		return false
-	}
-	return statusErr.Code() == codes.Unavailable || statusErr.Code() == codes.Unknown
-}
-
-func renewLease(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, identityID string, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if ctx.Err() != nil {
-				return
-			}
-			if _, err := client.ExtendIdentityLease(ctx, &zitimgmtv1.ExtendIdentityLeaseRequest{ZitiIdentityId: identityID}); err != nil {
-				log.Printf("failed to extend ziti lease: %v", err)
-			}
-		}
-	}
 }
