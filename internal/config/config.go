@@ -85,7 +85,7 @@ func FromEnv() (Config, error) {
 	}
 	zitiLeaseRenewalInterval := os.Getenv("ZITI_LEASE_RENEWAL_INTERVAL")
 	if zitiLeaseRenewalInterval == "" {
-		cfg.ZitiLeaseRenewalInterval = 1 * time.Minute
+		cfg.ZitiLeaseRenewalInterval = 2 * time.Minute
 	} else {
 		parsed, err := time.ParseDuration(zitiLeaseRenewalInterval)
 		if err != nil {
