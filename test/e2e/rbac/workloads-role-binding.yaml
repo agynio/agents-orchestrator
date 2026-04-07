@@ -11,5 +11,5 @@ roleRef:
   name: agents-orchestrator-e2e-workloads
 subjects:
   - kind: ServiceAccount
-    name: e2e-runner
+    name: agents-orchestrator-e2e
     namespace: platform
