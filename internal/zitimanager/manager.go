@@ -20,6 +20,7 @@ var (
 	retryInitialBackoff = 1 * time.Second
 	retryMaxBackoff     = 15 * time.Second
 	leaseRetryBackoff   = []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+	reEnrollCooldown    = 200 * time.Millisecond
 
 	newZitiContext = ziti.NewContext
 	disableOIDC    = disableZitiOIDC
@@ -36,6 +37,9 @@ type ZitiManager struct {
 
 	reEnrollMu sync.Mutex
 	reEnrollCh chan error
+
+	lastReEnrollAt  time.Time
+	lastReEnrollErr error
 }
 
 func New(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, enrollTimeout, renewalInterval time.Duration) (*ZitiManager, error) {
@@ -167,6 +171,14 @@ func (m *ZitiManager) startReEnroll() (chan error, bool) {
 	if m.reEnrollCh != nil {
 		return m.reEnrollCh, false
 	}
+	if m.lastReEnrollErr == nil && !m.lastReEnrollAt.IsZero() {
+		if time.Since(m.lastReEnrollAt) < reEnrollCooldown {
+			ch := make(chan error, 1)
+			ch <- m.lastReEnrollErr
+			close(ch)
+			return ch, false
+		}
+	}
 	ch := make(chan error, 1)
 	m.reEnrollCh = ch
 	return ch, true
@@ -176,6 +188,8 @@ func (m *ZitiManager) finishReEnroll(ch chan error, err error) {
 	m.reEnrollMu.Lock()
 	if m.reEnrollCh == ch {
 		m.reEnrollCh = nil
+		m.lastReEnrollAt = time.Now()
+		m.lastReEnrollErr = err
 	}
 	m.reEnrollMu.Unlock()
 	if ch != nil {
