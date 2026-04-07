@@ -30,7 +30,7 @@ type RunnerDialer interface {
 
 type ZitiDialer interface {
 	DialContext(ctx context.Context, service string) (edge.Conn, error)
-	NotifyAuthFailure()
+	NotifyAuthFailure(ctx context.Context)
 }
 
 type Dialer struct {
@@ -153,8 +153,6 @@ func (f *FallbackDialer) Dial(context.Context, string) (runnerv1.RunnerServiceCl
 
 func (f *FallbackDialer) Close() {}
 
-func (f *FallbackDialer) NotifyAuthFailure() {}
-
 func dialZitiWithRetry(ctx context.Context, zitiCtx ZitiDialer, service string) (net.Conn, error) {
 	backoff := retryInitialBackoff
 	var lastErr error
@@ -170,7 +168,10 @@ func dialZitiWithRetry(ctx context.Context, zitiCtx ZitiDialer, service string) 
 		log.Printf("dial ziti service %s: attempt %d/%d failed: %v", service, attempt, retryMaxAttempts, err)
 		lastErr = err
 		if isAuthFailure(err) {
-			zitiCtx.NotifyAuthFailure()
+			zitiCtx.NotifyAuthFailure(ctx)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			continue
 		}
 		if attempt == retryMaxAttempts {

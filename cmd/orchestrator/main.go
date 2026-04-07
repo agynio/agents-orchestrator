@@ -98,7 +98,7 @@ func run() error {
 			return fmt.Errorf("dial ziti management: %w", err)
 		}
 		zitiMgmtClient = zitimgmtv1.NewZitiManagementServiceClient(zitiMgmtConn)
-		manager, err := zitimanager.New(zitiMgmtClient, cfg.ZitiEnrollmentTimeout, cfg.ZitiLeaseRenewalInterval)
+		manager, err := zitimanager.New(ctx, zitiMgmtClient, cfg.ZitiEnrollmentTimeout, cfg.ZitiLeaseRenewalInterval)
 		if err != nil {
 			return err
 		}

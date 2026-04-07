@@ -40,7 +40,7 @@ func TestNewEnrollsIdentity(t *testing.T) {
 		return nil
 	}
 
-	manager, err := New(client, 2*time.Second, time.Minute)
+	manager, err := New(context.Background(), client, 2*time.Second, time.Minute)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestRunLeaseRenewalReEnrollsOnNotFound(t *testing.T) {
 	}
 	disableOIDC = func(ziti.Context) error { return nil }
 
-	manager, err := New(client, time.Second, 5*time.Millisecond)
+	manager, err := New(context.Background(), client, time.Second, 5*time.Millisecond)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -121,11 +121,11 @@ func TestNotifyAuthFailureReEnrolls(t *testing.T) {
 	}
 	disableOIDC = func(ziti.Context) error { return nil }
 
-	manager, err := New(client, time.Second, time.Minute)
+	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	manager.NotifyAuthFailure()
+	manager.NotifyAuthFailure(context.Background())
 	if manager.currentIdentityID() != "id-2" {
 		t.Fatalf("expected re-enrolled identity id-2, got %q", manager.currentIdentityID())
 	}
@@ -159,19 +159,27 @@ func TestNotifyAuthFailureDebounces(t *testing.T) {
 	}
 	disableOIDC = func(ziti.Context) error { return nil }
 
-	manager, err := New(client, time.Second, time.Minute)
+	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
 	var wg sync.WaitGroup
+	start := make(chan struct{})
+	ready := make(chan struct{}, 3)
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			manager.NotifyAuthFailure()
+			ready <- struct{}{}
+			<-start
+			manager.NotifyAuthFailure(context.Background())
 		}()
 	}
+	for i := 0; i < 3; i++ {
+		<-ready
+	}
+	close(start)
 
 	select {
 	case <-reEnrollStart:
@@ -184,6 +192,133 @@ func TestNotifyAuthFailureDebounces(t *testing.T) {
 	wg.Wait()
 	if requestCalls != 2 {
 		t.Fatalf("expected 2 enrollment calls, got %d", requestCalls)
+	}
+}
+
+func TestNotifyAuthFailureKeepsContextOnFailure(t *testing.T) {
+	resetTestHooks(t)
+
+	client := &fakeZitiMgmtClient{}
+	requestCalls := 0
+	client.requestServiceIdentity = func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error) {
+		requestCalls++
+		switch requestCalls {
+		case 1:
+			return identityResponse("id-1"), nil
+		case 2:
+			return nil, status.Error(codes.InvalidArgument, "invalid")
+		case 3:
+			return identityResponse("id-2"), nil
+		default:
+			return nil, errors.New("unexpected enrollment call")
+		}
+	}
+
+	closed := 0
+	ctxCalls := 0
+	ctx1 := &fakeZitiContext{closeFunc: func() { closed++ }}
+	ctx2 := &fakeZitiContext{}
+	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
+		ctxCalls++
+		if ctxCalls == 1 {
+			return ctx1, nil
+		}
+		return ctx2, nil
+	}
+	disableOIDC = func(ziti.Context) error { return nil }
+
+	manager, err := New(context.Background(), client, time.Second, time.Minute)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	manager.NotifyAuthFailure(context.Background())
+	if manager.zitiCtx != ctx1 {
+		t.Fatal("expected context to remain after failed re-enroll")
+	}
+	if manager.identityID != "id-1" {
+		t.Fatalf("expected identity id to remain id-1, got %q", manager.identityID)
+	}
+	if closed != 0 {
+		t.Fatalf("expected old context to remain open, closed %d", closed)
+	}
+
+	manager.NotifyAuthFailure(context.Background())
+	if manager.zitiCtx != ctx2 {
+		t.Fatal("expected context to swap after successful re-enroll")
+	}
+	if manager.identityID != "id-2" {
+		t.Fatalf("expected identity id to update to id-2, got %q", manager.identityID)
+	}
+	if closed != 1 {
+		t.Fatalf("expected old context to close after swap, closed %d", closed)
+	}
+}
+
+func TestExtendLeaseWithRetryRetriesOnRetryable(t *testing.T) {
+	resetTestHooks(t)
+	leaseRetryBackoff = []time.Duration{time.Millisecond, time.Millisecond}
+
+	client := &fakeZitiMgmtClient{}
+	client.requestServiceIdentity = func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error) {
+		return identityResponse("id-1"), nil
+	}
+	attempts := 0
+	client.extendIdentityLease = func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, status.Error(codes.Unavailable, "unavailable")
+		}
+		return &zitimgmtv1.ExtendIdentityLeaseResponse{}, nil
+	}
+
+	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
+		return &fakeZitiContext{}, nil
+	}
+	disableOIDC = func(ziti.Context) error { return nil }
+
+	manager, err := New(context.Background(), client, time.Second, time.Minute)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := manager.extendLeaseWithRetry(context.Background()); err != nil {
+		t.Fatalf("extendLeaseWithRetry: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestExtendLeaseWithRetryStopsOnNonRetryable(t *testing.T) {
+	resetTestHooks(t)
+	leaseRetryBackoff = []time.Duration{time.Millisecond, time.Millisecond}
+
+	client := &fakeZitiMgmtClient{}
+	client.requestServiceIdentity = func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error) {
+		return identityResponse("id-1"), nil
+	}
+	attempts := 0
+	client.extendIdentityLease = func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error) {
+		attempts++
+		return nil, status.Error(codes.InvalidArgument, "invalid")
+	}
+
+	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
+		return &fakeZitiContext{}, nil
+	}
+	disableOIDC = func(ziti.Context) error { return nil }
+
+	manager, err := New(context.Background(), client, time.Second, time.Minute)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := manager.extendLeaseWithRetry(context.Background()); err == nil {
+		t.Fatal("expected non-retryable lease error")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt, got %d", attempts)
 	}
 }
 
@@ -211,7 +346,7 @@ func TestDialContextUsesCurrentContext(t *testing.T) {
 	}
 	disableOIDC = func(ziti.Context) error { return nil }
 
-	manager, err := New(client, time.Second, time.Minute)
+	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -223,7 +358,7 @@ func TestDialContextUsesCurrentContext(t *testing.T) {
 		t.Fatalf("expected dial with ctx-1, got %q", first)
 	}
 
-	manager.NotifyAuthFailure()
+	manager.NotifyAuthFailure(context.Background())
 	if _, err := manager.DialContext(context.Background(), "service-b"); err != nil {
 		t.Fatalf("DialContext after re-enroll: %v", err)
 	}
