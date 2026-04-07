@@ -458,10 +458,11 @@ func TestAssemblerErrorsOnEmptyInitImage(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+	cfg := &config.Config{
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
-	})
+	}
+	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
 	_, err := assembler.Assemble(ctx, agentID, threadID)
 	if err == nil {
 		t.Fatal("expected error for empty init image")
@@ -598,10 +599,11 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+	cfg := &config.Config{
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
-	})
+	}
+	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -656,6 +658,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	envs := envMap(sidecar.Env)
 	assertEnv(t, envs, "MCP_ENV", "enabled")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo mcp")
+	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 }
 
 func TestAssemblerMcpPortAllocation(t *testing.T) {
@@ -695,10 +698,11 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+	cfg := &config.Config{
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
-	})
+	}
+	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -718,6 +722,7 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing MCP_PORT for sidecar %s", sidecar.Name)
 		}
+		assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 		ports[sidecar.Name] = port
 	}
 	expectedMemoryName := "mcp-" + lowID[:8]
