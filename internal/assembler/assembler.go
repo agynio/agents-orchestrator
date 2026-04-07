@@ -111,7 +111,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 
 	initImage := agent.GetInitImage()
 	if initImage == "" {
-		initImage = a.cfg.DefaultInitImage
+		return nil, fmt.Errorf("agent %s: init_image is required", agentID)
 	}
 
 	mainMounts := append([]*runnerv1.VolumeMount{}, agentMounts...)

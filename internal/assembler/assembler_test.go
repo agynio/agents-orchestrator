@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 		Role:           "ops",
 		Model:          "gpt-test",
 		Image:          "agent-image",
+		InitImage:      "agent-init-image",
 		Description:    "test agent",
 		Configuration:  "{\"mode\":\"test\"}",
 	}
@@ -80,7 +82,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
@@ -136,8 +137,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
 	}
 	initContainer := request.InitContainers[0]
-	if initContainer.Image != cfg.DefaultInitImage {
-		t.Fatalf("expected init container image %q, got %q", cfg.DefaultInitImage, initContainer.Image)
+	if initContainer.Image != agent.GetInitImage() {
+		t.Fatalf("expected init container image %q, got %q", agent.GetInitImage(), initContainer.Image)
 	}
 	if initContainer.Name != "agent-init" {
 		t.Fatalf("expected init container name agent-init, got %q", initContainer.Name)
@@ -194,6 +195,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
 		OrganizationId: "org-1",
 		Image:          "agent-image",
+		InitImage:      "agent-init-image",
 	}
 
 	agentsClient := &testutil.FakeAgentsClient{
@@ -227,7 +229,6 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 		ZitiEnabled:         true,
@@ -324,7 +325,6 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
 	t.Setenv("CLUSTER_DNS", "")
-	t.Setenv("DEFAULT_INIT_IMAGE", "init-image")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
 	t.Setenv("POLL_INTERVAL", "")
@@ -397,7 +397,6 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
@@ -414,6 +413,61 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 	initContainer := request.InitContainers[0]
 	if initContainer.Image != agent.GetInitImage() {
 		t.Fatalf("expected init image %q, got %q", agent.GetInitImage(), initContainer.Image)
+	}
+}
+
+func TestAssemblerErrorsOnEmptyInitImage(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+
+	agent := &agentsv1.Agent{
+		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+		OrganizationId: "org-1",
+		Image:          "agent-image",
+		InitImage:      "",
+	}
+
+	agentsClient := &testutil.FakeAgentsClient{
+		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				return nil, errors.New("unexpected agent id")
+			}
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
+		},
+		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		ListImagePullSecretAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		ListHooksFunc: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	_, err := assembler.Assemble(ctx, agentID, threadID)
+	if err == nil {
+		t.Fatal("expected error for empty init image")
+	}
+	if !strings.Contains(err.Error(), "init_image is required") {
+		t.Fatalf("expected init_image required error, got %q", err.Error())
 	}
 }
 
@@ -435,7 +489,7 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -467,7 +521,6 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, secretsClient, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
@@ -493,7 +546,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -546,7 +599,6 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
@@ -615,7 +667,7 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -644,7 +696,6 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
@@ -686,7 +737,7 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -712,7 +763,6 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
@@ -737,7 +787,7 @@ func TestAssemblerImagePullCredentials(t *testing.T) {
 			if req.GetId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -787,7 +837,6 @@ func TestAssemblerImagePullCredentials(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, secretsClient, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
@@ -827,7 +876,7 @@ func TestAssemblerImagePullCredentialsCaching(t *testing.T) {
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -869,7 +918,6 @@ func TestAssemblerImagePullCredentialsCaching(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, secretsClient, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
@@ -897,7 +945,7 @@ func TestAssemblerImagePullCredentialsRegistryConflict(t *testing.T) {
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -940,7 +988,6 @@ func TestAssemblerImagePullCredentialsRegistryConflict(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, secretsClient, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
@@ -961,7 +1008,7 @@ func TestAssemblerNoImagePullSecretAttachments(t *testing.T) {
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -987,7 +1034,6 @@ func TestAssemblerNoImagePullSecretAttachments(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
@@ -1008,7 +1054,7 @@ func TestAssemblerImagePullCredentialsHookOnly(t *testing.T) {
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -1048,7 +1094,6 @@ func TestAssemblerImagePullCredentialsHookOnly(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, secretsClient, &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})

@@ -65,7 +65,6 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("ZITI_ENROLLMENT_TIMEOUT", "")
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
 	t.Setenv("CLUSTER_DNS", "")
-	t.Setenv("DEFAULT_INIT_IMAGE", "init-image")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
 	t.Setenv("POLL_INTERVAL", "")
