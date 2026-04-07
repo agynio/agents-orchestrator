@@ -20,7 +20,6 @@ type Config struct {
 	ZitiEnrollmentTimeout    time.Duration
 	ZitiSidecarImage         string
 	ClusterDNS               string
-	DefaultInitImage         string
 	AgentGatewayAddress      string
 	AgentLLMBaseURL          string
 	PollInterval             time.Duration
@@ -117,10 +116,6 @@ func FromEnv() (Config, error) {
 	cfg.ClusterDNS = os.Getenv("CLUSTER_DNS")
 	if cfg.ClusterDNS == "" {
 		cfg.ClusterDNS = "10.43.0.10"
-	}
-	cfg.DefaultInitImage = os.Getenv("DEFAULT_INIT_IMAGE")
-	if cfg.DefaultInitImage == "" {
-		return Config{}, fmt.Errorf("DEFAULT_INIT_IMAGE must be set")
 	}
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {

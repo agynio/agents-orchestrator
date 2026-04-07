@@ -18,6 +18,16 @@ import (
 )
 
 func TestFullPipelineMessageResponse(t *testing.T) {
+	runFullPipelineMessageResponse(t, testLLMEndpointCodex, codexInitImage, "hello", "Hi! How are you?")
+}
+
+func TestFullPipelineAgnMessageResponse(t *testing.T) {
+	runFullPipelineMessageResponse(t, testLLMEndpointAgn, agnInitImage, "hi", "Hi! How are you?")
+}
+
+func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, message, expectedResponse string) {
+	t.Helper()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	t.Cleanup(cancel)
 
@@ -39,7 +49,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
-	provider := createLLMProvider(t, ctx, llmClient, testLLMEndpoint, orgID)
+	provider := createLLMProvider(t, ctx, llmClient, llmEndpoint, orgID)
 	providerID := provider.GetMeta().GetId()
 	if providerID == "" {
 		t.Fatal("create llm provider: missing id")
@@ -50,7 +60,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 		t.Fatal("create model: missing id")
 	}
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-pipeline-%s", uuid.NewString()), modelID, orgID)
+	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-pipeline-%s", uuid.NewString()), modelID, orgID, initImage)
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
@@ -65,7 +75,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	sendMessage(t, ctx, threadsClient, threadID, identityID, "hello")
+	sendMessage(t, ctx, threadsClient, threadID, identityID, message)
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -105,7 +115,7 @@ func TestFullPipelineMessageResponse(t *testing.T) {
 		t.Fatalf("wait for agent response: %v", err)
 	}
 
-	if agentBody != "Hi! How are you?" {
-		t.Fatalf("expected agent response %q, got %q", "Hi! How are you?", agentBody)
+	if agentBody != expectedResponse {
+		t.Fatalf("expected agent response %q, got %q", expectedResponse, agentBody)
 	}
 }

@@ -677,7 +677,7 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 			if req.GetId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: testOrganizationID, Image: "agent-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: testOrganizationID, Image: "agent-image", InitImage: "agent-init-image"}}, nil
 		},
 		ListSkillsFunc: func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -703,7 +703,6 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 	}
 
 	cfg := &config.Config{
-		DefaultInitImage:    "default-init-image",
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 		ZitiEnabled:         zitiEnabled,

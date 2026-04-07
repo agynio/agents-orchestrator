@@ -26,7 +26,8 @@ const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
 
-	testLLMEndpoint = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
+	testLLMEndpointCodex = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
+	testLLMEndpointAgn   = "https://testllm.dev/v1/org/agynio/suite/agn/responses"
 
 	labelManagedBy = "managed-by"
 	labelAgentID   = "agent-id"
@@ -35,13 +36,15 @@ const (
 )
 
 var (
-	agentsAddr  = envOrDefault("AGENTS_ADDRESS", "agents:50051")
-	threadsAddr = envOrDefault("THREADS_ADDRESS", "threads:50051")
-	llmAddr     = envOrDefault("LLM_ADDRESS", "llm:50051")
-	usersAddr   = envOrDefault("USERS_ADDRESS", "users:50051")
-	orgsAddr    = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
-	runnerAddr  = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
-	secretsAddr = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
+	agentsAddr     = envOrDefault("AGENTS_ADDRESS", "agents:50051")
+	threadsAddr    = envOrDefault("THREADS_ADDRESS", "threads:50051")
+	llmAddr        = envOrDefault("LLM_ADDRESS", "llm:50051")
+	usersAddr      = envOrDefault("USERS_ADDRESS", "users:50051")
+	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
+	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
+	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
+	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:latest")
+	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:latest")
 )
 
 func envOrDefault(key, fallback string) string {
@@ -121,13 +124,14 @@ func createModel(t *testing.T, ctx context.Context, client llmv1.LLMServiceClien
 
 // --- Setup Helpers ---
 
-func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model, organizationID string) *agentsv1.Agent {
+func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model, organizationID, initImage string) *agentsv1.Agent {
 	t.Helper()
 	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 		Name:           name,
 		Role:           "assistant",
 		Model:          model,
 		Image:          "alpine:3.21",
+		InitImage:      initImage,
 		OrganizationId: organizationID,
 	})
 	if err != nil {

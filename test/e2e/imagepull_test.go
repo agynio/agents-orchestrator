@@ -52,7 +52,7 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
-	provider := createLLMProvider(t, ctx, llmClient, testLLMEndpoint, orgID)
+	provider := createLLMProvider(t, ctx, llmClient, testLLMEndpointCodex, orgID)
 	providerID := provider.GetMeta().GetId()
 	if providerID == "" {
 		t.Fatal("create llm provider: missing id")
@@ -79,7 +79,7 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	}
 	t.Cleanup(func() { deleteImagePullSecret(t, ctx, secretsClient, imagePullSecretID) })
 
-	agent := createAgent(t, ctx, agentsClient, "e2e-image-pull-"+uuid.NewString(), modelID, orgID)
+	agent := createAgent(t, ctx, agentsClient, "e2e-image-pull-"+uuid.NewString(), modelID, orgID, codexInitImage)
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
