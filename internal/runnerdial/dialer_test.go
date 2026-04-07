@@ -18,6 +18,8 @@ func (stubZitiDialer) DialContext(context.Context, string) (edge.Conn, error) {
 	return nil, errors.New("unused")
 }
 
+func (stubZitiDialer) NotifyAuthFailure() {}
+
 func TestDialerCachesConnections(t *testing.T) {
 	ctx := context.Background()
 	listener := bufconn.Listen(1024 * 1024)
