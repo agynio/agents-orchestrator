@@ -524,6 +524,7 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		return nil, err
 	}
 	envVars = append(envVars, &runnerv1.EnvVar{Name: "MCP_PORT", Value: strconv.Itoa(port)})
+	envVars = append(envVars, &runnerv1.EnvVar{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress})
 	return &runnerv1.ContainerSpec{
 		Image:  mcp.GetImage(),
 		Name:   fmt.Sprintf("mcp-%s", mcpID.String()[:8]),
