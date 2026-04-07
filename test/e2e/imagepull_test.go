@@ -134,7 +134,7 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	}
 
 	clientset := kubeClientset(t)
-	namespace := currentNamespace(t)
+	namespace := workloadNamespace(t)
 	labelSelector := labels.Set(labelsMap).String()
 
 	var workloadPod *corev1.Pod

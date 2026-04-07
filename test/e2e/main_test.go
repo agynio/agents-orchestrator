@@ -355,6 +355,11 @@ func currentNamespace(t *testing.T) string {
 	return namespace
 }
 
+func workloadNamespace(t *testing.T) string {
+	t.Helper()
+	return envOrDefault("WORKLOAD_NAMESPACE", "agyn-workloads")
+}
+
 // --- Verification Helpers ---
 
 func pollForAgentResponse(

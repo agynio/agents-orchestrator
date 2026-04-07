@@ -98,13 +98,26 @@ func TestNoDuplicateWorkloads(t *testing.T) {
 		t.Fatalf("wait for workload: %v", err)
 	}
 
-	time.Sleep(15 * time.Second)
-	ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
-	if err != nil {
-		t.Fatalf("find workloads: %v", err)
+	dedupTimer := time.NewTimer(15 * time.Second)
+	defer dedupTimer.Stop()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
+		if err != nil {
+			t.Fatalf("find workloads: %v", err)
+		}
+		if len(ids) > 1 {
+			t.Fatalf("expected at most 1 workload, got %d", len(ids))
+		}
+		if len(ids) > 0 {
+			workloadIDs = ids
+		}
+		select {
+		case <-dedupTimer.C:
+			return
+		case <-ticker.C:
+		}
 	}
-	if len(ids) != 1 {
-		t.Fatalf("expected 1 workload after delay, got %d", len(ids))
-	}
-	workloadIDs = ids
 }
