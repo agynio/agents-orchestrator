@@ -17,6 +17,16 @@ import (
 )
 
 func TestMCPToolsE2E(t *testing.T) {
+	runMCPToolsE2E(t, testLLMEndpointCodex, codexInitImage)
+}
+
+func TestMCPToolsAgnE2E(t *testing.T) {
+	runMCPToolsE2E(t, testLLMEndpointAgn, agnInitImage)
+}
+
+func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) {
+	t.Helper()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	t.Cleanup(cancel)
 
@@ -38,7 +48,7 @@ func TestMCPToolsE2E(t *testing.T) {
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
-	provider := createLLMProvider(t, ctx, llmClient, testLLMEndpointCodex, orgID)
+	provider := createLLMProvider(t, ctx, llmClient, llmEndpoint, orgID)
 	providerID := provider.GetMeta().GetId()
 	if providerID == "" {
 		t.Fatal("create llm provider: missing id")
@@ -49,7 +59,7 @@ func TestMCPToolsE2E(t *testing.T) {
 		t.Fatal("create model: missing id")
 	}
 
-	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString(), modelID, orgID, codexInitImage)
+	agent := createAgent(t, ctx, agentsClient, "e2e-mcp-tools-"+uuid.NewString(), modelID, orgID, initImage)
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
