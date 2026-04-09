@@ -64,7 +64,7 @@ functions:
                 - name: AGENT_GATEWAY_ADDRESS
                   value: "gateway-gateway.platform.svc.cluster.local:8080"
                 - name: AGENT_TRACING_ADDRESS
-                  value: "tracing:50051"
+                  value: "tracing.platform.svc.cluster.local:50051"
                 - name: ZITI_ENABLED
                   value: "false"
               workingDir: /opt/app/data
