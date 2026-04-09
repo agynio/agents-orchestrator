@@ -65,6 +65,7 @@ containerPorts: []
 
 command: []
 args: []
+agentTracingAddress: ""
 env:
   - name: THREADS_ADDRESS
     value: ""

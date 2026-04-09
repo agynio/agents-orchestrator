@@ -21,6 +21,7 @@ type Config struct {
 	ZitiSidecarImage         string
 	ClusterDNS               string
 	AgentGatewayAddress      string
+	AgentTracingAddress      string
 	AgentLLMBaseURL          string
 	PollInterval             time.Duration
 	IdleTimeout              time.Duration
@@ -71,6 +72,7 @@ func FromEnv() (Config, error) {
 			cfg.AgentGatewayAddress = "gateway:8080"
 		}
 	}
+	cfg.AgentTracingAddress = os.Getenv("AGENT_TRACING_ADDRESS")
 	cfg.AgentLLMBaseURL = os.Getenv("AGENT_LLM_BASE_URL")
 	if cfg.AgentLLMBaseURL == "" {
 		if cfg.ZitiEnabled {

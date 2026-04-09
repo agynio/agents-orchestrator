@@ -52,6 +52,19 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	}
 }
 
+func TestFromEnvAgentTracingAddress(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("AGENT_TRACING_ADDRESS", "tracing:50051")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.AgentTracingAddress != "tracing:50051" {
+		t.Fatalf("expected tracing address %q, got %q", "tracing:50051", cfg.AgentTracingAddress)
+	}
+}
+
 func setBaseEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
@@ -66,6 +79,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
 	t.Setenv("CLUSTER_DNS", "")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
+	t.Setenv("AGENT_TRACING_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
 	t.Setenv("POLL_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")

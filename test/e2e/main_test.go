@@ -43,6 +43,7 @@ var (
 	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
 	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
+	tracingAddr    = envOrDefault("TRACING_ADDRESS", "tracing:50051")
 	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:latest")
 	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:latest")
 )

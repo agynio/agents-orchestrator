@@ -83,6 +83,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 
 	cfg := config.Config{
 		AgentGatewayAddress: "gateway:50051",
+		AgentTracingAddress: "tracing:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
 
@@ -173,6 +174,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "THREAD_ID", threadID.String())
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
+	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
 	assertEnv(t, envs, "WORKSPACE_DIR", agentWorkspaceDir)
 	assertEnv(t, envs, "HOME", agentHomeDir)
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")

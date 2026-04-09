@@ -569,6 +569,9 @@ func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent,
 		{Name: "HOME", Value: agentHomeDir},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
 	}
+	if a.cfg.AgentTracingAddress != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})
+	}
 	if initScript != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
 	}
