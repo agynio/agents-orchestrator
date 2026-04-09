@@ -28,7 +28,7 @@ func discoverTraceID(
 ) []byte {
 	t.Helper()
 
-	pollCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	pollCtx, cancel := context.WithTimeout(ctx, tracingDiscoverTimeout)
 	defer cancel()
 
 	var traceID []byte
@@ -47,7 +47,7 @@ func discoverTraceID(
 			if !resourceHasThreadID(resourceSpan, threadID) {
 				continue
 			}
-			for _, span := range flattenSpans([]*tracev1.ResourceSpans{resourceSpan}) {
+			for _, span := range spansFromResource(resourceSpan) {
 				if len(span.GetTraceId()) == 0 {
 					continue
 				}
@@ -72,7 +72,7 @@ func assertTraceSummary(
 	expectedTotal int64,
 ) {
 	t.Helper()
-	pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	pollCtx, cancel := context.WithTimeout(ctx, tracingSummaryTimeout)
 	defer cancel()
 
 	err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
@@ -147,12 +147,18 @@ func traceSpans(
 func flattenSpans(resourceSpans []*tracev1.ResourceSpans) []*tracev1.Span {
 	spans := make([]*tracev1.Span, 0, len(resourceSpans))
 	for _, resourceSpan := range resourceSpans {
-		if resourceSpan == nil {
-			continue
-		}
-		for _, scopeSpan := range resourceSpan.GetScopeSpans() {
-			spans = append(spans, scopeSpan.GetSpans()...)
-		}
+		spans = append(spans, spansFromResource(resourceSpan)...)
+	}
+	return spans
+}
+
+func spansFromResource(resourceSpan *tracev1.ResourceSpans) []*tracev1.Span {
+	if resourceSpan == nil {
+		return nil
+	}
+	spans := make([]*tracev1.Span, 0, len(resourceSpan.GetScopeSpans()))
+	for _, scopeSpan := range resourceSpan.GetScopeSpans() {
+		spans = append(spans, scopeSpan.GetSpans()...)
 	}
 	return spans
 }

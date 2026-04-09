@@ -26,6 +26,9 @@ const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
 
+	tracingDiscoverTimeout = 60 * time.Second
+	tracingSummaryTimeout  = 30 * time.Second
+
 	testLLMEndpointCodex = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
 	testLLMEndpointAgn   = "https://testllm.dev/v1/org/agynio/suite/agn/responses"
 
@@ -47,6 +50,12 @@ var (
 	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:latest")
 	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:latest")
 )
+
+type pipelineRun struct {
+	threadID       string
+	startTimeMinNs uint64
+	agentResponse  string
+}
 
 func envOrDefault(key, fallback string) string {
 	value, ok := os.LookupEnv(key)

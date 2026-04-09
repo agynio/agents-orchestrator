@@ -24,7 +24,7 @@ func TestMCPToolsAgnE2E(t *testing.T) {
 	runMCPToolsE2E(t, testLLMEndpointAgn, agnInitImage)
 }
 
-func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) {
+func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
@@ -104,6 +104,7 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
+	startTimeMinNs := uint64(time.Now().UnixNano())
 	sendMessage(t, ctx, threadsClient, threadID, identityID, "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data")
 	t.Logf("test setup complete: agentID=%s threadID=%s memoryMcpID=%s filesystemMcpID=%s", agentID, threadID, memoryMcpID, filesystemMcpID)
 
@@ -133,5 +134,11 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) {
 	expected := "I've created the entity 'test_project' (type: project) with the observation 'A test project'. The /test-data directory contains one file: hello.txt."
 	if agentBody != expected {
 		t.Fatalf("expected agent response %q, got %q", expected, agentBody)
+	}
+
+	return pipelineRun{
+		threadID:       threadID,
+		startTimeMinNs: startTimeMinNs,
+		agentResponse:  agentBody,
 	}
 }

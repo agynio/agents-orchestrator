@@ -65,7 +65,6 @@ containerPorts: []
 
 command: []
 args: []
-agentTracingAddress: ""
 env:
   - name: THREADS_ADDRESS
     value: ""
@@ -86,6 +85,8 @@ env:
   - name: ZITI_MANAGEMENT_ADDRESS
     value: ""
   - name: AGENT_GATEWAY_ADDRESS
+    value: ""
+  - name: AGENT_TRACING_ADDRESS
     value: ""
   - name: POLL_INTERVAL
     value: ""
