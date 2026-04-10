@@ -4,20 +4,16 @@ package e2e
 
 import (
 	"context"
-	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	tracingv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/tracing/v1"
-	"github.com/google/uuid"
-	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
-	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
-	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -49,60 +45,16 @@ func checkTracingAvailability() (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	traceID, err := runTraceCanary(ctx, addr)
+	if err != nil {
+		return false, fmt.Sprintf("export canary span: %v", err)
+	}
+
 	conn, err := dialGRPCForCheck(ctx, addr)
 	if err != nil {
 		return false, fmt.Sprintf("dial tracing %s: %v", addr, err)
 	}
 	defer conn.Close()
-
-	traceID, err := randomBytes(16)
-	if err != nil {
-		return false, fmt.Sprintf("generate trace id: %v", err)
-	}
-	spanID, err := randomBytes(8)
-	if err != nil {
-		return false, fmt.Sprintf("generate span id: %v", err)
-	}
-
-	threadID := uuid.NewString()
-	now := time.Now()
-	exportReq := &collectortracev1.ExportTraceServiceRequest{
-		ResourceSpans: []*tracev1.ResourceSpans{
-			{
-				Resource: &resourcev1.Resource{
-					Attributes: []*commonv1.KeyValue{
-						{
-							Key: "agyn.thread.id",
-							Value: &commonv1.AnyValue{
-								Value: &commonv1.AnyValue_StringValue{StringValue: threadID},
-							},
-						},
-					},
-				},
-				ScopeSpans: []*tracev1.ScopeSpans{
-					{
-						Spans: []*tracev1.Span{
-							{
-								TraceId:           traceID,
-								SpanId:            spanID,
-								Name:              "e2e.tracing.canary",
-								Kind:              tracev1.Span_SPAN_KIND_INTERNAL,
-								StartTimeUnixNano: uint64(now.UnixNano()),
-								EndTimeUnixNano:   uint64(now.Add(5 * time.Millisecond).UnixNano()),
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	exportCtx, cancelExport := context.WithTimeout(ctx, 10*time.Second)
-	_, err = collectortracev1.NewTraceServiceClient(conn).Export(exportCtx, exportReq)
-	cancelExport()
-	if err != nil {
-		return false, fmt.Sprintf("export canary span: %v", err)
-	}
 
 	queryClient := tracingv1.NewTracingServiceClient(conn)
 	pollCtx, cancelPoll := context.WithTimeout(ctx, 20*time.Second)
@@ -132,10 +84,24 @@ func dialGRPCForCheck(ctx context.Context, addr string) (*grpc.ClientConn, error
 	return grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 }
 
-func randomBytes(size int) ([]byte, error) {
-	buf := make([]byte, size)
-	if _, err := rand.Read(buf); err != nil {
-		return nil, err
+func runTraceCanary(ctx context.Context, addr string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "go", "run", "./tracecanary")
+	cmd.Env = append(os.Environ(), fmt.Sprintf("TRACING_ADDRESS=%s", addr))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		reason := strings.TrimSpace(string(output))
+		if reason == "" {
+			reason = err.Error()
+		}
+		return nil, fmt.Errorf("trace canary failed: %s", reason)
 	}
-	return buf, nil
+	traceHex := strings.TrimSpace(string(output))
+	if traceHex == "" {
+		return nil, fmt.Errorf("trace canary returned empty trace id")
+	}
+	traceID, err := hex.DecodeString(traceHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode trace id %q: %w", traceHex, err)
+	}
+	return traceID, nil
 }
