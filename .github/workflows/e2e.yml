@@ -39,7 +39,7 @@ jobs:
 
       - name: Provision cluster
         working-directory: bootstrap
-        run: ./apply.sh -y
+        run: TF_VAR_tracing_chart_version=0.2.1 ./apply.sh -y
 
       - name: Extract cluster admin token
         working-directory: bootstrap/stacks/platform

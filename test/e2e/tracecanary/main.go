@@ -91,9 +91,19 @@ func run() error {
 
 	exportCtx, cancelExport := context.WithTimeout(context.Background(), exportTimeout)
 	defer cancelExport()
-	_, err = collectortracev1.NewTraceServiceClient(conn).Export(exportCtx, exportReq)
+	resp, err := collectortracev1.NewTraceServiceClient(conn).Export(exportCtx, exportReq)
 	if err != nil {
 		return fmt.Errorf("export canary span: %w", err)
+	}
+	if resp != nil {
+		partial := resp.GetPartialSuccess()
+		if partial != nil && partial.GetRejectedSpans() > 0 {
+			message := strings.TrimSpace(partial.GetErrorMessage())
+			if message == "" {
+				return fmt.Errorf("export rejected %d spans", partial.GetRejectedSpans())
+			}
+			return fmt.Errorf("export rejected %d spans: %s", partial.GetRejectedSpans(), message)
+		}
 	}
 
 	fmt.Fprint(os.Stdout, hex.EncodeToString(traceID))
