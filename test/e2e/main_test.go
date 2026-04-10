@@ -434,7 +434,7 @@ func pollForAgentResponse(
 					}
 					t.Logf("diagnostics: workload=%s state_status=%s state_running=%t", workloadID, inspect.GetStateStatus(), inspect.GetStateRunning())
 					logsCtx, cancelLogs := context.WithTimeout(ctx, 2*time.Second)
-					logWorkloadAgentLogs(t, logsCtx, workloadID, agentID, threadID)
+					logWorkloadPodDiagnostics(t, logsCtx, workloadID)
 					cancelLogs()
 				}
 			}
@@ -466,29 +466,6 @@ func getWorkloadLabels(ctx context.Context, client runnerv1.RunnerServiceClient,
 		return nil, fmt.Errorf("get labels for %s: %w", workloadID, err)
 	}
 	return resp.GetLabels(), nil
-}
-
-func logWorkloadAgentLogs(t *testing.T, ctx context.Context, workloadID, agentID, threadID string) {
-	t.Helper()
-	namespace := workloadNamespace(t)
-	containerName, err := agentContainerName(agentID, threadID)
-	if err != nil {
-		t.Logf("diagnostics: workload=%s agent container error: %v", workloadID, err)
-		return
-	}
-	podName := fmt.Sprintf("workload-%s", workloadID)
-	t.Logf("diagnostics: workload=%s container=%s", workloadID, containerName)
-	readWorkloadLogs(t, ctx, namespace, podName, containerName)
-}
-
-func agentContainerName(agentID, threadID string) (string, error) {
-	if len(agentID) < 8 {
-		return "", fmt.Errorf("agent id too short")
-	}
-	if len(threadID) < 8 {
-		return "", fmt.Errorf("thread id too short")
-	}
-	return fmt.Sprintf("agent-%s-%s", agentID[:8], threadID[:8]), nil
 }
 
 // --- Teardown Helpers ---

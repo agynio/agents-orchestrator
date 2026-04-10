@@ -19,7 +19,7 @@ func TestAgentSimpleHelloProducesTrace(t *testing.T) {
 	assertTraceSummary(t, ctx, tracingClient, traceID, map[string]int64{
 		"invocation.message": 1,
 		"llm.call":           1,
-	}, 2)
+	}, 2, result.threadID)
 
 	assertSpanAttributes(t, ctx, tracingClient, traceID, "invocation.message", map[string]string{
 		"agyn.message.text": result.messageText,
@@ -47,7 +47,7 @@ func TestAgentMCPToolsProducesTrace(t *testing.T) {
 		"invocation.message": 1,
 		"llm.call":           2,
 		"tool.execution":     2,
-	}, 5)
+	}, 5, result.threadID)
 
 	spans := traceSpans(t, ctx, tracingClient, traceID)
 	foundCreate := false

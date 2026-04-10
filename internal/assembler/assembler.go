@@ -523,6 +523,9 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	if err != nil {
 		return nil, err
 	}
+	envVars = ensureEnvVar(envVars, "HOME", "/tmp")
+	envVars = ensureEnvVar(envVars, "XDG_CACHE_HOME", "/tmp/.cache")
+	envVars = ensureEnvVar(envVars, "NPM_CONFIG_CACHE", "/tmp/.npm")
 	envVars = append(envVars, &runnerv1.EnvVar{Name: "MCP_PORT", Value: strconv.Itoa(port)})
 	envVars = append(envVars, &runnerv1.EnvVar{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress})
 	return &runnerv1.ContainerSpec{
@@ -553,6 +556,18 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 		Env:    envVars,
 		Mounts: mounts,
 	}, nil
+}
+
+func ensureEnvVar(envVars []*runnerv1.EnvVar, name, value string) []*runnerv1.EnvVar {
+	for _, envVar := range envVars {
+		if envVar == nil {
+			continue
+		}
+		if envVar.GetName() == name {
+			return envVars
+		}
+	}
+	return append(envVars, &runnerv1.EnvVar{Name: name, Value: value})
 }
 
 func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
