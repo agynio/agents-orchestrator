@@ -4,9 +4,7 @@ package e2e
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"testing"
@@ -435,58 +433,8 @@ func pollForAgentResponse(
 						continue
 					}
 					t.Logf("diagnostics: workload=%s state_status=%s state_running=%t", workloadID, inspect.GetStateStatus(), inspect.GetStateRunning())
-
 					logsCtx, cancelLogs := context.WithTimeout(ctx, 2*time.Second)
-					stream, err := runnerClient.StreamWorkloadLogs(logsCtx, &runnerv1.StreamWorkloadLogsRequest{
-						WorkloadId: workloadID,
-						Tail:       50,
-						Stdout:     true,
-						Stderr:     true,
-						Timestamps: true,
-					})
-					if err != nil {
-						t.Logf("diagnostics: workload=%s stream logs error: %v", workloadID, err)
-						cancelLogs()
-						continue
-					}
-
-					logLines := 0
-					for logLines < 5 {
-						resp, err := stream.Recv()
-						if err != nil {
-							if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-								break
-							}
-							t.Logf("diagnostics: workload=%s log stream recv error: %v", workloadID, err)
-							break
-						}
-						if resp.GetError() != nil {
-							t.Logf("diagnostics: workload=%s log stream error: %s", workloadID, resp.GetError().GetMessage())
-							break
-						}
-						if resp.GetEnd() != nil {
-							break
-						}
-						chunk := resp.GetChunk()
-						if chunk == nil {
-							continue
-						}
-						data := strings.TrimSpace(string(chunk.GetData()))
-						if data == "" {
-							continue
-						}
-						for _, line := range strings.Split(data, "\n") {
-							line = strings.TrimSpace(line)
-							if line == "" {
-								continue
-							}
-							t.Logf("diagnostics: workload=%s log=%s", workloadID, truncateBody(line))
-							logLines++
-							if logLines >= 5 {
-								break
-							}
-						}
-					}
+					logWorkloadAgentLogs(t, logsCtx, workloadID, agentID, threadID)
 					cancelLogs()
 				}
 			}
@@ -518,6 +466,29 @@ func getWorkloadLabels(ctx context.Context, client runnerv1.RunnerServiceClient,
 		return nil, fmt.Errorf("get labels for %s: %w", workloadID, err)
 	}
 	return resp.GetLabels(), nil
+}
+
+func logWorkloadAgentLogs(t *testing.T, ctx context.Context, workloadID, agentID, threadID string) {
+	t.Helper()
+	namespace := workloadNamespace(t)
+	containerName, err := agentContainerName(agentID, threadID)
+	if err != nil {
+		t.Logf("diagnostics: workload=%s agent container error: %v", workloadID, err)
+		return
+	}
+	podName := fmt.Sprintf("workload-%s", workloadID)
+	t.Logf("diagnostics: workload=%s container=%s", workloadID, containerName)
+	readWorkloadLogs(t, ctx, namespace, podName, containerName)
+}
+
+func agentContainerName(agentID, threadID string) (string, error) {
+	if len(agentID) < 8 {
+		return "", fmt.Errorf("agent id too short")
+	}
+	if len(threadID) < 8 {
+		return "", fmt.Errorf("thread id too short")
+	}
+	return fmt.Sprintf("agent-%s-%s", agentID[:8], threadID[:8]), nil
 }
 
 // --- Teardown Helpers ---

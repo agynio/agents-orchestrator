@@ -378,6 +378,7 @@ func logTraceSearchDiagnostics(
 	}
 	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"invocation.message"}, "invocation.message")
 	logSpanSamples(t, ctx, client, startTimeMinNs, nil, "all-spans")
+	logTracingStackDiagnostics(t)
 }
 
 func logSpanSamples(
@@ -491,6 +492,62 @@ func readWorkloadLogs(t *testing.T, ctx context.Context, namespace, podName, con
 	if err := scanner.Err(); err != nil {
 		t.Logf("diagnostics: pod=%s container=%s log scan error: %v", podName, containerName, err)
 	}
+}
+
+func logTracingStackDiagnostics(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	namespace := currentNamespace(t)
+	clientset := kubeClientset(t)
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Logf("diagnostics: list tracing pods: %v", err)
+		return
+	}
+	found := 0
+	for _, pod := range pods.Items {
+		if !isTracingPod(pod) {
+			continue
+		}
+		t.Logf("diagnostics: tracing pod=%s", pod.Name)
+		for _, container := range pod.Spec.Containers {
+			t.Logf("diagnostics: tracing pod=%s container=%s", pod.Name, container.Name)
+			readWorkloadLogs(t, ctx, namespace, pod.Name, container.Name)
+		}
+		found++
+		if found >= 2 {
+			break
+		}
+	}
+	if found == 0 {
+		t.Log("diagnostics: no tracing pods found")
+	}
+}
+
+func isTracingPod(pod corev1.Pod) bool {
+	name := strings.ToLower(pod.Name)
+	if strings.Contains(name, "tracing") || strings.Contains(name, "tempo") || strings.Contains(name, "otel") || strings.Contains(name, "collector") {
+		return true
+	}
+	for key, value := range pod.Labels {
+		labelKey := strings.ToLower(key)
+		labelValue := strings.ToLower(value)
+		if strings.Contains(labelKey, "tracing") || strings.Contains(labelValue, "tracing") {
+			return true
+		}
+		if strings.Contains(labelKey, "otel") || strings.Contains(labelValue, "otel") {
+			return true
+		}
+		if strings.Contains(labelKey, "tempo") || strings.Contains(labelValue, "tempo") {
+			return true
+		}
+		if strings.Contains(labelKey, "collector") || strings.Contains(labelValue, "collector") {
+			return true
+		}
+	}
+	return false
 }
 
 func truncateLogLine(line string) string {
