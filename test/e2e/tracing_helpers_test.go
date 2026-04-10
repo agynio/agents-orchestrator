@@ -22,11 +22,14 @@ func requireTracingAvailable(t *testing.T) {
 	if tracingAvailable {
 		return
 	}
+	if tracingSkipReason != "" {
+		t.Skipf("tracing e2e skipped: %s", tracingSkipReason)
+	}
 	reason := strings.TrimSpace(tracingUnavailableReason)
 	if reason == "" {
 		reason = "tracing ingest check failed"
 	}
-	t.Skipf("tracing ingest unavailable: %s", reason)
+	t.Fatalf("tracing ingest unavailable: %s", reason)
 }
 
 func newTracingClient(t *testing.T) tracingv1.TracingServiceClient {

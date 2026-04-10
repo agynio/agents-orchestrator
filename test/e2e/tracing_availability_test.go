@@ -3,12 +3,14 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,16 +25,23 @@ import (
 var (
 	tracingAvailable         bool
 	tracingUnavailableReason string
+	tracingSkipReason        string
 )
 
 func TestMain(m *testing.M) {
+	tracingSkipReason = skipTracingReason()
+	if tracingSkipReason != "" {
+		log.Printf("tracing e2e skipped: %s", tracingSkipReason)
+		os.Exit(m.Run())
+	}
+
 	tracingAvailable, tracingUnavailableReason = checkTracingAvailability()
 	if !tracingAvailable {
 		reason := strings.TrimSpace(tracingUnavailableReason)
 		if reason == "" {
 			reason = "unknown reason"
 		}
-		log.Printf("tracing e2e disabled: %s", reason)
+		log.Printf("tracing e2e unavailable: %s", reason)
 	}
 	os.Exit(m.Run())
 }
@@ -87,9 +96,11 @@ func dialGRPCForCheck(ctx context.Context, addr string) (*grpc.ClientConn, error
 func runTraceCanary(ctx context.Context, addr string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "go", "run", "./tracecanary")
 	cmd.Env = append(os.Environ(), fmt.Sprintf("TRACING_ADDRESS=%s", addr))
-	output, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
 	if err != nil {
-		reason := strings.TrimSpace(string(output))
+		reason := strings.TrimSpace(stderr.String())
 		if reason == "" {
 			reason = err.Error()
 		}
@@ -104,4 +115,32 @@ func runTraceCanary(ctx context.Context, addr string) ([]byte, error) {
 		return nil, fmt.Errorf("decode trace id %q: %w", traceHex, err)
 	}
 	return traceID, nil
+}
+
+func skipTracingReason() string {
+	if value, ok := os.LookupEnv("SKIP_TRACING_E2E"); ok {
+		if shouldSkipTracing(value) {
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				return "SKIP_TRACING_E2E set"
+			}
+			return fmt.Sprintf("SKIP_TRACING_E2E=%s", trimmed)
+		}
+	}
+	if value, ok := os.LookupEnv("TRACING_ADDRESS"); !ok || strings.TrimSpace(value) == "" {
+		return "TRACING_ADDRESS not set"
+	}
+	return ""
+}
+
+func shouldSkipTracing(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return true
+	}
+	parsed, err := strconv.ParseBool(trimmed)
+	if err != nil {
+		return true
+	}
+	return parsed
 }
