@@ -28,6 +28,7 @@ const (
 
 	tracingDiscoverTimeout = 60 * time.Second
 	tracingSummaryTimeout  = 30 * time.Second
+	tracingStartTimeBuffer = 30 * time.Second
 
 	testLLMEndpointCodex = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
 	testLLMEndpointAgn   = "https://testllm.dev/v1/org/agynio/suite/agn/responses"

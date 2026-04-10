@@ -46,32 +46,42 @@ func discoverTraceID(
 	startTimeMinNs uint64,
 ) []byte {
 	t.Helper()
+	searchStartTimeMinNs := startTimeMinNs
+	if tracingStartTimeBuffer > 0 {
+		bufferNs := uint64(tracingStartTimeBuffer.Nanoseconds())
+		if searchStartTimeMinNs > bufferNs {
+			searchStartTimeMinNs -= bufferNs
+		} else {
+			searchStartTimeMinNs = 0
+		}
+	}
 
 	pollCtx, cancel := context.WithTimeout(ctx, tracingDiscoverTimeout)
 	defer cancel()
 
 	var traceID []byte
 	err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
-		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
-			Filter: &tracingv1.SpanFilter{
-				StartTimeMin: startTimeMinNs,
-				Names:        []string{"invocation.message"},
-			},
-			PageSize: 100,
-		})
-		if err != nil {
-			return fmt.Errorf("list spans: %w", err)
-		}
-		for _, resourceSpan := range resp.GetResourceSpans() {
-			if !resourceHasThreadID(resourceSpan, threadID) {
-				continue
+		pageToken := ""
+		for {
+			resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+				Filter: &tracingv1.SpanFilter{
+					StartTimeMin: searchStartTimeMinNs,
+					Names:        []string{"invocation.message"},
+				},
+				PageSize:  100,
+				PageToken: pageToken,
+				OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			})
+			if err != nil {
+				return fmt.Errorf("list spans: %w", err)
 			}
-			for _, span := range spansFromResource(resourceSpan) {
-				if len(span.GetTraceId()) == 0 {
-					continue
-				}
-				traceID = span.GetTraceId()
+			traceID = traceIDFromResourceSpans(resp.GetResourceSpans(), threadID)
+			if len(traceID) > 0 {
 				return nil
+			}
+			pageToken = resp.GetNextPageToken()
+			if pageToken == "" {
+				break
 			}
 		}
 		return fmt.Errorf("trace id not found")
@@ -183,6 +193,38 @@ func spansFromResource(resourceSpan *tracev1.ResourceSpans) []*tracev1.Span {
 	return spans
 }
 
+func traceIDFromResourceSpans(resourceSpans []*tracev1.ResourceSpans, threadID string) []byte {
+	for _, resourceSpan := range resourceSpans {
+		spans := spansFromResource(resourceSpan)
+		if resourceHasThreadID(resourceSpan, threadID) {
+			if traceID := traceIDFromSpans(spans); len(traceID) > 0 {
+				return traceID
+			}
+			continue
+		}
+		for _, span := range spans {
+			if !spanHasThreadID(span, threadID) {
+				continue
+			}
+			if len(span.GetTraceId()) == 0 {
+				continue
+			}
+			return span.GetTraceId()
+		}
+	}
+	return nil
+}
+
+func traceIDFromSpans(spans []*tracev1.Span) []byte {
+	for _, span := range spans {
+		if len(span.GetTraceId()) == 0 {
+			continue
+		}
+		return span.GetTraceId()
+	}
+	return nil
+}
+
 func resourceHasThreadID(resourceSpans *tracev1.ResourceSpans, threadID string) bool {
 	if resourceSpans == nil {
 		return false
@@ -192,6 +234,15 @@ func resourceHasThreadID(resourceSpans *tracev1.ResourceSpans, threadID string) 
 		return false
 	}
 	attrs := attributesToMap(resource.GetAttributes())
+	value, ok := attrs["agyn.thread.id"]
+	return ok && value == threadID
+}
+
+func spanHasThreadID(span *tracev1.Span, threadID string) bool {
+	if span == nil {
+		return false
+	}
+	attrs := attributesToMap(span.GetAttributes())
 	value, ok := attrs["agyn.thread.id"]
 	return ok && value == threadID
 }

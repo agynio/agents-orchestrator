@@ -127,9 +127,6 @@ func skipTracingReason() string {
 			return fmt.Sprintf("SKIP_TRACING_E2E=%s", trimmed)
 		}
 	}
-	if value, ok := os.LookupEnv("TRACING_ADDRESS"); !ok || strings.TrimSpace(value) == "" {
-		return "TRACING_ADDRESS not set"
-	}
 	return ""
 }
 
