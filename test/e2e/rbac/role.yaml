@@ -6,5 +6,5 @@ metadata:
     app.kubernetes.io/component: e2e-runner
 rules:
   - apiGroups: [""]
-    resources: ["pods", "secrets"]
+    resources: ["pods", "pods/log", "secrets"]
     verbs: ["get", "list"]

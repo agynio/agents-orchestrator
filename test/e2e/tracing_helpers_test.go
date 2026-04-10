@@ -3,15 +3,31 @@
 package e2e
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	tracingv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/tracing/v1"
 	commonv1 "github.com/agynio/agents-orchestrator/.gen/go/opentelemetry/proto/common/v1"
 	tracev1 "github.com/agynio/agents-orchestrator/.gen/go/opentelemetry/proto/trace/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func requireTracingAvailable(t *testing.T) {
+	t.Helper()
+	if tracingAvailable {
+		return
+	}
+	reason := strings.TrimSpace(tracingUnavailableReason)
+	if reason == "" {
+		reason = "tracing ingest check failed"
+	}
+	t.Skipf("tracing ingest unavailable: %s", reason)
+}
 
 func newTracingClient(t *testing.T) tracingv1.TracingServiceClient {
 	t.Helper()
@@ -58,6 +74,7 @@ func discoverTraceID(
 		return fmt.Errorf("trace id not found")
 	})
 	if err != nil {
+		logTracingDiagnostics(t, threadID)
 		t.Fatalf("discover trace id: %v", err)
 	}
 	return traceID
@@ -201,4 +218,74 @@ func attributeStringValue(value *commonv1.AnyValue) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func logTracingDiagnostics(t *testing.T, threadID string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	clientset := kubeClientset(t)
+	namespace := workloadNamespace(t)
+	selector := fmt.Sprintf("%s=%s,%s=%s", labelManagedBy, managedByValue, labelThreadID, threadID)
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		t.Logf("diagnostics: list workload pods: %v", err)
+		return
+	}
+	if len(pods.Items) == 0 {
+		t.Logf("diagnostics: no workload pods found for thread %s", threadID)
+		return
+	}
+	for _, pod := range pods.Items {
+		for _, container := range pod.Spec.Containers {
+			t.Logf("diagnostics: workload pod=%s container=%s", pod.Name, container.Name)
+			readWorkloadLogs(t, ctx, namespace, pod.Name, container.Name)
+		}
+	}
+}
+
+func readWorkloadLogs(t *testing.T, ctx context.Context, namespace, podName, containerName string) {
+	t.Helper()
+	tail := int64(50)
+	request := kubeClientset(t).CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
+		Container:  containerName,
+		TailLines:  &tail,
+		Timestamps: true,
+	})
+	stream, err := request.Stream(ctx)
+	if err != nil {
+		t.Logf("diagnostics: pod=%s container=%s log error: %v", podName, containerName, err)
+		return
+	}
+	defer stream.Close()
+
+	scanner := bufio.NewScanner(stream)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	lines := 0
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		t.Logf("diagnostics: pod=%s container=%s log=%s", podName, containerName, truncateLogLine(line))
+		lines++
+		if lines >= 5 {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Logf("diagnostics: pod=%s container=%s log scan error: %v", podName, containerName, err)
+	}
+}
+
+func truncateLogLine(line string) string {
+	if line == "" {
+		return line
+	}
+	lineRunes := []rune(line)
+	if len(lineRunes) <= 200 {
+		return line
+	}
+	return string(lineRunes[:200])
 }

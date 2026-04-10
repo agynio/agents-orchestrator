@@ -9,6 +9,7 @@ import (
 )
 
 func TestAgentSimpleHelloProducesTrace(t *testing.T) {
+	requireTracingAvailable(t)
 	expectedResponse := "Hi! How are you?"
 	result := runFullPipelineMessageResponse(t, testLLMEndpointAgn, agnInitImage, "hi", expectedResponse)
 
@@ -36,6 +37,7 @@ func TestAgentSimpleHelloProducesTrace(t *testing.T) {
 }
 
 func TestAgentMCPToolsProducesTrace(t *testing.T) {
+	requireTracingAvailable(t)
 	result := runMCPToolsE2E(t, testLLMEndpointAgn, agnInitImage)
 
 	ctx := context.Background()
