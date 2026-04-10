@@ -56,6 +56,7 @@ type pipelineRun struct {
 	threadID       string
 	startTimeMinNs uint64
 	agentResponse  string
+	messageText    string
 }
 
 func envOrDefault(key, fallback string) string {

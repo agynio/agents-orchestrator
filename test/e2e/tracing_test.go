@@ -15,14 +15,14 @@ func TestAgentSimpleHelloProducesTrace(t *testing.T) {
 
 	ctx := context.Background()
 	tracingClient := newTracingClient(t)
-	traceID := discoverTraceID(t, ctx, tracingClient, result.threadID, result.startTimeMinNs)
+	traceID := discoverTraceID(t, ctx, tracingClient, result.threadID, result.startTimeMinNs, result.messageText)
 	assertTraceSummary(t, ctx, tracingClient, traceID, map[string]int64{
 		"invocation.message": 1,
 		"llm.call":           1,
 	}, 2)
 
 	assertSpanAttributes(t, ctx, tracingClient, traceID, "invocation.message", map[string]string{
-		"agyn.message.text": "hi",
+		"agyn.message.text": result.messageText,
 		"agyn.message.role": "user",
 		"agyn.message.kind": "source",
 	})
@@ -42,7 +42,7 @@ func TestAgentMCPToolsProducesTrace(t *testing.T) {
 
 	ctx := context.Background()
 	tracingClient := newTracingClient(t)
-	traceID := discoverTraceID(t, ctx, tracingClient, result.threadID, result.startTimeMinNs)
+	traceID := discoverTraceID(t, ctx, tracingClient, result.threadID, result.startTimeMinNs, result.messageText)
 	assertTraceSummary(t, ctx, tracingClient, traceID, map[string]int64{
 		"invocation.message": 1,
 		"llm.call":           2,

@@ -104,8 +104,9 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
+	message := "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data"
 	startTimeMinNs := uint64(time.Now().UnixNano())
-	sendMessage(t, ctx, threadsClient, threadID, identityID, "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data")
+	sendMessage(t, ctx, threadsClient, threadID, identityID, message)
 	t.Logf("test setup complete: agentID=%s threadID=%s memoryMcpID=%s filesystemMcpID=%s", agentID, threadID, memoryMcpID, filesystemMcpID)
 
 	labels := map[string]string{
@@ -140,5 +141,6 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 		threadID:       threadID,
 		startTimeMinNs: startTimeMinNs,
 		agentResponse:  agentBody,
+		messageText:    message,
 	}
 }

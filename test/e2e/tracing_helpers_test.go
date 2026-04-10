@@ -38,12 +38,19 @@ func newTracingClient(t *testing.T) tracingv1.TracingServiceClient {
 	return tracingv1.NewTracingServiceClient(conn)
 }
 
+var traceSearchSpanNames = []string{
+	"invocation.message",
+	"tool.execution",
+	"llm.call",
+}
+
 func discoverTraceID(
 	t *testing.T,
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
 	threadID string,
 	startTimeMinNs uint64,
+	messageText string,
 ) []byte {
 	t.Helper()
 	searchStartTimeMinNs := startTimeMinNs
@@ -55,42 +62,86 @@ func discoverTraceID(
 			searchStartTimeMinNs = 0
 		}
 	}
+	messageText = strings.TrimSpace(messageText)
 
 	pollCtx, cancel := context.WithTimeout(ctx, tracingDiscoverTimeout)
 	defer cancel()
 
 	var traceID []byte
 	err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
-		pageToken := ""
-		for {
-			resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
-				Filter: &tracingv1.SpanFilter{
-					StartTimeMin: searchStartTimeMinNs,
-					Names:        []string{"invocation.message"},
-				},
-				PageSize:  100,
-				PageToken: pageToken,
-				OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
-			})
-			if err != nil {
-				return fmt.Errorf("list spans: %w", err)
-			}
-			traceID = traceIDFromResourceSpans(resp.GetResourceSpans(), threadID)
-			if len(traceID) > 0 {
-				return nil
-			}
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
-			}
+		var err error
+		traceID, err = findTraceID(ctx, client, threadID, messageText, searchStartTimeMinNs)
+		if err != nil {
+			return err
+		}
+		if len(traceID) > 0 {
+			return nil
 		}
 		return fmt.Errorf("trace id not found")
 	})
 	if err != nil {
+		logTraceSearchDiagnostics(t, client, searchStartTimeMinNs, messageText)
 		logTracingDiagnostics(t, threadID)
 		t.Fatalf("discover trace id: %v", err)
 	}
 	return traceID
+}
+
+func findTraceID(
+	ctx context.Context,
+	client tracingv1.TracingServiceClient,
+	threadID string,
+	messageText string,
+	startTimeMinNs uint64,
+) ([]byte, error) {
+	for _, spanName := range traceSearchSpanNames {
+		traceID, err := listTraceIDForSpanName(ctx, client, threadID, messageText, startTimeMinNs, spanName)
+		if err != nil {
+			return nil, err
+		}
+		if len(traceID) > 0 {
+			return traceID, nil
+		}
+	}
+	return nil, nil
+}
+
+func listTraceIDForSpanName(
+	ctx context.Context,
+	client tracingv1.TracingServiceClient,
+	threadID string,
+	messageText string,
+	startTimeMinNs uint64,
+	spanName string,
+) ([]byte, error) {
+	pageToken := ""
+	for {
+		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+			Filter: &tracingv1.SpanFilter{
+				StartTimeMin: startTimeMinNs,
+				Names:        []string{spanName},
+			},
+			PageSize:  100,
+			PageToken: pageToken,
+			OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list spans %s: %w", spanName, err)
+		}
+		if traceID := traceIDFromResourceSpans(resp.GetResourceSpans(), threadID); len(traceID) > 0 {
+			return traceID, nil
+		}
+		if spanName == "invocation.message" {
+			if traceID := traceIDFromMessageText(resp.GetResourceSpans(), messageText); len(traceID) > 0 {
+				return traceID, nil
+			}
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	return nil, nil
 }
 
 func assertTraceSummary(
@@ -225,6 +276,44 @@ func traceIDFromSpans(spans []*tracev1.Span) []byte {
 	return nil
 }
 
+func traceIDFromMessageText(resourceSpans []*tracev1.ResourceSpans, messageText string) []byte {
+	if strings.TrimSpace(messageText) == "" {
+		return nil
+	}
+	for _, resourceSpan := range resourceSpans {
+		for _, span := range spansFromResource(resourceSpan) {
+			attrs := attributesToMap(span.GetAttributes())
+			value, ok := attrs["agyn.message.text"]
+			if !ok {
+				continue
+			}
+			if !messageTextMatches(value, messageText) {
+				continue
+			}
+			if len(span.GetTraceId()) == 0 {
+				continue
+			}
+			return span.GetTraceId()
+		}
+	}
+	return nil
+}
+
+func messageTextMatches(value string, messageText string) bool {
+	trimmedValue := strings.TrimSpace(value)
+	trimmedMessage := strings.TrimSpace(messageText)
+	if trimmedValue == "" || trimmedMessage == "" {
+		return false
+	}
+	if trimmedValue == trimmedMessage {
+		return true
+	}
+	if len(trimmedValue) < len(trimmedMessage) {
+		return strings.HasPrefix(trimmedMessage, trimmedValue)
+	}
+	return strings.HasPrefix(trimmedValue, trimmedMessage)
+}
+
 func resourceHasThreadID(resourceSpans *tracev1.ResourceSpans, threadID string) bool {
 	if resourceSpans == nil {
 		return false
@@ -271,6 +360,77 @@ func attributeStringValue(value *commonv1.AnyValue) (string, bool) {
 		return typed.StringValue, true
 	default:
 		return "", false
+	}
+}
+
+func logTraceSearchDiagnostics(
+	t *testing.T,
+	client tracingv1.TracingServiceClient,
+	startTimeMinNs uint64,
+	messageText string,
+) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if strings.TrimSpace(messageText) != "" {
+		t.Logf("diagnostics: trace search message=%s", truncateLogLine(messageText))
+	}
+	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"invocation.message"}, "invocation.message")
+	logSpanSamples(t, ctx, client, startTimeMinNs, nil, "all-spans")
+}
+
+func logSpanSamples(
+	t *testing.T,
+	ctx context.Context,
+	client tracingv1.TracingServiceClient,
+	startTimeMinNs uint64,
+	spanNames []string,
+	label string,
+) {
+	t.Helper()
+	filter := &tracingv1.SpanFilter{StartTimeMin: startTimeMinNs}
+	if len(spanNames) > 0 {
+		filter.Names = spanNames
+	}
+	resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+		Filter:   filter,
+		PageSize: 10,
+		OrderBy:  tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+	})
+	if err != nil {
+		t.Logf("diagnostics: list spans %s error: %v", label, err)
+		return
+	}
+	samples := 0
+	for _, resourceSpan := range resp.GetResourceSpans() {
+		resourceAttrs := attributesToMap(resourceSpan.GetResource().GetAttributes())
+		resourceThreadID := resourceAttrs["agyn.thread.id"]
+		resourceService := resourceAttrs["service.name"]
+		for _, span := range spansFromResource(resourceSpan) {
+			spanAttrs := attributesToMap(span.GetAttributes())
+			spanThreadID := spanAttrs["agyn.thread.id"]
+			message := spanAttrs["agyn.message.text"]
+			toolName := spanAttrs["agyn.tool.name"]
+			t.Logf(
+				"diagnostics: span_sample label=%s name=%s trace=%x resource_thread=%s span_thread=%s service=%s message=%s tool=%s",
+				label,
+				span.GetName(),
+				span.GetTraceId(),
+				resourceThreadID,
+				spanThreadID,
+				resourceService,
+				truncateLogLine(message),
+				toolName,
+			)
+			samples++
+			if samples >= 5 {
+				return
+			}
+		}
+	}
+	if samples == 0 {
+		t.Logf("diagnostics: no spans found for %s", label)
 	}
 }
 
