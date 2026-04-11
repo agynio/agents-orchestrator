@@ -36,8 +36,9 @@ const (
 	tracingSummaryTimeout  = 2 * time.Minute
 	tracingStartTimeBuffer = 30 * time.Second
 
-	testLLMEndpointCodex = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
-	testLLMEndpointAgn   = "https://testllm.dev/v1/org/agynio/suite/agn/responses"
+	testLLMEndpointCodex  = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
+	testLLMEndpointAgn    = "https://testllm.dev/v1/org/agynio/suite/agn/responses"
+	testLLMEndpointClaude = "https://testllm.dev/v1/org/agynio/suite/claude/messages"
 
 	labelManagedBy = "managed-by"
 	labelAgentID   = "agent-id"
@@ -46,16 +47,17 @@ const (
 )
 
 var (
-	agentsAddr     = envOrDefault("AGENTS_ADDRESS", "agents:50051")
-	threadsAddr    = envOrDefault("THREADS_ADDRESS", "threads:50051")
-	llmAddr        = envOrDefault("LLM_ADDRESS", "llm:50051")
-	usersAddr      = envOrDefault("USERS_ADDRESS", "users:50051")
-	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
-	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
-	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
-	tracingAddr    = envOrDefault("TRACING_ADDRESS", "tracing:50051")
-	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:mcp-host-20260412-3")
-	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:mcp-host-20260412-6")
+	agentsAddr      = envOrDefault("AGENTS_ADDRESS", "agents:50051")
+	threadsAddr     = envOrDefault("THREADS_ADDRESS", "threads:50051")
+	llmAddr         = envOrDefault("LLM_ADDRESS", "llm:50051")
+	usersAddr       = envOrDefault("USERS_ADDRESS", "users:50051")
+	orgsAddr        = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
+	runnerAddr      = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
+	secretsAddr     = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
+	tracingAddr     = envOrDefault("TRACING_ADDRESS", "tracing:50051")
+	codexInitImage  = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:mcp-host-20260412-3")
+	agnInitImage    = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:mcp-host-20260412-6")
+	claudeInitImage = envOrDefault("CLAUDE_INIT_IMAGE", "ghcr.io/agynio/agent-init-claude:latest")
 )
 
 type pipelineRun struct {
@@ -104,6 +106,8 @@ func newUserID() string {
 	return uuid.New().String()
 }
 
+type llmProviderCreator func(t *testing.T, ctx context.Context, client llmv1.LLMServiceClient, endpoint, orgID string) *llmv1.LLMProvider
+
 func createLLMProvider(t *testing.T, ctx context.Context, client llmv1.LLMServiceClient, endpoint, orgID string) *llmv1.LLMProvider {
 	t.Helper()
 	resp, err := client.CreateLLMProvider(ctx, &llmv1.CreateLLMProviderRequest{
@@ -111,6 +115,26 @@ func createLLMProvider(t *testing.T, ctx context.Context, client llmv1.LLMServic
 		AuthMethod:     llmv1.AuthMethod_AUTH_METHOD_BEARER,
 		Token:          "test-token",
 		OrganizationId: orgID,
+		Protocol:       llmv1.Protocol_PROTOCOL_RESPONSES,
+	})
+	if err != nil {
+		t.Fatalf("create llm provider: %v", err)
+	}
+	provider := resp.GetProvider()
+	if provider == nil || provider.GetMeta() == nil {
+		t.Fatal("create llm provider: nil response")
+	}
+	return provider
+}
+
+func createLLMProviderAnthropic(t *testing.T, ctx context.Context, client llmv1.LLMServiceClient, endpoint, orgID string) *llmv1.LLMProvider {
+	t.Helper()
+	resp, err := client.CreateLLMProvider(ctx, &llmv1.CreateLLMProviderRequest{
+		Endpoint:       endpoint,
+		AuthMethod:     llmv1.AuthMethod_AUTH_METHOD_X_API_KEY,
+		Token:          "test-token",
+		OrganizationId: orgID,
+		Protocol:       llmv1.Protocol_PROTOCOL_ANTHROPIC_MESSAGES,
 	})
 	if err != nil {
 		t.Fatalf("create llm provider: %v", err)

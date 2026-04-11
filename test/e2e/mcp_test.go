@@ -17,14 +17,18 @@ import (
 )
 
 func TestMCPToolsE2E(t *testing.T) {
-	runMCPToolsE2E(t, testLLMEndpointCodex, codexInitImage)
+	runMCPToolsE2E(t, testLLMEndpointCodex, codexInitImage, createLLMProvider)
 }
 
 func TestMCPToolsAgnE2E(t *testing.T) {
-	runMCPToolsE2E(t, testLLMEndpointAgn, agnInitImage)
+	runMCPToolsE2E(t, testLLMEndpointAgn, agnInitImage, createLLMProvider)
 }
 
-func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
+func TestMCPToolsClaudeE2E(t *testing.T) {
+	runMCPToolsE2E(t, testLLMEndpointClaude, claudeInitImage, createLLMProviderAnthropic)
+}
+
+func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string, createProvider llmProviderCreator) pipelineRun {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
@@ -48,7 +52,7 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
-	provider := createLLMProvider(t, ctx, llmClient, llmEndpoint, orgID)
+	provider := createProvider(t, ctx, llmClient, llmEndpoint, orgID)
 	providerID := provider.GetMeta().GetId()
 	if providerID == "" {
 		t.Fatal("create llm provider: missing id")
