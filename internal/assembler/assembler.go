@@ -270,7 +270,7 @@ if [ -n "$AGENT_MCP_SERVERS" ]; then
   while :; do
     ready=true
     for port in $ports; do
-      if ! nc -z -w 1 127.0.0.1 "$port" >/dev/null 2>&1; then
+      if ! nc -w 1 127.0.0.1 "$port" </dev/null >/dev/null 2>&1; then
         ready=false
         break
       fi
