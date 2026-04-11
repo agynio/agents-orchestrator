@@ -24,6 +24,7 @@ const (
 	agynBinVolumeName                    = "agyn-bin"
 	agynBinMountPath                     = "/agyn-bin"
 	agynBinBinaryPath                    = "/agyn-bin/agynd"
+	mcpStartupWaitSeconds                = 60
 	agentWorkspaceDir                    = "/tmp"
 	agentHomeDir                         = "/root"
 	mcpBasePort                          = 8100
@@ -198,6 +199,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 	if len(mcpServers) > 0 {
 		main.Env = append(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
+		main.Cmd = agentCommand(true)
 	}
 	imagePullCredentials, err := imagePullResolver.Credentials()
 	if err != nil {
@@ -248,6 +250,43 @@ func agentRunnerLabels(agent *agentsv1.Agent) map[string]string {
 	}
 	// TODO: Add runner_labels to Agent proto and return agent.GetRunnerLabels().
 	return nil
+}
+
+func agentCommand(hasMcps bool) []string {
+	if !hasMcps {
+		return []string{agynBinBinaryPath}
+	}
+	command := fmt.Sprintf(`wait_seconds=%d
+if [ -n "$AGENT_MCP_SERVERS" ]; then
+  ports=""
+  IFS=','
+  for server in $AGENT_MCP_SERVERS; do
+    port="${server##*:}"
+    if [ -n "$port" ]; then
+      ports="$ports $port"
+    fi
+  done
+  end=$(( $(date +%%s) + wait_seconds ))
+  while :; do
+    ready=true
+    for port in $ports; do
+      if ! nc -z -w 1 127.0.0.1 "$port" >/dev/null 2>&1; then
+        ready=false
+        break
+      fi
+    done
+    if [ "$ready" = "true" ]; then
+      break
+    fi
+    if [ $(date +%%s) -ge $end ]; then
+      echo "mcp readiness wait timed out" >&2
+      break
+    fi
+    sleep 1
+  done
+fi
+exec %s`, mcpStartupWaitSeconds, agynBinBinaryPath)
+	return []string{"/bin/sh", "-c", command}
 }
 
 func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {
