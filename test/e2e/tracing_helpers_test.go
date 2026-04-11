@@ -155,6 +155,28 @@ func assertTraceSummary(
 	threadID string,
 ) {
 	t.Helper()
+	ranges := make(map[string]spanCountRange, len(expectedCounts))
+	for name, count := range expectedCounts {
+		ranges[name] = spanCountRange{min: count, max: count}
+	}
+	assertTraceSummaryRange(t, ctx, client, traceID, ranges, spanCountRange{min: expectedTotal, max: expectedTotal}, threadID)
+}
+
+type spanCountRange struct {
+	min int64
+	max int64
+}
+
+func assertTraceSummaryRange(
+	t *testing.T,
+	ctx context.Context,
+	client tracingv1.TracingServiceClient,
+	traceID []byte,
+	expectedCounts map[string]spanCountRange,
+	expectedTotal spanCountRange,
+	threadID string,
+) {
+	t.Helper()
 	pollCtx, cancel := context.WithTimeout(ctx, tracingSummaryTimeout)
 	defer cancel()
 
@@ -165,12 +187,20 @@ func assertTraceSummary(
 		}
 		counts := resp.GetCountsByName()
 		for name, expected := range expectedCounts {
-			if counts[name] != expected {
-				return fmt.Errorf("expected %s count %d, got %d", name, expected, counts[name])
+			count := counts[name]
+			if count < expected.min || count > expected.max {
+				if expected.min == expected.max {
+					return fmt.Errorf("expected %s count %d, got %d", name, expected.min, count)
+				}
+				return fmt.Errorf("expected %s count %d-%d, got %d", name, expected.min, expected.max, count)
 			}
 		}
-		if resp.GetTotalSpans() != expectedTotal {
-			return fmt.Errorf("expected total spans %d, got %d", expectedTotal, resp.GetTotalSpans())
+		total := resp.GetTotalSpans()
+		if total < expectedTotal.min || total > expectedTotal.max {
+			if expectedTotal.min == expectedTotal.max {
+				return fmt.Errorf("expected total spans %d, got %d", expectedTotal.min, total)
+			}
+			return fmt.Errorf("expected total spans %d-%d, got %d", expectedTotal.min, expectedTotal.max, total)
 		}
 		return nil
 	})
