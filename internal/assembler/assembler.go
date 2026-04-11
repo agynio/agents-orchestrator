@@ -259,6 +259,7 @@ func agentCommand(hasMcps bool) []string {
 	command := fmt.Sprintf(`wait_seconds=%d
 if [ -n "$AGENT_MCP_SERVERS" ]; then
   ports=""
+  old_ifs="$IFS"
   IFS=','
   for server in $AGENT_MCP_SERVERS; do
     port="${server##*:}"
@@ -266,19 +267,31 @@ if [ -n "$AGENT_MCP_SERVERS" ]; then
       ports="$ports $port"
     fi
   done
+  IFS="$old_ifs"
+  port_ready_method=""
   port_ready() {
     port="$1"
-    if command -v nc >/dev/null 2>&1; then
+    if [ -z "$port_ready_method" ]; then
+      if command -v nc >/dev/null 2>&1; then
+        port_ready_method="nc"
+      else
+        port_ready_method="proc"
+      fi
+      echo "mcp readiness: using $port_ready_method" >&2
+    fi
+    if [ "$port_ready_method" = "nc" ]; then
       nc -w 1 127.0.0.1 "$port" </dev/null >/dev/null 2>&1
       return $?
     fi
     port_hex="$(printf '%%04X' "$port" 2>/dev/null)"
-    if [ -z "$port_hex" ]; then
+    port_hex_lower="$(printf '%%04x' "$port" 2>/dev/null)"
+    if [ -z "$port_hex" ] || [ -z "$port_hex_lower" ]; then
       return 1
     fi
-    awk -v port="$port_hex" 'NR>1 { split($2, addr, ":"); if (toupper(addr[2]) == port && $4 == "0A") { found=1; exit } } END { exit found ? 0 : 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+    awk -v port="$port_hex" -v port_lower="$port_hex_lower" 'NR>1 { split($2, addr, ":"); if ($4 == "0A" && (addr[2] == port || addr[2] == port_lower)) { found=1; exit } } END { exit found ? 0 : 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
   }
   end=$(( $(date +%%s) + wait_seconds ))
+  ready_reason=""
   while :; do
     ready=true
     for port in $ports; do
@@ -288,14 +301,22 @@ if [ -n "$AGENT_MCP_SERVERS" ]; then
       fi
     done
     if [ "$ready" = "true" ]; then
+      ready_reason="ready"
       break
     fi
     if [ $(date +%%s) -ge $end ]; then
+      ready_reason="timeout"
       echo "mcp readiness wait timed out" >&2
       break
     fi
     sleep 1
   done
+  if [ "$ready_reason" = "ready" ]; then
+    echo "mcp readiness: ports ready ($ports)" >&2
+  elif [ "$ready_reason" = "timeout" ] && [ "$port_ready_method" = "proc" ]; then
+    echo "mcp readiness: /proc/net/tcp snapshot" >&2
+    awk 'NR<=5 { print }' /proc/net/tcp /proc/net/tcp6 2>/dev/null >&2
+  fi
 fi
 exec %s`, mcpStartupWaitSeconds, agynBinBinaryPath)
 	return []string{"/bin/sh", "-c", command}
