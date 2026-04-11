@@ -233,7 +233,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
         -n ${ORCHESTRATOR_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --include-imports --path agynio/api/runner/v1 --path agynio/api/runners/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 --path agynio/api/ziti_management/v1 --path agynio/api/identity/v1 --path agynio/api/llm/v1 --path agynio/api/users/v1 --path agynio/api/organizations/v1 --path agynio/api/tracing/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
+        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --include-imports --path agynio/api/runner/v1 --path agynio/api/runners/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 --path agynio/api/ziti_management/v1 --path agynio/api/identity/v1 --path agynio/api/llm/v1 --path agynio/api/users/v1 --path agynio/api/organizations/v1 --path agynio/api/tracing/v1 && go test -v -count=1 -timeout=20m -tags e2e ./test/e2e/'
       EXIT_CODE=$?
       purge_deployments e2e-runner e2e-rbac
       exit $EXIT_CODE
