@@ -24,7 +24,6 @@ const (
 	agynBinVolumeName                    = "agyn-bin"
 	agynBinMountPath                     = "/agyn-bin"
 	agynBinBinaryPath                    = "/agyn-bin/agynd"
-	mcpStartupWaitSeconds                = 180
 	agentWorkspaceDir                    = "/tmp"
 	agentHomeDir                         = "/root"
 	mcpBasePort                          = 8100
@@ -199,7 +198,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 	if len(mcpServers) > 0 {
 		main.Env = append(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
-		main.Cmd = agentCommand(true)
 	}
 	imagePullCredentials, err := imagePullResolver.Credentials()
 	if err != nil {
@@ -250,76 +248,6 @@ func agentRunnerLabels(agent *agentsv1.Agent) map[string]string {
 	}
 	// TODO: Add runner_labels to Agent proto and return agent.GetRunnerLabels().
 	return nil
-}
-
-func agentCommand(hasMcps bool) []string {
-	if !hasMcps {
-		return []string{agynBinBinaryPath}
-	}
-	command := fmt.Sprintf(`wait_seconds=%d
-if [ -n "$AGENT_MCP_SERVERS" ]; then
-  ports=""
-  old_ifs="$IFS"
-  IFS=','
-  for server in $AGENT_MCP_SERVERS; do
-    port="${server##*:}"
-    if [ -n "$port" ]; then
-      ports="$ports $port"
-    fi
-  done
-  IFS="$old_ifs"
-  port_ready_method=""
-  port_ready() {
-    port="$1"
-    if [ -z "$port_ready_method" ]; then
-      if command -v nc >/dev/null 2>&1; then
-        port_ready_method="nc"
-      else
-        port_ready_method="proc"
-      fi
-      echo "mcp readiness: using $port_ready_method" >&2
-    fi
-    if [ "$port_ready_method" = "nc" ]; then
-      nc -w 1 127.0.0.1 "$port" </dev/null >/dev/null 2>&1
-      return $?
-    fi
-    port_hex="$(printf '%%04X' "$port" 2>/dev/null)"
-    port_hex_lower="$(printf '%%04x' "$port" 2>/dev/null)"
-    if [ -z "$port_hex" ] || [ -z "$port_hex_lower" ]; then
-      return 1
-    fi
-    awk -v port="$port_hex" -v port_lower="$port_hex_lower" 'NR>1 { split($2, addr, ":"); if ($4 == "0A" && (addr[2] == port || addr[2] == port_lower)) { found=1; exit } } END { exit found ? 0 : 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
-  }
-  end=$(( $(date +%%s) + wait_seconds ))
-  ready_reason=""
-  while :; do
-    ready=true
-    for port in $ports; do
-      if ! port_ready "$port"; then
-        ready=false
-        break
-      fi
-    done
-    if [ "$ready" = "true" ]; then
-      ready_reason="ready"
-      break
-    fi
-    if [ $(date +%%s) -ge $end ]; then
-      ready_reason="timeout"
-      echo "mcp readiness wait timed out" >&2
-      break
-    fi
-    sleep 1
-  done
-  if [ "$ready_reason" = "ready" ]; then
-    echo "mcp readiness: ports ready ($ports)" >&2
-  elif [ "$ready_reason" = "timeout" ] && [ "$port_ready_method" = "proc" ]; then
-    echo "mcp readiness: /proc/net/tcp snapshot" >&2
-    awk 'NR<=5 { print }' /proc/net/tcp /proc/net/tcp6 2>/dev/null >&2
-  fi
-fi
-exec %s`, mcpStartupWaitSeconds, agynBinBinaryPath)
-	return []string{"/bin/sh", "-c", command}
 }
 
 func (a *Assembler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {
@@ -595,9 +523,6 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	if err != nil {
 		return nil, err
 	}
-	envVars = ensureEnvVar(envVars, "HOME", "/tmp")
-	envVars = ensureEnvVar(envVars, "XDG_CACHE_HOME", "/tmp/.cache")
-	envVars = ensureEnvVar(envVars, "NPM_CONFIG_CACHE", "/tmp/.npm")
 	envVars = append(envVars, &runnerv1.EnvVar{Name: "MCP_PORT", Value: strconv.Itoa(port)})
 	envVars = append(envVars, &runnerv1.EnvVar{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress})
 	return &runnerv1.ContainerSpec{
@@ -628,18 +553,6 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 		Env:    envVars,
 		Mounts: mounts,
 	}, nil
-}
-
-func ensureEnvVar(envVars []*runnerv1.EnvVar, name, value string) []*runnerv1.EnvVar {
-	for _, envVar := range envVars {
-		if envVar == nil {
-			continue
-		}
-		if envVar.GetName() == name {
-			return envVars
-		}
-	}
-	return append(envVars, &runnerv1.EnvVar{Name: name, Value: value})
 }
 
 func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
