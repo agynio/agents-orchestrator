@@ -75,8 +75,9 @@ func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, messag
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	startTimeMinNs := uint64(time.Now().UnixNano())
-	sendMessage(t, ctx, threadsClient, threadID, identityID, message)
+	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, message)
+	sentMessageTime := messageCreatedAt(t, sentMessage)
+	startTimeMinNs := messageStartTimeMinNs(t, sentMessage)
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -96,7 +97,7 @@ func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, messag
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer pollCancel()
-	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels)
+	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expectedResponse)
 	if err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}

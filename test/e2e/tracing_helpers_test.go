@@ -465,6 +465,11 @@ func logTracingDiagnostics(t *testing.T, threadID string) {
 func readWorkloadLogs(t *testing.T, ctx context.Context, namespace, podName, containerName string) {
 	t.Helper()
 	tail := int64(50)
+	maxLines := 5
+	if strings.HasPrefix(containerName, "mcp-") {
+		tail = 200
+		maxLines = 20
+	}
 	request := kubeClientset(t).CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Container:  containerName,
 		TailLines:  &tail,
@@ -487,7 +492,7 @@ func readWorkloadLogs(t *testing.T, ctx context.Context, namespace, podName, con
 		}
 		t.Logf("diagnostics: pod=%s container=%s log=%s", podName, containerName, truncateLogLine(line))
 		lines++
-		if lines >= 5 {
+		if lines >= maxLines {
 			break
 		}
 	}

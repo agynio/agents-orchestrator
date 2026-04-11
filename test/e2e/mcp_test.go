@@ -104,11 +104,6 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	message := "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data"
-	startTimeMinNs := uint64(time.Now().UnixNano())
-	sendMessage(t, ctx, threadsClient, threadID, identityID, message)
-	t.Logf("test setup complete: agentID=%s threadID=%s memoryMcpID=%s filesystemMcpID=%s", agentID, threadID, memoryMcpID, filesystemMcpID)
-
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
 		labelAgentID:   agentID,
@@ -125,14 +120,35 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 		}
 	})
 
-	pollCtx, pollCancel := context.WithTimeout(ctx, 7*time.Minute)
+	warmupMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, "hi")
+	warmupMessageTime := messageCreatedAt(t, warmupMessage)
+	warmupCtx, warmupCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer warmupCancel()
+	_, err := pollForAgentResponse(t, warmupCtx, threadsClient, runnerClient, threadID, agentID, labels, warmupMessageTime, "")
+	if err != nil {
+		t.Fatalf("wait for warmup response: %v", err)
+	}
+
+	readyCtx, readyCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer readyCancel()
+	if err := waitForMcpSidecarsReady(t, readyCtx, runnerClient, labels); err != nil {
+		t.Fatalf("wait for mcp sidecars: %v", err)
+	}
+
+	message := "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data"
+	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, message)
+	sentMessageTime := messageCreatedAt(t, sentMessage)
+	startTimeMinNs := messageStartTimeMinNs(t, sentMessage)
+	t.Logf("test setup complete: agentID=%s threadID=%s memoryMcpID=%s filesystemMcpID=%s", agentID, threadID, memoryMcpID, filesystemMcpID)
+
+	expected := "I've created the entity 'test_project' (type: project) with the observation 'A test project'. The /test-data directory contains one file: hello.txt."
+
+	pollCtx, pollCancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer pollCancel()
-	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels)
+	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expected)
 	if err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}
-
-	expected := "I've created the entity 'test_project' (type: project) with the observation 'A test project'. The /test-data directory contains one file: hello.txt."
 	if agentBody != expected {
 		t.Fatalf("expected agent response %q, got %q", expected, agentBody)
 	}
