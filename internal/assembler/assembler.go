@@ -266,11 +266,23 @@ if [ -n "$AGENT_MCP_SERVERS" ]; then
       ports="$ports $port"
     fi
   done
+  port_ready() {
+    port="$1"
+    if command -v nc >/dev/null 2>&1; then
+      nc -w 1 127.0.0.1 "$port" </dev/null >/dev/null 2>&1
+      return $?
+    fi
+    port_hex="$(printf '%%04X' "$port" 2>/dev/null)"
+    if [ -z "$port_hex" ]; then
+      return 1
+    fi
+    awk -v port="$port_hex" 'NR>1 { split($2, addr, ":"); if (toupper(addr[2]) == port && $4 == "0A") { found=1; exit } } END { exit found ? 0 : 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+  }
   end=$(( $(date +%%s) + wait_seconds ))
   while :; do
     ready=true
     for port in $ports; do
-      if ! nc -w 1 127.0.0.1 "$port" </dev/null >/dev/null 2>&1; then
+      if ! port_ready "$port"; then
         ready=false
         break
       fi
