@@ -412,6 +412,8 @@ func logTraceSearchDiagnostics(
 		t.Logf("diagnostics: trace search message=%s", truncateLogLine(messageText))
 	}
 	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"invocation.message"}, "invocation.message")
+	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"tool.execution"}, "tool.execution")
+	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"llm.call"}, "llm.call")
 	logSpanSamples(t, ctx, client, startTimeMinNs, nil, "all-spans")
 	logTracingStackDiagnostics(t)
 }
