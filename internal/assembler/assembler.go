@@ -24,7 +24,7 @@ const (
 	agynBinVolumeName                    = "agyn-bin"
 	agynBinMountPath                     = "/agyn-bin"
 	agynBinBinaryPath                    = "/agyn-bin/agynd"
-	mcpStartupWaitSeconds                = 60
+	mcpStartupWaitSeconds                = 180
 	agentWorkspaceDir                    = "/tmp"
 	agentHomeDir                         = "/root"
 	mcpBasePort                          = 8100

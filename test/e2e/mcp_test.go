@@ -120,21 +120,6 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 		}
 	})
 
-	warmupMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, "hi")
-	warmupMessageTime := messageCreatedAt(t, warmupMessage)
-	warmupCtx, warmupCancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer warmupCancel()
-	_, err := pollForAgentResponse(t, warmupCtx, threadsClient, runnerClient, threadID, agentID, labels, warmupMessageTime, "")
-	if err != nil {
-		t.Fatalf("wait for warmup response: %v", err)
-	}
-
-	readyCtx, readyCancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer readyCancel()
-	if err := waitForMcpSidecarsReady(t, readyCtx, runnerClient, labels); err != nil {
-		t.Fatalf("wait for mcp sidecars: %v", err)
-	}
-
 	message := "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data"
 	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, message)
 	sentMessageTime := messageCreatedAt(t, sentMessage)
@@ -142,6 +127,12 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	t.Logf("test setup complete: agentID=%s threadID=%s memoryMcpID=%s filesystemMcpID=%s", agentID, threadID, memoryMcpID, filesystemMcpID)
 
 	expected := "I've created the entity 'test_project' (type: project) with the observation 'A test project'. The /test-data directory contains one file: hello.txt."
+
+	readyCtx, readyCancel := context.WithTimeout(ctx, 4*time.Minute)
+	defer readyCancel()
+	if err := waitForMcpSidecarsReady(t, readyCtx, runnerClient, labels); err != nil {
+		t.Fatalf("wait for mcp sidecars: %v", err)
+	}
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer pollCancel()
