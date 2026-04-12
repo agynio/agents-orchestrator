@@ -161,6 +161,17 @@ func pollForAgentMessages(
 				t.Log("diagnostics: no workloads found")
 			} else {
 				t.Logf("diagnostics: workloads=%v", ids)
+				for _, workloadID := range ids {
+					inspect, err := runnerClient.InspectWorkload(ctx, &runnerv1.InspectWorkloadRequest{WorkloadId: workloadID})
+					if err != nil {
+						t.Logf("diagnostics: workload=%s inspect error: %v", workloadID, err)
+						continue
+					}
+					t.Logf("diagnostics: workload=%s state_status=%s state_running=%t", workloadID, inspect.GetStateStatus(), inspect.GetStateRunning())
+					logsCtx, cancelLogs := context.WithTimeout(ctx, 2*time.Second)
+					logWorkloadPodDiagnostics(t, logsCtx, workloadID)
+					cancelLogs()
+				}
 			}
 		}
 		return fmt.Errorf("expected %d agent messages, got %d", expectedCount, len(filtered))
