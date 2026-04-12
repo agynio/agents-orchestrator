@@ -139,12 +139,13 @@ func (i *identityInfo) idPtr() *string {
 	return &i.id
 }
 
-func (r *Reconciler) createIdentity(ctx context.Context, target AgentThread) (*identityInfo, error) {
+func (r *Reconciler) createIdentity(ctx context.Context, target AgentThread, workloadID uuid.UUID) (*identityInfo, error) {
 	if r.zitiMgmt == nil {
 		return nil, nil
 	}
 	identityResp, err := r.zitiMgmt.CreateAgentIdentity(ctx, &zitimgmtv1.CreateAgentIdentityRequest{
-		AgentId: target.AgentID.String(),
+		AgentId:    target.AgentID.String(),
+		WorkloadId: workloadID.String(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create ziti identity for agent %s thread %s: %w", target.AgentID.String(), target.ThreadID.String(), err)
@@ -203,7 +204,8 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		log.Printf("reconciler: build volume records for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		return
 	}
-	identity, err := r.createIdentity(ctx, target)
+	workloadID := uuid.New()
+	identity, err := r.createIdentity(ctx, target, workloadID)
 	if err != nil {
 		log.Printf("reconciler: %v", err)
 		return

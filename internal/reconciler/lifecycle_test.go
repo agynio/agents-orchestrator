@@ -45,6 +45,9 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetAgentId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
+			if req.GetWorkloadId() == "" {
+				return nil, errors.New("missing workload id")
+			}
 			return &zitimgmtv1.CreateAgentIdentityResponse{ZitiIdentityId: zitiID, EnrollmentJwt: jwt}, nil
 		},
 	}
@@ -266,8 +269,11 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 
 	var calls []string
 	zitiMgmt := &fakeZitiMgmtClient{
-		createAgentIdentity: func(_ context.Context, _ *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
+		createAgentIdentity: func(_ context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
 			calls = append(calls, "create")
+			if req.GetWorkloadId() == "" {
+				return nil, errors.New("missing workload id")
+			}
 			return &zitimgmtv1.CreateAgentIdentityResponse{ZitiIdentityId: zitiID, EnrollmentJwt: "jwt"}, nil
 		},
 		deleteIdentity: func(_ context.Context, req *zitimgmtv1.DeleteIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error) {
@@ -341,8 +347,11 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 
 	var calls []string
 	zitiMgmt := &fakeZitiMgmtClient{
-		createAgentIdentity: func(_ context.Context, _ *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
+		createAgentIdentity: func(_ context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
 			calls = append(calls, "create")
+			if req.GetWorkloadId() == "" {
+				return nil, errors.New("missing workload id")
+			}
 			return &zitimgmtv1.CreateAgentIdentityResponse{ZitiIdentityId: zitiID, EnrollmentJwt: "jwt"}, nil
 		},
 		deleteIdentity: func(_ context.Context, req *zitimgmtv1.DeleteIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error) {
