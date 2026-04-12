@@ -24,6 +24,7 @@ const (
 	agynBinVolumeName                    = "agyn-bin"
 	agynBinMountPath                     = "/agyn-bin"
 	agynBinBinaryPath                    = "/agyn-bin/agynd"
+	agynBinCLIDir                        = "/agyn-bin/cli"
 	agentWorkspaceDir                    = "/tmp"
 	agentHomeDir                         = "/root"
 	mcpBasePort                          = 8100
@@ -115,6 +116,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 
 	mainEnv := a.baseAgentEnvVars(ctx, agent, agentID, threadID, skillsJSON, agentInitScript)
 	mainEnv = append(mainEnv, agentEnvVars...)
+	mainEnv = ensureAgynCLIPath(mainEnv)
 
 	initImage := agent.GetInitImage()
 	if initImage == "" {
@@ -576,6 +578,40 @@ func buildGatewayURL(address string) string {
 		return address
 	}
 	return "http://" + address
+}
+
+func ensureAgynCLIPath(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
+	const pathEnvName = "PATH"
+	lastIndex := -1
+	for i, env := range envs {
+		if env == nil {
+			continue
+		}
+		if env.Name == pathEnvName {
+			lastIndex = i
+		}
+	}
+	if lastIndex == -1 {
+		return append(envs, &runnerv1.EnvVar{Name: pathEnvName, Value: fmt.Sprintf("$(PATH):%s", agynBinCLIDir)})
+	}
+	env := envs[lastIndex]
+	env.Value = appendPathSegment(env.Value, agynBinCLIDir)
+	envs[lastIndex] = env
+	return envs
+}
+
+func appendPathSegment(value, segment string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return segment
+	}
+	parts := strings.Split(trimmed, ":")
+	for _, part := range parts {
+		if strings.TrimSpace(part) == segment {
+			return trimmed
+		}
+	}
+	return trimmed + ":" + segment
 }
 
 func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
