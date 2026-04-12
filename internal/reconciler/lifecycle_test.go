@@ -864,6 +864,10 @@ func (f *fakeRunnersClient) ListWorkloads(ctx context.Context, req *runnersv1.Li
 	return nil, errNotImplemented
 }
 
+func (f *fakeRunnersClient) BatchUpdateWorkloadSampledAt(context.Context, *runnersv1.BatchUpdateWorkloadSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error) {
+	return nil, errNotImplemented
+}
+
 func (f *fakeRunnersClient) ListVolumes(ctx context.Context, req *runnersv1.ListVolumesRequest, opts ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 	if f.listVolumes != nil {
 		return f.listVolumes(ctx, req, opts...)
@@ -879,6 +883,10 @@ func (f *fakeRunnersClient) UpdateVolume(ctx context.Context, req *runnersv1.Upd
 	if f.updateVolume != nil {
 		return f.updateVolume(ctx, req, opts...)
 	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) BatchUpdateVolumeSampledAt(context.Context, *runnersv1.BatchUpdateVolumeSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateVolumeSampledAtResponse, error) {
 	return nil, errNotImplemented
 }
 
