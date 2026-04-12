@@ -13,7 +13,6 @@ import (
 
 func TestComputeActions(t *testing.T) {
 	now := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	idleTimeout := 10 * time.Minute
 
 	agent1 := uuid.New()
 	thread1 := uuid.New()
@@ -21,13 +20,23 @@ func TestComputeActions(t *testing.T) {
 	thread2 := uuid.New()
 	agent3 := uuid.New()
 	thread3 := uuid.New()
+	missingAgent := uuid.New()
+	missingThread := uuid.New()
+	idleTimeouts := map[uuid.UUID]time.Duration{
+		agent1: 30 * time.Minute,
+		agent2: 15 * time.Minute,
+		agent3: 10 * time.Minute,
+	}
+	idleFallback := 12 * time.Minute
 
-	workload1 := makeWorkload(agent1, thread1, now)
-	workload2 := makeWorkload(agent3, thread3, now.Add(-20*time.Minute))
-	workload3 := makeWorkload(agent1, thread1, now.Add(-20*time.Minute))
-	workload4 := makeWorkload(agent1, thread1, now.Add(-5*time.Minute))
-	workload5 := makeWorkload(agent2, thread2, now.Add(-30*time.Minute))
-	workload5.LastActivityAt = timestamppb.New(now.Add(-5 * time.Minute))
+	activityOld := now.Add(-20 * time.Minute)
+
+	workload1 := makeWorkload(agent1, thread1, now, nil)
+	workload2 := makeWorkload(agent3, thread3, now.Add(-1*time.Minute), &activityOld)
+	workload3 := makeWorkload(agent1, thread1, now.Add(-20*time.Minute), nil)
+	workload4 := makeWorkload(agent1, thread1, now.Add(-5*time.Minute), nil)
+	workload5 := makeWorkload(agent2, thread2, now.Add(-20*time.Minute), nil)
+	workload6 := makeWorkload(missingAgent, missingThread, now.Add(-20*time.Minute), nil)
 
 	cases := []struct {
 		name     string
@@ -50,19 +59,29 @@ func TestComputeActions(t *testing.T) {
 			},
 		},
 		{
-			name:   "stop idle",
+			name:   "stop idle by activity",
 			actual: []*runnersv1.Workload{workload2},
 			expected: Actions{
 				ToStop: []*runnersv1.Workload{workload2},
 			},
 		},
 		{
-			name:   "keep recent",
-			actual: []*runnersv1.Workload{workload4},
+			name:   "stop idle by created_at",
+			actual: []*runnersv1.Workload{workload5},
+			expected: Actions{
+				ToStop: []*runnersv1.Workload{workload5},
+			},
 		},
 		{
-			name:   "idle uses last activity",
-			actual: []*runnersv1.Workload{workload5},
+			name:   "stop idle with fallback",
+			actual: []*runnersv1.Workload{workload6},
+			expected: Actions{
+				ToStop: []*runnersv1.Workload{workload6},
+			},
+		},
+		{
+			name:   "keep recent",
+			actual: []*runnersv1.Workload{workload4},
 		},
 		{
 			name:    "match",
@@ -85,7 +104,7 @@ func TestComputeActions(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			result, err := ComputeActions(testCase.desired, testCase.actual, idleTimeout, now)
+			result, err := ComputeActions(testCase.desired, testCase.actual, idleTimeouts, idleFallback, now)
 			if err != nil {
 				t.Fatalf("compute actions: %v", err)
 			}
@@ -100,15 +119,19 @@ func TestComputeActions(t *testing.T) {
 	}
 }
 
-func makeWorkload(agentID, threadID uuid.UUID, startedAt time.Time) *runnersv1.Workload {
-	return &runnersv1.Workload{
+func makeWorkload(agentID, threadID uuid.UUID, createdAt time.Time, lastActivityAt *time.Time) *runnersv1.Workload {
+	workload := &runnersv1.Workload{
 		Meta: &runnersv1.EntityMeta{
 			Id:        uuid.NewString(),
-			CreatedAt: timestamppb.New(startedAt),
+			CreatedAt: timestamppb.New(createdAt),
 		},
 		AgentId:  agentID.String(),
 		ThreadId: threadID.String(),
 	}
+	if lastActivityAt != nil {
+		workload.LastActivityAt = timestamppb.New(*lastActivityAt)
+	}
+	return workload
 }
 
 func sortAgentThreads(values []AgentThread) {

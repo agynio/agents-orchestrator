@@ -826,6 +826,10 @@ func (f *fakeRunnersClient) UpdateWorkloadStatus(ctx context.Context, req *runne
 	return nil, errNotImplemented
 }
 
+func (f *fakeRunnersClient) TouchWorkload(context.Context, *runnersv1.TouchWorkloadRequest, ...grpc.CallOption) (*runnersv1.TouchWorkloadResponse, error) {
+	return nil, errNotImplemented
+}
+
 func (f *fakeRunnersClient) DeleteWorkload(ctx context.Context, req *runnersv1.DeleteWorkloadRequest, opts ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error) {
 	if f.deleteWorkload != nil {
 		return f.deleteWorkload(ctx, req, opts...)
@@ -845,6 +849,26 @@ func (f *fakeRunnersClient) ListWorkloadsByThread(ctx context.Context, req *runn
 	if f.listWorkloadsByThread != nil {
 		return f.listWorkloadsByThread(ctx, req, opts...)
 	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) CreateVolume(context.Context, *runnersv1.CreateVolumeRequest, ...grpc.CallOption) (*runnersv1.CreateVolumeResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) UpdateVolume(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) GetVolume(context.Context, *runnersv1.GetVolumeRequest, ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) ListVolumes(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) ListVolumesByThread(context.Context, *runnersv1.ListVolumesByThreadRequest, ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error) {
 	return nil, errNotImplemented
 }
 

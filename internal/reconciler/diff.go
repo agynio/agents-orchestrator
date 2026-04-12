@@ -6,6 +6,7 @@ import (
 
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
+	"github.com/google/uuid"
 )
 
 type Actions struct {
@@ -14,11 +15,11 @@ type Actions struct {
 }
 
 type workloadEntry struct {
-	workload  *runnersv1.Workload
-	startedAt time.Time
+	workload   *runnersv1.Workload
+	activityAt time.Time
 }
 
-func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTimeout time.Duration, now time.Time) (Actions, error) {
+func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTimeouts map[uuid.UUID]time.Duration, fallbackIdleTimeout time.Duration, now time.Time) (Actions, error) {
 	desiredSet := make(map[AgentThread]struct{}, len(desired))
 	for _, item := range desired {
 		desiredSet[item] = struct{}{}
@@ -33,17 +34,12 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 		if err != nil {
 			return Actions{}, err
 		}
-		meta := workload.GetMeta()
-		createdAt := meta.GetCreatedAt()
-		if createdAt == nil {
-			return Actions{}, fmt.Errorf("workload meta created_at missing")
-		}
-		activityAt := workload.GetLastActivityAt()
-		if activityAt == nil {
-			activityAt = createdAt
+		activityAt, err := workloadActivityAt(workload)
+		if err != nil {
+			return Actions{}, err
 		}
 		key := AgentThread{AgentID: agentID, ThreadID: threadID}
-		actualSet[key] = workloadEntry{workload: workload, startedAt: activityAt.AsTime()}
+		actualSet[key] = workloadEntry{workload: workload, activityAt: activityAt}
 	}
 	result := Actions{}
 	for _, item := range desired {
@@ -55,9 +51,28 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 		if _, ok := desiredSet[key]; ok {
 			continue
 		}
-		if now.Sub(entry.startedAt) > idleTimeout {
+		idleTimeout, ok := idleTimeouts[key.AgentID]
+		if !ok {
+			idleTimeout = fallbackIdleTimeout
+		}
+		if now.Sub(entry.activityAt) > idleTimeout {
 			result.ToStop = append(result.ToStop, entry.workload)
 		}
 	}
 	return result, nil
+}
+
+func workloadActivityAt(workload *runnersv1.Workload) (time.Time, error) {
+	meta := workload.GetMeta()
+	if meta == nil {
+		return time.Time{}, fmt.Errorf("workload meta missing")
+	}
+	if lastActivity := workload.GetLastActivityAt(); lastActivity != nil {
+		return lastActivity.AsTime(), nil
+	}
+	createdAt := meta.GetCreatedAt()
+	if createdAt == nil {
+		return time.Time{}, fmt.Errorf("workload meta created_at missing")
+	}
+	return createdAt.AsTime(), nil
 }
