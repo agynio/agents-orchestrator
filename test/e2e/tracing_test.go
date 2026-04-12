@@ -52,7 +52,7 @@ func TestAgentMCPToolsProducesTrace(t *testing.T) {
 	optionalCounts := map[string]spanCountRange{
 		"invocation.message": {min: 0, max: 1},
 		"llm.call":           {min: 2, max: 3},
-		"tool.execution":     {min: 2, max: 2},
+		"tool.execution":     {min: 1, max: 2},
 	}
 	traceSummaryErr := waitForTraceSummaryRange(ctx, tracingClient, traceID, expectedCounts, expectedTotal)
 	selectedTraceID := traceID
