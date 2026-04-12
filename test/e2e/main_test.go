@@ -3,10 +3,9 @@
 package e2e
 
 import (
+	"bufio"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"testing"
@@ -18,6 +17,8 @@ import (
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -25,6 +26,10 @@ import (
 const (
 	pollInterval = 2 * time.Second
 	testTimeout  = 120 * time.Second
+
+	tracingDiscoverTimeout = 2 * time.Minute
+	tracingSummaryTimeout  = 2 * time.Minute
+	tracingStartTimeBuffer = 30 * time.Second
 
 	testLLMEndpointCodex = "https://testllm.dev/v1/org/agynio/suite/codex/responses"
 	testLLMEndpointAgn   = "https://testllm.dev/v1/org/agynio/suite/agn/responses"
@@ -43,9 +48,17 @@ var (
 	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
 	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
-	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:latest")
-	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:latest")
+	tracingAddr    = envOrDefault("TRACING_ADDRESS", "tracing:50051")
+	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:mcp-host-20260412-3")
+	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:mcp-host-20260412-6")
 )
+
+type pipelineRun struct {
+	threadID       string
+	startTimeMinNs uint64
+	agentResponse  string
+	messageText    string
+}
 
 func envOrDefault(key, fallback string) string {
 	value, ok := os.LookupEnv(key)
@@ -318,6 +331,24 @@ func sendMessage(t *testing.T, ctx context.Context, client threadsv1.ThreadsServ
 	return msg
 }
 
+func messageCreatedAt(t *testing.T, msg *threadsv1.Message) time.Time {
+	t.Helper()
+	if msg == nil {
+		t.Fatal("message is nil")
+	}
+	createdAt := msg.GetCreatedAt()
+	if createdAt == nil {
+		t.Fatal("message created_at is nil")
+	}
+	return createdAt.AsTime()
+}
+
+func messageStartTimeMinNs(t *testing.T, msg *threadsv1.Message) uint64 {
+	t.Helper()
+	createdAt := messageCreatedAt(t, msg)
+	return uint64(createdAt.UnixNano())
+}
+
 func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string, messageIDs []string) {
 	t.Helper()
 	_, err := client.AckMessages(ctx, &threadsv1.AckMessagesRequest{
@@ -370,6 +401,8 @@ func pollForAgentResponse(
 	threadID string,
 	agentID string,
 	labels map[string]string,
+	minCreatedAt time.Time,
+	expectedBody string,
 ) (string, error) {
 	t.Helper()
 	truncateBody := func(body string) string {
@@ -381,6 +414,37 @@ func pollForAgentResponse(
 			return body
 		}
 		return string(bodyRunes[:200])
+	}
+	truncateID := func(id string) string {
+		if len(id) <= 8 {
+			return id
+		}
+		return id[:8]
+	}
+	formatCreatedAt := func(msg *threadsv1.Message) string {
+		createdAt := msg.GetCreatedAt()
+		if createdAt == nil {
+			return "-"
+		}
+		return createdAt.AsTime().Format(time.RFC3339Nano)
+	}
+	messageMatches := func(msg *threadsv1.Message) bool {
+		if msg.GetSenderId() != agentID {
+			return false
+		}
+		if !minCreatedAt.IsZero() {
+			createdAt := msg.GetCreatedAt()
+			if createdAt == nil {
+				return false
+			}
+			if createdAt.AsTime().Before(minCreatedAt) {
+				return false
+			}
+		}
+		if expectedBody != "" && msg.GetBody() != expectedBody {
+			return false
+		}
+		return true
 	}
 
 	agentBody := ""
@@ -398,9 +462,15 @@ func pollForAgentResponse(
 		agentMessage := ""
 		for _, msg := range resp.GetMessages() {
 			if logDiagnostics {
-				t.Logf("diagnostics: message sender=%s body=%s", msg.GetSenderId(), truncateBody(msg.GetBody()))
+				t.Logf(
+					"diagnostics: message id=%s sender=%s created_at=%s body=%s",
+					truncateID(msg.GetId()),
+					msg.GetSenderId(),
+					formatCreatedAt(msg),
+					truncateBody(msg.GetBody()),
+				)
 			}
-			if agentMessage == "" && msg.GetSenderId() == agentID {
+			if agentMessage == "" && messageMatches(msg) {
 				agentMessage = msg.GetBody()
 			}
 		}
@@ -423,58 +493,8 @@ func pollForAgentResponse(
 						continue
 					}
 					t.Logf("diagnostics: workload=%s state_status=%s state_running=%t", workloadID, inspect.GetStateStatus(), inspect.GetStateRunning())
-
 					logsCtx, cancelLogs := context.WithTimeout(ctx, 2*time.Second)
-					stream, err := runnerClient.StreamWorkloadLogs(logsCtx, &runnerv1.StreamWorkloadLogsRequest{
-						WorkloadId: workloadID,
-						Tail:       50,
-						Stdout:     true,
-						Stderr:     true,
-						Timestamps: true,
-					})
-					if err != nil {
-						t.Logf("diagnostics: workload=%s stream logs error: %v", workloadID, err)
-						cancelLogs()
-						continue
-					}
-
-					logLines := 0
-					for logLines < 5 {
-						resp, err := stream.Recv()
-						if err != nil {
-							if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-								break
-							}
-							t.Logf("diagnostics: workload=%s log stream recv error: %v", workloadID, err)
-							break
-						}
-						if resp.GetError() != nil {
-							t.Logf("diagnostics: workload=%s log stream error: %s", workloadID, resp.GetError().GetMessage())
-							break
-						}
-						if resp.GetEnd() != nil {
-							break
-						}
-						chunk := resp.GetChunk()
-						if chunk == nil {
-							continue
-						}
-						data := strings.TrimSpace(string(chunk.GetData()))
-						if data == "" {
-							continue
-						}
-						for _, line := range strings.Split(data, "\n") {
-							line = strings.TrimSpace(line)
-							if line == "" {
-								continue
-							}
-							t.Logf("diagnostics: workload=%s log=%s", workloadID, truncateBody(line))
-							logLines++
-							if logLines >= 5 {
-								break
-							}
-						}
-					}
+					logWorkloadPodDiagnostics(t, logsCtx, workloadID)
 					cancelLogs()
 				}
 			}
@@ -485,6 +505,118 @@ func pollForAgentResponse(
 		return "", err
 	}
 	return agentBody, nil
+}
+
+func waitForMcpSidecarsReady(
+	t *testing.T,
+	ctx context.Context,
+	runnerClient runnerv1.RunnerServiceClient,
+	labels map[string]string,
+) error {
+	t.Helper()
+	pollCount := 0
+	return pollUntil(ctx, pollInterval, func(ctx context.Context) error {
+		pollCount++
+		logDiagnostics := pollCount%5 == 0
+		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return fmt.Errorf("no workloads found")
+		}
+		for _, workloadID := range ids {
+			ready, err := workloadMcpSidecarsReady(t, ctx, workloadID)
+			if err != nil {
+				return err
+			}
+			if !ready {
+				if logDiagnostics {
+					logWorkloadPodDiagnostics(t, ctx, workloadID)
+				}
+				return fmt.Errorf("mcp sidecars not ready for workload %s", workloadID)
+			}
+		}
+		return nil
+	})
+}
+
+func workloadMcpSidecarsReady(t *testing.T, ctx context.Context, workloadID string) (bool, error) {
+	t.Helper()
+	namespace := workloadNamespace(t)
+	podName := fmt.Sprintf("workload-%s", workloadID)
+	clientset := kubeClientset(t)
+	pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("get pod %s: %w", podName, err)
+	}
+	containers := mcpContainerNames(pod)
+	if len(containers) == 0 {
+		return false, fmt.Errorf("pod %s has no mcp containers", pod.Name)
+	}
+	for _, container := range containers {
+		ready, err := containerLogsContain(t, ctx, namespace, pod.Name, container, []string{
+			"Listening on port",
+			"StreamableHttp endpoint:",
+		})
+		if err != nil {
+			return false, err
+		}
+		if !ready {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func mcpContainerNames(pod *corev1.Pod) []string {
+	if pod == nil {
+		return nil
+	}
+	containers := make([]string, 0, len(pod.Spec.Containers))
+	for _, container := range pod.Spec.Containers {
+		name := container.Name
+		if strings.HasPrefix(name, "mcp-") {
+			containers = append(containers, name)
+		}
+	}
+	return containers
+}
+
+func containerLogsContain(
+	t *testing.T,
+	ctx context.Context,
+	namespace,
+	podName,
+	containerName string,
+	needles []string,
+) (bool, error) {
+	tailLines := int64(200)
+	request := kubeClientset(t).CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
+		Container:  containerName,
+		TailLines:  &tailLines,
+		Timestamps: true,
+	})
+	stream, err := request.Stream(ctx)
+	if err != nil {
+		return false, fmt.Errorf("get logs pod=%s container=%s: %w", podName, containerName, err)
+	}
+	defer stream.Close()
+
+	scanner := bufio.NewScanner(stream)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		for _, needle := range needles {
+			if strings.Contains(line, needle) {
+				return true, nil
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return false, fmt.Errorf("scan logs pod=%s container=%s: %w", podName, containerName, err)
+	}
+	return false, nil
 }
 
 func findWorkloadsByLabels(ctx context.Context, client runnerv1.RunnerServiceClient, labels map[string]string) ([]string, error) {

@@ -907,6 +907,11 @@ type fakeZitiMgmtClient struct {
 	listManagedIdentities  func(context.Context, *zitimgmtv1.ListManagedIdentitiesRequest, ...grpc.CallOption) (*zitimgmtv1.ListManagedIdentitiesResponse, error)
 	requestServiceIdentity func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error)
 	extendIdentityLease    func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error)
+	createServicePolicy    func(context.Context, *zitimgmtv1.CreateServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServicePolicyResponse, error)
+	deleteServicePolicy    func(context.Context, *zitimgmtv1.DeleteServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServicePolicyResponse, error)
+	deleteService          func(context.Context, *zitimgmtv1.DeleteServiceRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServiceResponse, error)
+	createDeviceIdentity   func(context.Context, *zitimgmtv1.CreateDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateDeviceIdentityResponse, error)
+	deleteDeviceIdentity   func(context.Context, *zitimgmtv1.DeleteDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteDeviceIdentityResponse, error)
 }
 
 func (f *fakeZitiMgmtClient) CreateAgentIdentity(ctx context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
@@ -979,6 +984,41 @@ func (f *fakeZitiMgmtClient) RequestServiceIdentity(ctx context.Context, req *zi
 func (f *fakeZitiMgmtClient) ExtendIdentityLease(ctx context.Context, req *zitimgmtv1.ExtendIdentityLeaseRequest, opts ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error) {
 	if f.extendIdentityLease != nil {
 		return f.extendIdentityLease(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) CreateServicePolicy(ctx context.Context, req *zitimgmtv1.CreateServicePolicyRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateServicePolicyResponse, error) {
+	if f.createServicePolicy != nil {
+		return f.createServicePolicy(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) DeleteServicePolicy(ctx context.Context, req *zitimgmtv1.DeleteServicePolicyRequest, opts ...grpc.CallOption) (*zitimgmtv1.DeleteServicePolicyResponse, error) {
+	if f.deleteServicePolicy != nil {
+		return f.deleteServicePolicy(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) DeleteService(ctx context.Context, req *zitimgmtv1.DeleteServiceRequest, opts ...grpc.CallOption) (*zitimgmtv1.DeleteServiceResponse, error) {
+	if f.deleteService != nil {
+		return f.deleteService(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) CreateDeviceIdentity(ctx context.Context, req *zitimgmtv1.CreateDeviceIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateDeviceIdentityResponse, error) {
+	if f.createDeviceIdentity != nil {
+		return f.createDeviceIdentity(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) DeleteDeviceIdentity(ctx context.Context, req *zitimgmtv1.DeleteDeviceIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.DeleteDeviceIdentityResponse, error) {
+	if f.deleteDeviceIdentity != nil {
+		return f.deleteDeviceIdentity(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }

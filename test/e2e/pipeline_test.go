@@ -25,7 +25,7 @@ func TestFullPipelineAgnMessageResponse(t *testing.T) {
 	runFullPipelineMessageResponse(t, testLLMEndpointAgn, agnInitImage, "hi", "Hi! How are you?")
 }
 
-func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, message, expectedResponse string) {
+func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, message, expectedResponse string) pipelineRun {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
@@ -75,7 +75,9 @@ func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, messag
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	sendMessage(t, ctx, threadsClient, threadID, identityID, message)
+	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, message)
+	sentMessageTime := messageCreatedAt(t, sentMessage)
+	startTimeMinNs := messageStartTimeMinNs(t, sentMessage)
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -95,27 +97,18 @@ func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, messag
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer pollCancel()
-	agentBody := ""
-	if err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
-		resp, err := threadsClient.GetMessages(ctx, &threadsv1.GetMessagesRequest{
-			ThreadId: threadID,
-			PageSize: 50,
-		})
-		if err != nil {
-			return fmt.Errorf("get messages: %w", err)
-		}
-		for _, msg := range resp.GetMessages() {
-			if msg.GetSenderId() == agentID {
-				agentBody = msg.GetBody()
-				return nil
-			}
-		}
-		return fmt.Errorf("agent response not found")
-	}); err != nil {
+	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expectedResponse)
+	if err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}
-
 	if agentBody != expectedResponse {
 		t.Fatalf("expected agent response %q, got %q", expectedResponse, agentBody)
+	}
+
+	return pipelineRun{
+		threadID:       threadID,
+		startTimeMinNs: startTimeMinNs,
+		agentResponse:  agentBody,
+		messageText:    message,
 	}
 }

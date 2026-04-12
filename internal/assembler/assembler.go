@@ -474,7 +474,9 @@ func assignMcpPorts(mcps []*agentsv1.Mcp) ([]mcpAssignment, error) {
 		}
 		assignments = append(assignments, mcpAssignment{mcp: mcp, id: id, name: name})
 	}
-	sort.Slice(assignments, func(i, j int) bool { return assignments[i].id < assignments[j].id })
+	sort.Slice(assignments, func(i, j int) bool {
+		return assignments[i].id < assignments[j].id
+	})
 	for i := range assignments {
 		assignments[i].port = mcpBasePort + i
 	}
@@ -568,6 +570,9 @@ func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent,
 		{Name: "WORKSPACE_DIR", Value: agentWorkspaceDir},
 		{Name: "HOME", Value: agentHomeDir},
 		{Name: "AGENT_SKILLS", Value: skillsJSON},
+	}
+	if a.cfg.AgentTracingAddress != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})
 	}
 	if initScript != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})

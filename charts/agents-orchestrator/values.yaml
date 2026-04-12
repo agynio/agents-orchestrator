@@ -86,6 +86,8 @@ env:
     value: ""
   - name: AGENT_GATEWAY_ADDRESS
     value: ""
+  - name: AGENT_TRACING_ADDRESS
+    value: ""
   - name: POLL_INTERVAL
     value: ""
   - name: IDLE_TIMEOUT
