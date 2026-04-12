@@ -38,8 +38,12 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 		if createdAt == nil {
 			return Actions{}, fmt.Errorf("workload meta created_at missing")
 		}
+		activityAt := workload.GetLastActivityAt()
+		if activityAt == nil {
+			activityAt = createdAt
+		}
 		key := AgentThread{AgentID: agentID, ThreadID: threadID}
-		actualSet[key] = workloadEntry{workload: workload, startedAt: createdAt.AsTime()}
+		actualSet[key] = workloadEntry{workload: workload, startedAt: activityAt.AsTime()}
 	}
 	result := Actions{}
 	for _, item := range desired {
