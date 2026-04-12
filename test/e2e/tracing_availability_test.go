@@ -42,7 +42,6 @@ func TestMain(m *testing.M) {
 			reason = "unknown reason"
 		}
 		log.Printf("tracing e2e unavailable: %s", reason)
-		os.Exit(1)
 	}
 	os.Exit(m.Run())
 }
