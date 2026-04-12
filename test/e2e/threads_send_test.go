@@ -120,30 +120,6 @@ func pollForAgentMessages(
 	expectedCount int,
 ) ([]*threadsv1.Message, error) {
 	t.Helper()
-	truncateBody := func(body string) string {
-		if body == "" {
-			return body
-		}
-		bodyRunes := []rune(body)
-		if len(bodyRunes) <= 200 {
-			return body
-		}
-		return string(bodyRunes[:200])
-	}
-	truncateID := func(id string) string {
-		if len(id) <= 8 {
-			return id
-		}
-		return id[:8]
-	}
-	formatCreatedAt := func(msg *threadsv1.Message) string {
-		createdAt := msg.GetCreatedAt()
-		if createdAt == nil {
-			return "-"
-		}
-		return createdAt.AsTime().Format(time.RFC3339Nano)
-	}
-
 	var agentMessages []*threadsv1.Message
 	pollCount := 0
 	err := pollUntil(ctx, pollInterval, func(ctx context.Context) error {
@@ -159,13 +135,7 @@ func pollForAgentMessages(
 		filtered := make([]*threadsv1.Message, 0, expectedCount)
 		for _, msg := range resp.GetMessages() {
 			if logDiagnostics {
-				t.Logf(
-					"diagnostics: message id=%s sender=%s created_at=%s body=%s",
-					truncateID(msg.GetId()),
-					msg.GetSenderId(),
-					formatCreatedAt(msg),
-					truncateBody(msg.GetBody()),
-				)
+				logMessageDiagnostics(t, msg)
 			}
 			if msg.GetSenderId() != agentID {
 				continue
