@@ -24,24 +24,20 @@ jobs:
 
       - name: Generate protobuf bindings
         run: |
-          git clone https://github.com/agynio/api.git /tmp/agynio-api
-          git -C /tmp/agynio-api checkout ec008b1e2dfacec3e4d85776729fe1c3d5f2c42d
-          cd /tmp/agynio-api
-          buf generate \
+          buf generate buf.build/agynio/api \
             --include-imports \
-            --path proto/agynio/api/runner/v1 \
-            --path proto/agynio/api/runners/v1 \
-            --path proto/agynio/api/threads/v1 \
-            --path proto/agynio/api/notifications/v1 \
-            --path proto/agynio/api/agents/v1 \
-            --path proto/agynio/api/secrets/v1 \
-            --path proto/agynio/api/ziti_management/v1 \
-            --path proto/agynio/api/identity/v1 \
-            --path proto/agynio/api/llm/v1 \
-            --path proto/agynio/api/users/v1 \
-            --path proto/agynio/api/organizations/v1 \
-            --template "$GITHUB_WORKSPACE/buf.gen.yaml" \
-            -o "$GITHUB_WORKSPACE"
+            --path agynio/api/runner/v1 \
+            --path agynio/api/runners/v1 \
+            --path agynio/api/threads/v1 \
+            --path agynio/api/notifications/v1 \
+            --path agynio/api/agents/v1 \
+            --path agynio/api/secrets/v1 \
+            --path agynio/api/ziti_management/v1 \
+            --path agynio/api/identity/v1 \
+            --path agynio/api/llm/v1 \
+            --path agynio/api/users/v1 \
+            --path agynio/api/organizations/v1 \
+            --path agynio/api/tracing/v1
 
       - name: Run tests
         run: go test ./...
