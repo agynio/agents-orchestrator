@@ -39,7 +39,17 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, error) {
 		if err != nil {
 			return nil, err
 		}
+		if len(threadIDs) == 0 {
+			continue
+		}
+		passiveThreads, err := r.fetchPassiveThreads(ctx, agentID)
+		if err != nil {
+			return nil, err
+		}
 		for _, threadID := range threadIDs {
+			if _, ok := passiveThreads[threadID]; ok {
+				continue
+			}
 			unique[AgentThread{AgentID: agentID, ThreadID: threadID}] = struct{}{}
 		}
 	}
@@ -93,4 +103,60 @@ func (r *Reconciler) listUnackedThreads(ctx context.Context, agentID uuid.UUID) 
 			return threadIDs, nil
 		}
 	}
+}
+
+func (r *Reconciler) fetchPassiveThreads(ctx context.Context, agentID uuid.UUID) (map[uuid.UUID]struct{}, error) {
+	passiveThreads := make(map[uuid.UUID]struct{})
+	token := ""
+	agentIDString := agentID.String()
+	for {
+		page, err := r.threads.GetThreads(ctx, &threadsv1.GetThreadsRequest{
+			ParticipantId: agentIDString,
+			PageSize:      desiredPageSize,
+			PageToken:     token,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("get threads for agent %s: %w", agentIDString, err)
+		}
+		for _, thread := range page.GetThreads() {
+			if thread == nil {
+				return nil, fmt.Errorf("thread is nil")
+			}
+			threadID, err := uuidutil.ParseUUID(thread.GetId(), "thread.id")
+			if err != nil {
+				return nil, err
+			}
+			participant, err := findThreadParticipant(thread, agentID, threadID)
+			if err != nil {
+				return nil, err
+			}
+			if participant.GetPassive() {
+				passiveThreads[threadID] = struct{}{}
+			}
+		}
+		token = page.GetNextPageToken()
+		if token == "" {
+			return passiveThreads, nil
+		}
+	}
+}
+
+func findThreadParticipant(thread *threadsv1.Thread, agentID uuid.UUID, threadID uuid.UUID) (*threadsv1.Participant, error) {
+	participants := thread.GetParticipants()
+	if len(participants) == 0 {
+		return nil, fmt.Errorf("thread %s has no participants", threadID.String())
+	}
+	for _, participant := range participants {
+		if participant == nil {
+			return nil, fmt.Errorf("thread %s has nil participant", threadID.String())
+		}
+		participantID, err := uuidutil.ParseUUID(participant.GetId(), "participant.id")
+		if err != nil {
+			return nil, err
+		}
+		if participantID == agentID {
+			return participant, nil
+		}
+	}
+	return nil, fmt.Errorf("thread %s missing participant %s", threadID.String(), agentID.String())
 }
