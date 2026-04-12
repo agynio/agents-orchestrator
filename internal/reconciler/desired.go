@@ -51,7 +51,7 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, map[uuid.
 		}
 		passiveThreads, err := r.fetchPassiveThreads(ctx, agentID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, threadID := range threadIDs {
 			if _, ok := passiveThreads[threadID]; ok {
