@@ -474,7 +474,12 @@ func assignMcpPorts(mcps []*agentsv1.Mcp) ([]mcpAssignment, error) {
 		}
 		assignments = append(assignments, mcpAssignment{mcp: mcp, id: id, name: name})
 	}
-	sort.Slice(assignments, func(i, j int) bool { return assignments[i].id < assignments[j].id })
+	sort.Slice(assignments, func(i, j int) bool {
+		if assignments[i].name == assignments[j].name {
+			return assignments[i].id < assignments[j].id
+		}
+		return assignments[i].name < assignments[j].name
+	})
 	for i := range assignments {
 		assignments[i].port = mcpBasePort + i
 	}

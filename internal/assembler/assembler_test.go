@@ -714,7 +714,7 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		t.Fatalf("expected 2 sidecars, got %d", len(request.Sidecars))
 	}
 	mainEnvs := envMap(request.Main.Env)
-	expectedServers := fmt.Sprintf("%s:%d,%s:%d", "memory", mcpBasePort, "filesystem", mcpBasePort+1)
+	expectedServers := fmt.Sprintf("%s:%d,%s:%d", "filesystem", mcpBasePort, "memory", mcpBasePort+1)
 	assertEnv(t, mainEnvs, "AGENT_MCP_SERVERS", expectedServers)
 
 	ports := map[string]string{}
@@ -729,11 +729,11 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 	}
 	expectedMemoryName := "mcp-" + lowID[:8]
 	expectedFilesystemName := "mcp-" + highID[:8]
-	if ports[expectedMemoryName] != fmt.Sprintf("%d", mcpBasePort) {
-		t.Fatalf("expected %s MCP_PORT %d, got %q", expectedMemoryName, mcpBasePort, ports[expectedMemoryName])
+	if ports[expectedFilesystemName] != fmt.Sprintf("%d", mcpBasePort) {
+		t.Fatalf("expected %s MCP_PORT %d, got %q", expectedFilesystemName, mcpBasePort, ports[expectedFilesystemName])
 	}
-	if ports[expectedFilesystemName] != fmt.Sprintf("%d", mcpBasePort+1) {
-		t.Fatalf("expected %s MCP_PORT %d, got %q", expectedFilesystemName, mcpBasePort+1, ports[expectedFilesystemName])
+	if ports[expectedMemoryName] != fmt.Sprintf("%d", mcpBasePort+1) {
+		t.Fatalf("expected %s MCP_PORT %d, got %q", expectedMemoryName, mcpBasePort+1, ports[expectedMemoryName])
 	}
 }
 
