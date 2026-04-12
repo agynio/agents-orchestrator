@@ -23,12 +23,19 @@ import (
 )
 
 var (
+	e2eSkipReason            string
 	tracingAvailable         bool
 	tracingUnavailableReason string
 	tracingSkipReason        string
 )
 
 func TestMain(m *testing.M) {
+	e2eSkipReason = skipE2EReason()
+	if e2eSkipReason != "" {
+		log.Printf("e2e skipped: %s", e2eSkipReason)
+		os.Exit(0)
+	}
+
 	tracingSkipReason = skipTracingReason()
 	if tracingSkipReason != "" {
 		log.Printf("tracing e2e skipped: %s", tracingSkipReason)
@@ -125,6 +132,23 @@ func skipTracingReason() string {
 				return "SKIP_TRACING_E2E set"
 			}
 			return fmt.Sprintf("SKIP_TRACING_E2E=%s", trimmed)
+		}
+	}
+	return ""
+}
+
+func skipE2EReason() string {
+	if strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_HOST")) == "" {
+		return "KUBERNETES_SERVICE_HOST not set"
+	}
+	serviceAccountPaths := []string{
+		"/var/run/secrets/kubernetes.io/serviceaccount/token",
+		"/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+		"/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+	}
+	for _, path := range serviceAccountPaths {
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Sprintf("service account file missing: %s", path)
 		}
 	}
 	return ""
