@@ -5,6 +5,7 @@ package e2e
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -145,6 +146,122 @@ func listTraceIDForSpanName(
 	return nil, nil
 }
 
+type traceIDSet map[string]struct{}
+
+func traceIDsForSpanName(
+	ctx context.Context,
+	client tracingv1.TracingServiceClient,
+	threadID string,
+	messageText string,
+	startTimeMinNs uint64,
+	spanName string,
+) (traceIDSet, error) {
+	pageToken := ""
+	traceIDs := make(traceIDSet)
+	for {
+		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+			Filter: &tracingv1.SpanFilter{
+				StartTimeMin: startTimeMinNs,
+				Names:        []string{spanName},
+			},
+			PageSize:  200,
+			PageToken: pageToken,
+			OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list spans %s: %w", spanName, err)
+		}
+		for _, resourceSpan := range resp.GetResourceSpans() {
+			resourceHasThread := resourceHasThreadID(resourceSpan, threadID)
+			for _, span := range spansFromResource(resourceSpan) {
+				if !resourceHasThread && !spanHasThreadID(span, threadID) {
+					continue
+				}
+				if spanName == "invocation.message" && strings.TrimSpace(messageText) != "" {
+					attrs := attributesToMap(span.GetAttributes())
+					if value, ok := attrs["agyn.message.text"]; ok && !messageTextMatches(value, messageText) {
+						continue
+					}
+				}
+				traceID := span.GetTraceId()
+				if len(traceID) == 0 {
+					continue
+				}
+				traceIDs[hex.EncodeToString(traceID)] = struct{}{}
+			}
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	return traceIDs, nil
+}
+
+func countSpansForThread(
+	ctx context.Context,
+	client tracingv1.TracingServiceClient,
+	threadID string,
+	messageText string,
+	startTimeMinNs uint64,
+	spanName string,
+) (int64, error) {
+	pageToken := ""
+	var count int64
+	for {
+		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+			Filter: &tracingv1.SpanFilter{
+				StartTimeMin: startTimeMinNs,
+				Names:        []string{spanName},
+			},
+			PageSize:  200,
+			PageToken: pageToken,
+			OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+		})
+		if err != nil {
+			return 0, fmt.Errorf("list spans %s: %w", spanName, err)
+		}
+		for _, resourceSpan := range resp.GetResourceSpans() {
+			resourceHasThread := resourceHasThreadID(resourceSpan, threadID)
+			for _, span := range spansFromResource(resourceSpan) {
+				if !resourceHasThread && !spanHasThreadID(span, threadID) {
+					continue
+				}
+				if spanName == "invocation.message" && strings.TrimSpace(messageText) != "" {
+					attrs := attributesToMap(span.GetAttributes())
+					if value, ok := attrs["agyn.message.text"]; ok && !messageTextMatches(value, messageText) {
+						continue
+					}
+				}
+				count++
+			}
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	return count, nil
+}
+
+func sortedTraceIDs(traceIDs traceIDSet) []string {
+	ids := make([]string, 0, len(traceIDs))
+	for id := range traceIDs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func decodeTraceID(t *testing.T, traceHex string) []byte {
+	t.Helper()
+	traceID, err := hex.DecodeString(traceHex)
+	if err != nil {
+		t.Fatalf("decode trace id %q: %v", traceHex, err)
+	}
+	return traceID
+}
+
 func assertTraceSummary(
 	t *testing.T,
 	ctx context.Context,
@@ -177,10 +294,27 @@ func assertTraceSummaryRange(
 	threadID string,
 ) {
 	t.Helper()
+	err := waitForTraceSummaryRange(ctx, client, traceID, expectedCounts, expectedTotal)
+	if err == nil {
+		return
+	}
+	if threadID != "" {
+		logTracingDiagnostics(t, threadID)
+	}
+	t.Fatalf("trace summary: %v", err)
+}
+
+func waitForTraceSummaryRange(
+	ctx context.Context,
+	client tracingv1.TracingServiceClient,
+	traceID []byte,
+	expectedCounts map[string]spanCountRange,
+	expectedTotal spanCountRange,
+) error {
 	pollCtx, cancel := context.WithTimeout(ctx, tracingSummaryTimeout)
 	defer cancel()
 
-	err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
+	return pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
 		resp, err := client.GetTraceSummary(ctx, &tracingv1.GetTraceSummaryRequest{TraceId: traceID})
 		if err != nil {
 			return fmt.Errorf("get trace summary: %w", err)
@@ -204,12 +338,6 @@ func assertTraceSummaryRange(
 		}
 		return nil
 	})
-	if err != nil {
-		if threadID != "" {
-			logTracingDiagnostics(t, threadID)
-		}
-		t.Fatalf("trace summary: %v", err)
-	}
 }
 
 func assertSpanAttributes(

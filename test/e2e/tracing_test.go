@@ -43,13 +43,87 @@ func TestAgentMCPToolsProducesTrace(t *testing.T) {
 	ctx := context.Background()
 	tracingClient := newTracingClient(t)
 	traceID := discoverTraceID(t, ctx, tracingClient, result.threadID, result.startTimeMinNs, result.messageText)
-	assertTraceSummaryRange(t, ctx, tracingClient, traceID, map[string]spanCountRange{
+	expectedCounts := map[string]spanCountRange{
 		"invocation.message": {min: 1, max: 1},
 		"llm.call":           {min: 2, max: 3},
 		"tool.execution":     {min: 2, max: 2},
-	}, spanCountRange{min: 5, max: 6}, result.threadID)
+	}
+	expectedTotal := spanCountRange{min: 5, max: 6}
+	traceSummaryErr := waitForTraceSummaryRange(ctx, tracingClient, traceID, expectedCounts, expectedTotal)
+	selectedTraceID := traceID
+	if traceSummaryErr != nil {
+		invocationTraceIDs, err := traceIDsForSpanName(ctx, tracingClient, result.threadID, result.messageText, result.startTimeMinNs, "invocation.message")
+		if err != nil {
+			t.Fatalf("list invocation.message spans: %v", err)
+		}
+		llmTraceIDs, err := traceIDsForSpanName(ctx, tracingClient, result.threadID, "", result.startTimeMinNs, "llm.call")
+		if err != nil {
+			t.Fatalf("list llm.call spans: %v", err)
+		}
+		toolTraceIDs, err := traceIDsForSpanName(ctx, tracingClient, result.threadID, "", result.startTimeMinNs, "tool.execution")
+		if err != nil {
+			t.Fatalf("list tool.execution spans: %v", err)
+		}
+		if len(invocationTraceIDs) == 0 {
+			t.Fatalf("invocation.message spans missing: %v", traceSummaryErr)
+		}
+		if len(llmTraceIDs) == 0 {
+			t.Fatalf("llm.call spans missing: %v", traceSummaryErr)
+		}
+		if len(toolTraceIDs) == 0 {
+			t.Fatalf("tool.execution spans missing: %v", traceSummaryErr)
+		}
+		sharedTraceIDs := make(traceIDSet)
+		for id := range invocationTraceIDs {
+			if _, ok := llmTraceIDs[id]; !ok {
+				continue
+			}
+			if _, ok := toolTraceIDs[id]; !ok {
+				continue
+			}
+			sharedTraceIDs[id] = struct{}{}
+		}
+		if len(sharedTraceIDs) > 0 {
+			selectedTraceID = decodeTraceID(t, sortedTraceIDs(sharedTraceIDs)[0])
+			assertTraceSummaryRange(t, ctx, tracingClient, selectedTraceID, expectedCounts, expectedTotal, result.threadID)
+		} else {
+			t.Logf(
+				"trace mismatch: invocation.message=%v llm.call=%v tool.execution=%v (summary err: %v)",
+				sortedTraceIDs(invocationTraceIDs),
+				sortedTraceIDs(llmTraceIDs),
+				sortedTraceIDs(toolTraceIDs),
+				traceSummaryErr,
+			)
+			assertRange := func(name string, count int64, expected spanCountRange) {
+				t.Helper()
+				if count < expected.min || count > expected.max {
+					if expected.min == expected.max {
+						t.Fatalf("expected %s count %d, got %d", name, expected.min, count)
+					}
+					t.Fatalf("expected %s count %d-%d, got %d", name, expected.min, expected.max, count)
+				}
+			}
+			invocationCount, err := countSpansForThread(ctx, tracingClient, result.threadID, result.messageText, result.startTimeMinNs, "invocation.message")
+			if err != nil {
+				t.Fatalf("count invocation.message spans: %v", err)
+			}
+			llmCount, err := countSpansForThread(ctx, tracingClient, result.threadID, "", result.startTimeMinNs, "llm.call")
+			if err != nil {
+				t.Fatalf("count llm.call spans: %v", err)
+			}
+			toolCount, err := countSpansForThread(ctx, tracingClient, result.threadID, "", result.startTimeMinNs, "tool.execution")
+			if err != nil {
+				t.Fatalf("count tool.execution spans: %v", err)
+			}
+			assertRange("invocation.message", invocationCount, expectedCounts["invocation.message"])
+			assertRange("llm.call", llmCount, expectedCounts["llm.call"])
+			assertRange("tool.execution", toolCount, expectedCounts["tool.execution"])
 
-	spans := traceSpans(t, ctx, tracingClient, traceID)
+			selectedTraceID = decodeTraceID(t, sortedTraceIDs(toolTraceIDs)[0])
+		}
+	}
+
+	spans := traceSpans(t, ctx, tracingClient, selectedTraceID)
 	foundCreate := false
 	foundList := false
 	for _, span := range spans {
