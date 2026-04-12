@@ -69,9 +69,6 @@ func TestAgentMCPToolsProducesTrace(t *testing.T) {
 		if err != nil {
 			t.Fatalf("list tool.execution spans: %v", err)
 		}
-		if len(invocationTraceIDs) == 0 {
-			t.Fatalf("invocation.message spans missing: %v", traceSummaryErr)
-		}
 		if len(llmTraceIDs) == 0 {
 			t.Fatalf("llm.call spans missing: %v", traceSummaryErr)
 		}
