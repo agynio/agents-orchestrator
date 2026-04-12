@@ -180,6 +180,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "HOME", agentHomeDir)
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo ready")
+	assertPathContains(t, envs, agynBinCLIDir)
 	var parsedSkills []skillPayload
 	if err := json.Unmarshal([]byte(envs["AGENT_SKILLS"]), &parsedSkills); err != nil {
 		t.Fatalf("unmarshal skills: %v", err)
@@ -356,6 +357,28 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
+}
+
+func TestEnsureAgynCLIPathAddsDefault(t *testing.T) {
+	envs := []*runnerv1.EnvVar{{Name: "FOO", Value: "bar"}}
+
+	got := ensureAgynCLIPath(envs)
+	values := envMap(got)
+	pathValue := values["PATH"]
+	if pathValue != "$(PATH):"+agynBinCLIDir {
+		t.Fatalf("expected PATH %q, got %q", "$(PATH):"+agynBinCLIDir, pathValue)
+	}
+}
+
+func TestEnsureAgynCLIPathAppendsCustomPath(t *testing.T) {
+	envs := []*runnerv1.EnvVar{{Name: "PATH", Value: "/custom/bin"}}
+
+	got := ensureAgynCLIPath(envs)
+	values := envMap(got)
+	pathValue := values["PATH"]
+	if pathValue != "/custom/bin:"+agynBinCLIDir {
+		t.Fatalf("expected PATH %q, got %q", "/custom/bin:"+agynBinCLIDir, pathValue)
+	}
 }
 
 func TestAssemblerInitImageOverride(t *testing.T) {
@@ -1130,6 +1153,21 @@ func envMap(envs []*runnerv1.EnvVar) map[string]string {
 		result[env.Name] = env.Value
 	}
 	return result
+}
+
+func assertPathContains(t *testing.T, envs map[string]string, segment string) {
+	t.Helper()
+	pathValue, ok := envs["PATH"]
+	if !ok {
+		t.Fatalf("expected PATH env var")
+	}
+	parts := strings.Split(pathValue, ":")
+	for _, part := range parts {
+		if strings.TrimSpace(part) == segment {
+			return
+		}
+	}
+	t.Fatalf("expected PATH to include %q, got %q", segment, pathValue)
 }
 
 func findVolumeSpec(volumes []*runnerv1.VolumeSpec, name string) *runnerv1.VolumeSpec {
