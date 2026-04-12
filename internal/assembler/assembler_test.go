@@ -173,6 +173,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
 	assertEnv(t, envs, "THREAD_ID", threadID.String())
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
+	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
 	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
 	assertEnv(t, envs, "WORKSPACE_DIR", agentWorkspaceDir)
@@ -353,6 +354,7 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	assembler := New(&testutil.FakeAgentsClient{}, &testutil.FakeSecretsClient{}, &cfg)
 	envs := envMap(assembler.baseAgentEnvVars(ctx, agent, agentID, threadID, "[]", ""))
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
+	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
 }
 
@@ -661,6 +663,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	assertEnv(t, envs, "MCP_ENV", "enabled")
 	assertEnv(t, envs, "INIT_SCRIPT", "echo mcp")
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
+	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 }
 
 func TestAssemblerMcpPortAllocation(t *testing.T) {
@@ -725,6 +728,7 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 			t.Fatalf("missing MCP_PORT for sidecar %s", sidecar.Name)
 		}
 		assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
+		assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 		ports[sidecar.Name] = port
 	}
 	expectedMemoryName := "mcp-" + lowID[:8]
