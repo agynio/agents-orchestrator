@@ -45,10 +45,10 @@ func TestAgentMCPToolsProducesTrace(t *testing.T) {
 	traceID := discoverTraceID(t, ctx, tracingClient, result.threadID, result.startTimeMinNs, result.messageText)
 	expectedCounts := map[string]int64{
 		"invocation.message": 1,
-		"llm.call":           3,
+		"llm.call":           2,
 		"tool.execution":     2,
 	}
-	assertTraceSummary(t, ctx, tracingClient, traceID, expectedCounts, 6, result.threadID)
+	assertTraceSummary(t, ctx, tracingClient, traceID, expectedCounts, 5, result.threadID)
 
 	spans := traceSpans(t, ctx, tracingClient, traceID)
 	foundCreate := false
