@@ -537,8 +537,10 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	if err != nil {
 		return nil, err
 	}
+	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	envVars = append(envVars, &runnerv1.EnvVar{Name: "MCP_PORT", Value: strconv.Itoa(port)})
 	envVars = append(envVars, &runnerv1.EnvVar{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress})
+	envVars = append(envVars, &runnerv1.EnvVar{Name: "AGYN_GATEWAY_URL", Value: gatewayURL})
 	return &runnerv1.ContainerSpec{
 		Image:  mcp.GetImage(),
 		Name:   fmt.Sprintf("mcp-%s", mcpID.String()[:8]),
@@ -569,7 +571,15 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 	}, nil
 }
 
+func buildGatewayURL(address string) string {
+	if strings.Contains(address, "://") {
+		return address
+	}
+	return "http://" + address
+}
+
 func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
+	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_ID", Value: agentID.String()},
 		{Name: "AGENT_NAME", Value: agent.GetName()},
@@ -578,6 +588,7 @@ func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent,
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
 		{Name: "THREAD_ID", Value: threadID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
+		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
 		{Name: "WORKSPACE_DIR", Value: agentWorkspaceDir},
 		{Name: "HOME", Value: agentHomeDir},

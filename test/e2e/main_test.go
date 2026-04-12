@@ -4,7 +4,9 @@ package e2e
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -20,7 +22,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
+	clientexec "k8s.io/client-go/util/exec"
 )
 
 const (
@@ -360,17 +365,77 @@ func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServ
 	}
 }
 
-func kubeClientset(t *testing.T) *kubernetes.Clientset {
+type podExecResult struct {
+	stdout   string
+	stderr   string
+	exitCode int
+}
+
+func kubeRestConfig(t *testing.T) *rest.Config {
 	t.Helper()
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		t.Fatalf("load in-cluster config: %v", err)
 	}
-	clientset, err := kubernetes.NewForConfig(config)
+	return config
+}
+
+func kubeClientset(t *testing.T) *kubernetes.Clientset {
+	t.Helper()
+	clientset, err := kubernetes.NewForConfig(kubeRestConfig(t))
 	if err != nil {
 		t.Fatalf("create kubernetes clientset: %v", err)
 	}
 	return clientset
+}
+
+func execPodCommand(
+	t *testing.T,
+	ctx context.Context,
+	namespace string,
+	podName string,
+	containerName string,
+	command []string,
+) podExecResult {
+	t.Helper()
+	config := kubeRestConfig(t)
+	req := kubeClientset(t).CoreV1().RESTClient().Post().
+		Namespace(namespace).
+		Resource("pods").
+		Name(podName).
+		SubResource("exec")
+	req.VersionedParams(&corev1.PodExecOptions{
+		Container: containerName,
+		Command:   command,
+		Stdin:     false,
+		Stdout:    true,
+		Stderr:    true,
+		TTY:       false,
+	}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		t.Fatalf("create exec pod=%s container=%s: %v", podName, containerName, err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Tty:    false,
+	})
+	exitCode := 0
+	if err != nil {
+		var exitErr clientexec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitStatus()
+		} else {
+			t.Fatalf("exec pod=%s container=%s: %v", podName, containerName, err)
+		}
+	}
+
+	return podExecResult{stdout: stdout.String(), stderr: stderr.String(), exitCode: exitCode}
 }
 
 func currentNamespace(t *testing.T) string {
@@ -581,6 +646,30 @@ func mcpContainerNames(pod *corev1.Pod) []string {
 		}
 	}
 	return containers
+}
+
+func agentContainerName(pod *corev1.Pod) (string, error) {
+	if pod == nil {
+		return "", fmt.Errorf("pod is nil")
+	}
+	for _, container := range pod.Spec.Containers {
+		if strings.HasPrefix(container.Name, "agent-") {
+			return container.Name, nil
+		}
+	}
+	return "", fmt.Errorf("pod %s has no agent container", pod.Name)
+}
+
+func containerReady(pod *corev1.Pod, containerName string) bool {
+	if pod == nil {
+		return false
+	}
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.Name == containerName {
+			return status.Ready
+		}
+	}
+	return false
 }
 
 func containerLogsContain(
