@@ -93,11 +93,22 @@ func TestClaudeRestoreSession(t *testing.T) {
 		}
 	})
 
-	sendMessage(t, ctx, threadsClient, threadID, identityID, "hello")
+	firstMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, "hello")
+	firstMessageTime := messageCreatedAt(t, firstMessage)
 
 	firstPollCtx, firstPollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer firstPollCancel()
-	firstBody, err := pollForAgentResponse(t, firstPollCtx, threadsClient, runnerClient, threadID, agentID, labels)
+	firstBody, err := pollForAgentResponse(
+		t,
+		firstPollCtx,
+		threadsClient,
+		runnerClient,
+		threadID,
+		agentID,
+		labels,
+		firstMessageTime,
+		"Hi! How are you?",
+	)
 	if err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}
@@ -105,7 +116,8 @@ func TestClaudeRestoreSession(t *testing.T) {
 		t.Fatalf("expected agent response %q, got %q", "Hi! How are you?", firstBody)
 	}
 
-	sendMessage(t, ctx, threadsClient, threadID, identityID, "fine")
+	secondMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, "fine")
+	secondMessageTime := messageCreatedAt(t, secondMessage)
 
 	secondPollCtx, secondPollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer secondPollCancel()
@@ -120,12 +132,17 @@ func TestClaudeRestoreSession(t *testing.T) {
 		}
 		agentMessages := 0
 		for _, msg := range resp.GetMessages() {
-			if msg.GetSenderId() == agentID {
-				agentMessages++
-				if agentMessages == 2 {
-					secondBody = msg.GetBody()
-					return nil
+			if msg.GetSenderId() != agentID {
+				continue
+			}
+			agentMessages++
+			if agentMessages == 2 {
+				createdAt := msg.GetCreatedAt()
+				if createdAt == nil || createdAt.AsTime().Before(secondMessageTime) {
+					return fmt.Errorf("agent response not found")
 				}
+				secondBody = msg.GetBody()
+				return nil
 			}
 		}
 		return fmt.Errorf("agent response not found")
@@ -137,7 +154,14 @@ func TestClaudeRestoreSession(t *testing.T) {
 	}
 }
 
-func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, message, expectedResponse string, createProvider llmProviderCreator) pipelineRun {
+func runFullPipelineMessageResponse(
+	t *testing.T,
+	llmEndpoint,
+	initImage,
+	message,
+	expectedResponse string,
+	createProvider llmProviderCreator,
+) pipelineRun {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
