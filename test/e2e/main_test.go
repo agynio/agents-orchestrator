@@ -54,8 +54,8 @@ var (
 	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
 	tracingAddr    = envOrDefault("TRACING_ADDRESS", "tracing:50051")
-	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:mcp-host-20260412-3")
-	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:mcp-host-20260412-6")
+	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:0.13.4")
+	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:0.3.3")
 )
 
 type pipelineRun struct {
