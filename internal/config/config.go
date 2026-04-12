@@ -132,7 +132,7 @@ func FromEnv() (Config, error) {
 
 	idleTimeout := os.Getenv("IDLE_TIMEOUT")
 	if idleTimeout == "" {
-		cfg.IdleTimeout = 10 * time.Minute
+		cfg.IdleTimeout = 5 * time.Minute
 	} else {
 		parsed, err := time.ParseDuration(idleTimeout)
 		if err != nil {

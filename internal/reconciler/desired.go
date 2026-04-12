@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
@@ -17,34 +18,40 @@ type AgentThread struct {
 	ThreadID uuid.UUID
 }
 
-func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, error) {
+func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, map[uuid.UUID]time.Duration, error) {
 	agents, err := r.listAgents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	unique := make(map[AgentThread]struct{})
+	idleTimeouts := make(map[uuid.UUID]time.Duration, len(agents))
 	for _, agent := range agents {
 		if agent == nil {
-			return nil, fmt.Errorf("agent is nil")
+			return nil, nil, fmt.Errorf("agent is nil")
 		}
 		meta := agent.GetMeta()
 		if meta == nil {
-			return nil, fmt.Errorf("agent meta missing")
+			return nil, nil, fmt.Errorf("agent meta missing")
 		}
 		agentID, err := uuidutil.ParseUUID(meta.GetId(), "agent.meta.id")
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		idleTimeout, err := agentIdleTimeout(agent, agentID, r.idle)
+		if err != nil {
+			return nil, nil, err
+		}
+		idleTimeouts[agentID] = idleTimeout
 		threadIDs, err := r.listUnackedThreads(ctx, agentID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(threadIDs) == 0 {
 			continue
 		}
 		passiveThreads, err := r.fetchPassiveThreads(ctx, agentID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, threadID := range threadIDs {
 			if _, ok := passiveThreads[threadID]; ok {
@@ -57,7 +64,22 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, error) {
 	for key := range unique {
 		result = append(result, key)
 	}
-	return result, nil
+	return result, idleTimeouts, nil
+}
+
+func agentIdleTimeout(agent *agentsv1.Agent, agentID uuid.UUID, fallback time.Duration) (time.Duration, error) {
+	if agent.IdleTimeout == nil {
+		return fallback, nil
+	}
+	value := agent.GetIdleTimeout()
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse agent %s idle_timeout: %w", agentID, err)
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("agent %s idle_timeout must be greater than 0", agentID)
+	}
+	return parsed, nil
 }
 
 func (r *Reconciler) listAgents(ctx context.Context) ([]*agentsv1.Agent, error) {

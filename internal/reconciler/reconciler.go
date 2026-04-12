@@ -94,7 +94,7 @@ func (r *Reconciler) runCycle(ctx context.Context) {
 }
 
 func (r *Reconciler) reconcile(ctx context.Context) error {
-	desired, err := r.fetchDesired(ctx)
+	desired, idleTimeouts, err := r.fetchDesired(ctx)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	actions, err := ComputeActions(desired, actual, r.idle, time.Now().UTC())
+	actions, err := ComputeActions(desired, actual, idleTimeouts, r.idle, time.Now().UTC())
 	if err != nil {
 		return err
 	}

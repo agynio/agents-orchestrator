@@ -28,6 +28,9 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
 		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
 	}
+	if cfg.IdleTimeout != 5*time.Minute {
+		t.Fatalf("expected idle timeout %q, got %q", 5*time.Minute, cfg.IdleTimeout)
+	}
 }
 
 func TestFromEnvDefaultsZiti(t *testing.T) {
