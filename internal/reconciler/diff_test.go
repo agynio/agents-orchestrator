@@ -26,6 +26,8 @@ func TestComputeActions(t *testing.T) {
 	workload2 := makeWorkload(agent3, thread3, now.Add(-20*time.Minute))
 	workload3 := makeWorkload(agent1, thread1, now.Add(-20*time.Minute))
 	workload4 := makeWorkload(agent1, thread1, now.Add(-5*time.Minute))
+	workload5 := makeWorkload(agent2, thread2, now.Add(-30*time.Minute))
+	workload5.LastActivityAt = timestamppb.New(now.Add(-5 * time.Minute))
 
 	cases := []struct {
 		name     string
@@ -57,6 +59,10 @@ func TestComputeActions(t *testing.T) {
 		{
 			name:   "keep recent",
 			actual: []*runnersv1.Workload{workload4},
+		},
+		{
+			name:   "idle uses last activity",
+			actual: []*runnersv1.Workload{workload5},
 		},
 		{
 			name:    "match",

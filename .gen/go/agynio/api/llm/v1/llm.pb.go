@@ -27,6 +27,7 @@ type AuthMethod int32
 const (
 	AuthMethod_AUTH_METHOD_UNSPECIFIED AuthMethod = 0
 	AuthMethod_AUTH_METHOD_BEARER      AuthMethod = 1
+	AuthMethod_AUTH_METHOD_X_API_KEY   AuthMethod = 2
 )
 
 // Enum value maps for AuthMethod.
@@ -34,10 +35,12 @@ var (
 	AuthMethod_name = map[int32]string{
 		0: "AUTH_METHOD_UNSPECIFIED",
 		1: "AUTH_METHOD_BEARER",
+		2: "AUTH_METHOD_X_API_KEY",
 	}
 	AuthMethod_value = map[string]int32{
 		"AUTH_METHOD_UNSPECIFIED": 0,
 		"AUTH_METHOD_BEARER":      1,
+		"AUTH_METHOD_X_API_KEY":   2,
 	}
 )
 
@@ -66,6 +69,55 @@ func (x AuthMethod) Number() protoreflect.EnumNumber {
 // Deprecated: Use AuthMethod.Descriptor instead.
 func (AuthMethod) EnumDescriptor() ([]byte, []int) {
 	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{0}
+}
+
+type Protocol int32
+
+const (
+	Protocol_PROTOCOL_UNSPECIFIED        Protocol = 0
+	Protocol_PROTOCOL_RESPONSES          Protocol = 1
+	Protocol_PROTOCOL_ANTHROPIC_MESSAGES Protocol = 2
+)
+
+// Enum value maps for Protocol.
+var (
+	Protocol_name = map[int32]string{
+		0: "PROTOCOL_UNSPECIFIED",
+		1: "PROTOCOL_RESPONSES",
+		2: "PROTOCOL_ANTHROPIC_MESSAGES",
+	}
+	Protocol_value = map[string]int32{
+		"PROTOCOL_UNSPECIFIED":        0,
+		"PROTOCOL_RESPONSES":          1,
+		"PROTOCOL_ANTHROPIC_MESSAGES": 2,
+	}
+)
+
+func (x Protocol) Enum() *Protocol {
+	p := new(Protocol)
+	*p = x
+	return p
+}
+
+func (x Protocol) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Protocol) Descriptor() protoreflect.EnumDescriptor {
+	return file_agynio_api_llm_v1_llm_proto_enumTypes[1].Descriptor()
+}
+
+func (Protocol) Type() protoreflect.EnumType {
+	return &file_agynio_api_llm_v1_llm_proto_enumTypes[1]
+}
+
+func (x Protocol) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Protocol.Descriptor instead.
+func (Protocol) EnumDescriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{1}
 }
 
 type EntityMeta struct {
@@ -134,6 +186,7 @@ type LLMProvider struct {
 	Endpoint       string                 `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	AuthMethod     AuthMethod             `protobuf:"varint,3,opt,name=auth_method,json=authMethod,proto3,enum=agynio.api.llm.v1.AuthMethod" json:"auth_method,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,4,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"` // UUID
+	Protocol       Protocol               `protobuf:"varint,5,opt,name=protocol,proto3,enum=agynio.api.llm.v1.Protocol" json:"protocol,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -196,12 +249,20 @@ func (x *LLMProvider) GetOrganizationId() string {
 	return ""
 }
 
+func (x *LLMProvider) GetProtocol() Protocol {
+	if x != nil {
+		return x.Protocol
+	}
+	return Protocol_PROTOCOL_UNSPECIFIED
+}
+
 type CreateLLMProviderRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Endpoint       string                 `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	AuthMethod     AuthMethod             `protobuf:"varint,2,opt,name=auth_method,json=authMethod,proto3,enum=agynio.api.llm.v1.AuthMethod" json:"auth_method,omitempty"`
 	Token          string                 `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,4,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	Protocol       Protocol               `protobuf:"varint,5,opt,name=protocol,proto3,enum=agynio.api.llm.v1.Protocol" json:"protocol,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -262,6 +323,13 @@ func (x *CreateLLMProviderRequest) GetOrganizationId() string {
 		return x.OrganizationId
 	}
 	return ""
+}
+
+func (x *CreateLLMProviderRequest) GetProtocol() Protocol {
+	if x != nil {
+		return x.Protocol
+	}
+	return Protocol_PROTOCOL_UNSPECIFIED
 }
 
 type CreateLLMProviderResponse struct {
@@ -402,6 +470,7 @@ type UpdateLLMProviderRequest struct {
 	Endpoint      *string                `protobuf:"bytes,2,opt,name=endpoint,proto3,oneof" json:"endpoint,omitempty"`
 	AuthMethod    *AuthMethod            `protobuf:"varint,3,opt,name=auth_method,json=authMethod,proto3,enum=agynio.api.llm.v1.AuthMethod,oneof" json:"auth_method,omitempty"`
 	Token         *string                `protobuf:"bytes,4,opt,name=token,proto3,oneof" json:"token,omitempty"`
+	Protocol      *Protocol              `protobuf:"varint,5,opt,name=protocol,proto3,enum=agynio.api.llm.v1.Protocol,oneof" json:"protocol,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -462,6 +531,13 @@ func (x *UpdateLLMProviderRequest) GetToken() string {
 		return *x.Token
 	}
 	return ""
+}
+
+func (x *UpdateLLMProviderRequest) GetProtocol() Protocol {
+	if x != nil && x.Protocol != nil {
+		return *x.Protocol
+	}
+	return Protocol_PROTOCOL_UNSPECIFIED
 }
 
 type UpdateLLMProviderResponse struct {
@@ -1330,6 +1406,8 @@ type ResolveModelResponse struct {
 	Token          string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
 	RemoteName     string                 `protobuf:"bytes,3,opt,name=remote_name,json=remoteName,proto3" json:"remote_name,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,4,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"` // UUID
+	Protocol       Protocol               `protobuf:"varint,5,opt,name=protocol,proto3,enum=agynio.api.llm.v1.Protocol" json:"protocol,omitempty"`
+	AuthMethod     AuthMethod             `protobuf:"varint,6,opt,name=auth_method,json=authMethod,proto3,enum=agynio.api.llm.v1.AuthMethod" json:"auth_method,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1392,6 +1470,20 @@ func (x *ResolveModelResponse) GetOrganizationId() string {
 	return ""
 }
 
+func (x *ResolveModelResponse) GetProtocol() Protocol {
+	if x != nil {
+		return x.Protocol
+	}
+	return Protocol_PROTOCOL_UNSPECIFIED
+}
+
+func (x *ResolveModelResponse) GetAuthMethod() AuthMethod {
+	if x != nil {
+		return x.AuthMethod
+	}
+	return AuthMethod_AUTH_METHOD_UNSPECIFIED
+}
+
 var File_agynio_api_llm_v1_llm_proto protoreflect.FileDescriptor
 
 const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
@@ -1403,34 +1495,38 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xc5\x01\n" +
+	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xfe\x01\n" +
 	"\vLLMProvider\x121\n" +
 	"\x04meta\x18\x01 \x01(\v2\x1d.agynio.api.llm.v1.EntityMetaR\x04meta\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12>\n" +
 	"\vauth_method\x18\x03 \x01(\x0e2\x1d.agynio.api.llm.v1.AuthMethodR\n" +
 	"authMethod\x12'\n" +
-	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\"\xb5\x01\n" +
+	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\x127\n" +
+	"\bprotocol\x18\x05 \x01(\x0e2\x1b.agynio.api.llm.v1.ProtocolR\bprotocol\"\xee\x01\n" +
 	"\x18CreateLLMProviderRequest\x12\x1a\n" +
 	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12>\n" +
 	"\vauth_method\x18\x02 \x01(\x0e2\x1d.agynio.api.llm.v1.AuthMethodR\n" +
 	"authMethod\x12\x14\n" +
 	"\x05token\x18\x03 \x01(\tR\x05token\x12'\n" +
-	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\"W\n" +
+	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\x127\n" +
+	"\bprotocol\x18\x05 \x01(\x0e2\x1b.agynio.api.llm.v1.ProtocolR\bprotocol\"W\n" +
 	"\x19CreateLLMProviderResponse\x12:\n" +
 	"\bprovider\x18\x01 \x01(\v2\x1e.agynio.api.llm.v1.LLMProviderR\bprovider\"'\n" +
 	"\x15GetLLMProviderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"T\n" +
 	"\x16GetLLMProviderResponse\x12:\n" +
-	"\bprovider\x18\x01 \x01(\v2\x1e.agynio.api.llm.v1.LLMProviderR\bprovider\"\xd2\x01\n" +
+	"\bprovider\x18\x01 \x01(\v2\x1e.agynio.api.llm.v1.LLMProviderR\bprovider\"\x9d\x02\n" +
 	"\x18UpdateLLMProviderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\bendpoint\x18\x02 \x01(\tH\x00R\bendpoint\x88\x01\x01\x12C\n" +
 	"\vauth_method\x18\x03 \x01(\x0e2\x1d.agynio.api.llm.v1.AuthMethodH\x01R\n" +
 	"authMethod\x88\x01\x01\x12\x19\n" +
-	"\x05token\x18\x04 \x01(\tH\x02R\x05token\x88\x01\x01B\v\n" +
+	"\x05token\x18\x04 \x01(\tH\x02R\x05token\x88\x01\x01\x12<\n" +
+	"\bprotocol\x18\x05 \x01(\x0e2\x1b.agynio.api.llm.v1.ProtocolH\x03R\bprotocol\x88\x01\x01B\v\n" +
 	"\t_endpointB\x0e\n" +
 	"\f_auth_methodB\b\n" +
-	"\x06_token\"W\n" +
+	"\x06_tokenB\v\n" +
+	"\t_protocol\"W\n" +
 	"\x19UpdateLLMProviderResponse\x12:\n" +
 	"\bprovider\x18\x01 \x01(\v2\x1e.agynio.api.llm.v1.LLMProviderR\bprovider\"*\n" +
 	"\x18DeleteLLMProviderRequest\x12\x0e\n" +
@@ -1486,17 +1582,25 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\x06models\x18\x01 \x03(\v2\x18.agynio.api.llm.v1.ModelR\x06models\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"0\n" +
 	"\x13ResolveModelRequest\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\"\x92\x01\n" +
+	"\bmodel_id\x18\x01 \x01(\tR\amodelId\"\x8b\x02\n" +
 	"\x14ResolveModelResponse\x12\x1a\n" +
 	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12\x1f\n" +
 	"\vremote_name\x18\x03 \x01(\tR\n" +
 	"remoteName\x12'\n" +
-	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId*A\n" +
+	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\x127\n" +
+	"\bprotocol\x18\x05 \x01(\x0e2\x1b.agynio.api.llm.v1.ProtocolR\bprotocol\x12>\n" +
+	"\vauth_method\x18\x06 \x01(\x0e2\x1d.agynio.api.llm.v1.AuthMethodR\n" +
+	"authMethod*\\\n" +
 	"\n" +
 	"AuthMethod\x12\x1b\n" +
 	"\x17AUTH_METHOD_UNSPECIFIED\x10\x00\x12\x16\n" +
-	"\x12AUTH_METHOD_BEARER\x10\x012\xdb\b\n" +
+	"\x12AUTH_METHOD_BEARER\x10\x01\x12\x19\n" +
+	"\x15AUTH_METHOD_X_API_KEY\x10\x02*]\n" +
+	"\bProtocol\x12\x18\n" +
+	"\x14PROTOCOL_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12PROTOCOL_RESPONSES\x10\x01\x12\x1f\n" +
+	"\x1bPROTOCOL_ANTHROPIC_MESSAGES\x10\x022\xdb\b\n" +
 	"\n" +
 	"LLMService\x12n\n" +
 	"\x11CreateLLMProvider\x12+.agynio.api.llm.v1.CreateLLMProviderRequest\x1a,.agynio.api.llm.v1.CreateLLMProviderResponse\x12e\n" +
@@ -1525,80 +1629,86 @@ func file_agynio_api_llm_v1_llm_proto_rawDescGZIP() []byte {
 	return file_agynio_api_llm_v1_llm_proto_rawDescData
 }
 
-var file_agynio_api_llm_v1_llm_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_agynio_api_llm_v1_llm_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_agynio_api_llm_v1_llm_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_agynio_api_llm_v1_llm_proto_goTypes = []any{
 	(AuthMethod)(0),                   // 0: agynio.api.llm.v1.AuthMethod
-	(*EntityMeta)(nil),                // 1: agynio.api.llm.v1.EntityMeta
-	(*LLMProvider)(nil),               // 2: agynio.api.llm.v1.LLMProvider
-	(*CreateLLMProviderRequest)(nil),  // 3: agynio.api.llm.v1.CreateLLMProviderRequest
-	(*CreateLLMProviderResponse)(nil), // 4: agynio.api.llm.v1.CreateLLMProviderResponse
-	(*GetLLMProviderRequest)(nil),     // 5: agynio.api.llm.v1.GetLLMProviderRequest
-	(*GetLLMProviderResponse)(nil),    // 6: agynio.api.llm.v1.GetLLMProviderResponse
-	(*UpdateLLMProviderRequest)(nil),  // 7: agynio.api.llm.v1.UpdateLLMProviderRequest
-	(*UpdateLLMProviderResponse)(nil), // 8: agynio.api.llm.v1.UpdateLLMProviderResponse
-	(*DeleteLLMProviderRequest)(nil),  // 9: agynio.api.llm.v1.DeleteLLMProviderRequest
-	(*DeleteLLMProviderResponse)(nil), // 10: agynio.api.llm.v1.DeleteLLMProviderResponse
-	(*ListLLMProvidersRequest)(nil),   // 11: agynio.api.llm.v1.ListLLMProvidersRequest
-	(*ListLLMProvidersResponse)(nil),  // 12: agynio.api.llm.v1.ListLLMProvidersResponse
-	(*Model)(nil),                     // 13: agynio.api.llm.v1.Model
-	(*CreateModelRequest)(nil),        // 14: agynio.api.llm.v1.CreateModelRequest
-	(*CreateModelResponse)(nil),       // 15: agynio.api.llm.v1.CreateModelResponse
-	(*GetModelRequest)(nil),           // 16: agynio.api.llm.v1.GetModelRequest
-	(*GetModelResponse)(nil),          // 17: agynio.api.llm.v1.GetModelResponse
-	(*UpdateModelRequest)(nil),        // 18: agynio.api.llm.v1.UpdateModelRequest
-	(*UpdateModelResponse)(nil),       // 19: agynio.api.llm.v1.UpdateModelResponse
-	(*DeleteModelRequest)(nil),        // 20: agynio.api.llm.v1.DeleteModelRequest
-	(*DeleteModelResponse)(nil),       // 21: agynio.api.llm.v1.DeleteModelResponse
-	(*ListModelsRequest)(nil),         // 22: agynio.api.llm.v1.ListModelsRequest
-	(*ListModelsResponse)(nil),        // 23: agynio.api.llm.v1.ListModelsResponse
-	(*ResolveModelRequest)(nil),       // 24: agynio.api.llm.v1.ResolveModelRequest
-	(*ResolveModelResponse)(nil),      // 25: agynio.api.llm.v1.ResolveModelResponse
-	(*timestamppb.Timestamp)(nil),     // 26: google.protobuf.Timestamp
+	(Protocol)(0),                     // 1: agynio.api.llm.v1.Protocol
+	(*EntityMeta)(nil),                // 2: agynio.api.llm.v1.EntityMeta
+	(*LLMProvider)(nil),               // 3: agynio.api.llm.v1.LLMProvider
+	(*CreateLLMProviderRequest)(nil),  // 4: agynio.api.llm.v1.CreateLLMProviderRequest
+	(*CreateLLMProviderResponse)(nil), // 5: agynio.api.llm.v1.CreateLLMProviderResponse
+	(*GetLLMProviderRequest)(nil),     // 6: agynio.api.llm.v1.GetLLMProviderRequest
+	(*GetLLMProviderResponse)(nil),    // 7: agynio.api.llm.v1.GetLLMProviderResponse
+	(*UpdateLLMProviderRequest)(nil),  // 8: agynio.api.llm.v1.UpdateLLMProviderRequest
+	(*UpdateLLMProviderResponse)(nil), // 9: agynio.api.llm.v1.UpdateLLMProviderResponse
+	(*DeleteLLMProviderRequest)(nil),  // 10: agynio.api.llm.v1.DeleteLLMProviderRequest
+	(*DeleteLLMProviderResponse)(nil), // 11: agynio.api.llm.v1.DeleteLLMProviderResponse
+	(*ListLLMProvidersRequest)(nil),   // 12: agynio.api.llm.v1.ListLLMProvidersRequest
+	(*ListLLMProvidersResponse)(nil),  // 13: agynio.api.llm.v1.ListLLMProvidersResponse
+	(*Model)(nil),                     // 14: agynio.api.llm.v1.Model
+	(*CreateModelRequest)(nil),        // 15: agynio.api.llm.v1.CreateModelRequest
+	(*CreateModelResponse)(nil),       // 16: agynio.api.llm.v1.CreateModelResponse
+	(*GetModelRequest)(nil),           // 17: agynio.api.llm.v1.GetModelRequest
+	(*GetModelResponse)(nil),          // 18: agynio.api.llm.v1.GetModelResponse
+	(*UpdateModelRequest)(nil),        // 19: agynio.api.llm.v1.UpdateModelRequest
+	(*UpdateModelResponse)(nil),       // 20: agynio.api.llm.v1.UpdateModelResponse
+	(*DeleteModelRequest)(nil),        // 21: agynio.api.llm.v1.DeleteModelRequest
+	(*DeleteModelResponse)(nil),       // 22: agynio.api.llm.v1.DeleteModelResponse
+	(*ListModelsRequest)(nil),         // 23: agynio.api.llm.v1.ListModelsRequest
+	(*ListModelsResponse)(nil),        // 24: agynio.api.llm.v1.ListModelsResponse
+	(*ResolveModelRequest)(nil),       // 25: agynio.api.llm.v1.ResolveModelRequest
+	(*ResolveModelResponse)(nil),      // 26: agynio.api.llm.v1.ResolveModelResponse
+	(*timestamppb.Timestamp)(nil),     // 27: google.protobuf.Timestamp
 }
 var file_agynio_api_llm_v1_llm_proto_depIdxs = []int32{
-	26, // 0: agynio.api.llm.v1.EntityMeta.created_at:type_name -> google.protobuf.Timestamp
-	26, // 1: agynio.api.llm.v1.EntityMeta.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 2: agynio.api.llm.v1.LLMProvider.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	27, // 0: agynio.api.llm.v1.EntityMeta.created_at:type_name -> google.protobuf.Timestamp
+	27, // 1: agynio.api.llm.v1.EntityMeta.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 2: agynio.api.llm.v1.LLMProvider.meta:type_name -> agynio.api.llm.v1.EntityMeta
 	0,  // 3: agynio.api.llm.v1.LLMProvider.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
-	0,  // 4: agynio.api.llm.v1.CreateLLMProviderRequest.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
-	2,  // 5: agynio.api.llm.v1.CreateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
-	2,  // 6: agynio.api.llm.v1.GetLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
-	0,  // 7: agynio.api.llm.v1.UpdateLLMProviderRequest.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
-	2,  // 8: agynio.api.llm.v1.UpdateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
-	2,  // 9: agynio.api.llm.v1.ListLLMProvidersResponse.providers:type_name -> agynio.api.llm.v1.LLMProvider
-	1,  // 10: agynio.api.llm.v1.Model.meta:type_name -> agynio.api.llm.v1.EntityMeta
-	13, // 11: agynio.api.llm.v1.CreateModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	13, // 12: agynio.api.llm.v1.GetModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	13, // 13: agynio.api.llm.v1.UpdateModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	13, // 14: agynio.api.llm.v1.ListModelsResponse.models:type_name -> agynio.api.llm.v1.Model
-	3,  // 15: agynio.api.llm.v1.LLMService.CreateLLMProvider:input_type -> agynio.api.llm.v1.CreateLLMProviderRequest
-	5,  // 16: agynio.api.llm.v1.LLMService.GetLLMProvider:input_type -> agynio.api.llm.v1.GetLLMProviderRequest
-	7,  // 17: agynio.api.llm.v1.LLMService.UpdateLLMProvider:input_type -> agynio.api.llm.v1.UpdateLLMProviderRequest
-	9,  // 18: agynio.api.llm.v1.LLMService.DeleteLLMProvider:input_type -> agynio.api.llm.v1.DeleteLLMProviderRequest
-	11, // 19: agynio.api.llm.v1.LLMService.ListLLMProviders:input_type -> agynio.api.llm.v1.ListLLMProvidersRequest
-	14, // 20: agynio.api.llm.v1.LLMService.CreateModel:input_type -> agynio.api.llm.v1.CreateModelRequest
-	16, // 21: agynio.api.llm.v1.LLMService.GetModel:input_type -> agynio.api.llm.v1.GetModelRequest
-	18, // 22: agynio.api.llm.v1.LLMService.UpdateModel:input_type -> agynio.api.llm.v1.UpdateModelRequest
-	20, // 23: agynio.api.llm.v1.LLMService.DeleteModel:input_type -> agynio.api.llm.v1.DeleteModelRequest
-	22, // 24: agynio.api.llm.v1.LLMService.ListModels:input_type -> agynio.api.llm.v1.ListModelsRequest
-	24, // 25: agynio.api.llm.v1.LLMService.ResolveModel:input_type -> agynio.api.llm.v1.ResolveModelRequest
-	4,  // 26: agynio.api.llm.v1.LLMService.CreateLLMProvider:output_type -> agynio.api.llm.v1.CreateLLMProviderResponse
-	6,  // 27: agynio.api.llm.v1.LLMService.GetLLMProvider:output_type -> agynio.api.llm.v1.GetLLMProviderResponse
-	8,  // 28: agynio.api.llm.v1.LLMService.UpdateLLMProvider:output_type -> agynio.api.llm.v1.UpdateLLMProviderResponse
-	10, // 29: agynio.api.llm.v1.LLMService.DeleteLLMProvider:output_type -> agynio.api.llm.v1.DeleteLLMProviderResponse
-	12, // 30: agynio.api.llm.v1.LLMService.ListLLMProviders:output_type -> agynio.api.llm.v1.ListLLMProvidersResponse
-	15, // 31: agynio.api.llm.v1.LLMService.CreateModel:output_type -> agynio.api.llm.v1.CreateModelResponse
-	17, // 32: agynio.api.llm.v1.LLMService.GetModel:output_type -> agynio.api.llm.v1.GetModelResponse
-	19, // 33: agynio.api.llm.v1.LLMService.UpdateModel:output_type -> agynio.api.llm.v1.UpdateModelResponse
-	21, // 34: agynio.api.llm.v1.LLMService.DeleteModel:output_type -> agynio.api.llm.v1.DeleteModelResponse
-	23, // 35: agynio.api.llm.v1.LLMService.ListModels:output_type -> agynio.api.llm.v1.ListModelsResponse
-	25, // 36: agynio.api.llm.v1.LLMService.ResolveModel:output_type -> agynio.api.llm.v1.ResolveModelResponse
-	26, // [26:37] is the sub-list for method output_type
-	15, // [15:26] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	1,  // 4: agynio.api.llm.v1.LLMProvider.protocol:type_name -> agynio.api.llm.v1.Protocol
+	0,  // 5: agynio.api.llm.v1.CreateLLMProviderRequest.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
+	1,  // 6: agynio.api.llm.v1.CreateLLMProviderRequest.protocol:type_name -> agynio.api.llm.v1.Protocol
+	3,  // 7: agynio.api.llm.v1.CreateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	3,  // 8: agynio.api.llm.v1.GetLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	0,  // 9: agynio.api.llm.v1.UpdateLLMProviderRequest.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
+	1,  // 10: agynio.api.llm.v1.UpdateLLMProviderRequest.protocol:type_name -> agynio.api.llm.v1.Protocol
+	3,  // 11: agynio.api.llm.v1.UpdateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	3,  // 12: agynio.api.llm.v1.ListLLMProvidersResponse.providers:type_name -> agynio.api.llm.v1.LLMProvider
+	2,  // 13: agynio.api.llm.v1.Model.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	14, // 14: agynio.api.llm.v1.CreateModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	14, // 15: agynio.api.llm.v1.GetModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	14, // 16: agynio.api.llm.v1.UpdateModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	14, // 17: agynio.api.llm.v1.ListModelsResponse.models:type_name -> agynio.api.llm.v1.Model
+	1,  // 18: agynio.api.llm.v1.ResolveModelResponse.protocol:type_name -> agynio.api.llm.v1.Protocol
+	0,  // 19: agynio.api.llm.v1.ResolveModelResponse.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
+	4,  // 20: agynio.api.llm.v1.LLMService.CreateLLMProvider:input_type -> agynio.api.llm.v1.CreateLLMProviderRequest
+	6,  // 21: agynio.api.llm.v1.LLMService.GetLLMProvider:input_type -> agynio.api.llm.v1.GetLLMProviderRequest
+	8,  // 22: agynio.api.llm.v1.LLMService.UpdateLLMProvider:input_type -> agynio.api.llm.v1.UpdateLLMProviderRequest
+	10, // 23: agynio.api.llm.v1.LLMService.DeleteLLMProvider:input_type -> agynio.api.llm.v1.DeleteLLMProviderRequest
+	12, // 24: agynio.api.llm.v1.LLMService.ListLLMProviders:input_type -> agynio.api.llm.v1.ListLLMProvidersRequest
+	15, // 25: agynio.api.llm.v1.LLMService.CreateModel:input_type -> agynio.api.llm.v1.CreateModelRequest
+	17, // 26: agynio.api.llm.v1.LLMService.GetModel:input_type -> agynio.api.llm.v1.GetModelRequest
+	19, // 27: agynio.api.llm.v1.LLMService.UpdateModel:input_type -> agynio.api.llm.v1.UpdateModelRequest
+	21, // 28: agynio.api.llm.v1.LLMService.DeleteModel:input_type -> agynio.api.llm.v1.DeleteModelRequest
+	23, // 29: agynio.api.llm.v1.LLMService.ListModels:input_type -> agynio.api.llm.v1.ListModelsRequest
+	25, // 30: agynio.api.llm.v1.LLMService.ResolveModel:input_type -> agynio.api.llm.v1.ResolveModelRequest
+	5,  // 31: agynio.api.llm.v1.LLMService.CreateLLMProvider:output_type -> agynio.api.llm.v1.CreateLLMProviderResponse
+	7,  // 32: agynio.api.llm.v1.LLMService.GetLLMProvider:output_type -> agynio.api.llm.v1.GetLLMProviderResponse
+	9,  // 33: agynio.api.llm.v1.LLMService.UpdateLLMProvider:output_type -> agynio.api.llm.v1.UpdateLLMProviderResponse
+	11, // 34: agynio.api.llm.v1.LLMService.DeleteLLMProvider:output_type -> agynio.api.llm.v1.DeleteLLMProviderResponse
+	13, // 35: agynio.api.llm.v1.LLMService.ListLLMProviders:output_type -> agynio.api.llm.v1.ListLLMProvidersResponse
+	16, // 36: agynio.api.llm.v1.LLMService.CreateModel:output_type -> agynio.api.llm.v1.CreateModelResponse
+	18, // 37: agynio.api.llm.v1.LLMService.GetModel:output_type -> agynio.api.llm.v1.GetModelResponse
+	20, // 38: agynio.api.llm.v1.LLMService.UpdateModel:output_type -> agynio.api.llm.v1.UpdateModelResponse
+	22, // 39: agynio.api.llm.v1.LLMService.DeleteModel:output_type -> agynio.api.llm.v1.DeleteModelResponse
+	24, // 40: agynio.api.llm.v1.LLMService.ListModels:output_type -> agynio.api.llm.v1.ListModelsResponse
+	26, // 41: agynio.api.llm.v1.LLMService.ResolveModel:output_type -> agynio.api.llm.v1.ResolveModelResponse
+	31, // [31:42] is the sub-list for method output_type
+	20, // [20:31] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_agynio_api_llm_v1_llm_proto_init() }
@@ -1613,7 +1723,7 @@ func file_agynio_api_llm_v1_llm_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agynio_api_llm_v1_llm_proto_rawDesc), len(file_agynio_api_llm_v1_llm_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,

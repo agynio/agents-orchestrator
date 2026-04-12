@@ -46,9 +46,16 @@ type Assembler struct {
 }
 
 type AssembleResult struct {
-	Request        *runnerv1.StartWorkloadRequest
-	OrganizationID string
-	RunnerLabels   map[string]string
+	Request           *runnerv1.StartWorkloadRequest
+	OrganizationID    string
+	RunnerLabels      map[string]string
+	PersistentVolumes []PersistentVolumeInfo
+}
+
+type PersistentVolumeInfo struct {
+	ID     uuid.UUID
+	Volume *agentsv1.Volume
+	Spec   *runnerv1.VolumeSpec
 }
 
 func New(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
@@ -235,10 +242,15 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Searches:    []string{zitiDNSSearchService, zitiDNSSearchCluster},
 		}
 	}
+	persistentVolumes, err := volumeResolver.PersistentVolumes()
+	if err != nil {
+		return nil, err
+	}
 	return &AssembleResult{
-		Request:        request,
-		OrganizationID: agent.GetOrganizationId(),
-		RunnerLabels:   runnerLabels,
+		Request:           request,
+		OrganizationID:    agent.GetOrganizationId(),
+		RunnerLabels:      runnerLabels,
+		PersistentVolumes: persistentVolumes,
 	}, nil
 }
 
@@ -696,6 +708,32 @@ func (v *volumeResolver) Specs() []*runnerv1.VolumeSpec {
 	}
 	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
 	return specs
+}
+
+func (v *volumeResolver) PersistentVolumes() ([]PersistentVolumeInfo, error) {
+	if len(v.specs) == 0 {
+		return nil, nil
+	}
+	volumes := make([]PersistentVolumeInfo, 0, len(v.specs))
+	for volumeID, spec := range v.specs {
+		if spec == nil {
+			return nil, fmt.Errorf("volume spec missing for %s", volumeID)
+		}
+		volume := v.cache[volumeID]
+		if volume == nil {
+			return nil, fmt.Errorf("volume %s missing", volumeID)
+		}
+		if !volume.GetPersistent() {
+			continue
+		}
+		parsedID, err := uuidutil.ParseUUID(volumeID, "volume.id")
+		if err != nil {
+			return nil, err
+		}
+		volumes = append(volumes, PersistentVolumeInfo{ID: parsedID, Volume: volume, Spec: spec})
+	}
+	sort.Slice(volumes, func(i, j int) bool { return volumes[i].ID.String() < volumes[j].ID.String() })
+	return volumes, nil
 }
 
 func (v *volumeResolver) getVolume(ctx context.Context, volumeID uuid.UUID) (*agentsv1.Volume, error) {
