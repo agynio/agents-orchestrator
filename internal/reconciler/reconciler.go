@@ -14,8 +14,6 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/google/uuid"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -294,7 +292,7 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 		log.Printf("reconciler: workload missing id")
 		return
 	}
-	instanceID := workload.GetInstanceId()
+	instanceID := normalizeRunnerWorkloadID(workload.GetInstanceId())
 	if instanceID == "" {
 		log.Printf("reconciler: workload %s missing instance id", workloadID)
 		return
@@ -340,12 +338,6 @@ func (r *Reconciler) stopRunnerWorkload(ctx context.Context, runnerClient runner
 		WorkloadId: instanceID,
 		TimeoutSec: r.stopSec,
 	})
-	if err == nil {
-		return nil
-	}
-	if status.Code(err) == codes.NotFound {
-		return nil
-	}
 	return err
 }
 
