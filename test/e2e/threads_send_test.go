@@ -68,6 +68,7 @@ func TestThreadsSendShell(t *testing.T) {
 
 	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, "Send me an intermediate update then reply")
 	sentMessageTime := messageCreatedAt(t, sentMessage)
+	startTimeMinNs := messageStartTimeMinNs(t, sentMessage)
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -89,6 +90,7 @@ func TestThreadsSendShell(t *testing.T) {
 	defer pollCancel()
 	agentMessages, err := pollForAgentMessages(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, 2)
 	if err != nil {
+		logShellToolExecutionDiagnostics(t, startTimeMinNs, threadID)
 		t.Fatalf("wait for agent messages: %v", err)
 	}
 
