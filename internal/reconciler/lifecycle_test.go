@@ -571,6 +571,61 @@ func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	}
 }
 
+func TestStopRunnerWorkloadIgnoresNotFoundForUUID(t *testing.T) {
+	ctx := context.Background()
+	instanceID := uuid.New().String()
+	called := false
+
+	runner := &fakeRunnerClient{
+		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			called = true
+			if req.GetWorkloadId() != instanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			if req.GetTimeoutSec() != 30 {
+				return nil, errors.New("unexpected timeout")
+			}
+			return nil, status.Error(codes.NotFound, "not found")
+		},
+	}
+
+	reconciler := newTestReconciler(Config{})
+	if err := reconciler.stopRunnerWorkload(ctx, runner, instanceID); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !called {
+		t.Fatal("expected stop workload call")
+	}
+}
+
+func TestStopRunnerWorkloadReturnsNotFoundForInvalidID(t *testing.T) {
+	ctx := context.Background()
+	instanceID := "workload-" + uuid.New().String()
+	called := false
+
+	runner := &fakeRunnerClient{
+		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			called = true
+			if req.GetWorkloadId() != instanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return nil, status.Error(codes.NotFound, "not found")
+		},
+	}
+
+	reconciler := newTestReconciler(Config{})
+	err := reconciler.stopRunnerWorkload(ctx, runner, instanceID)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("expected not found error, got %v", err)
+	}
+	if !called {
+		t.Fatal("expected stop workload call")
+	}
+}
+
 func TestStopRunnerWorkloadReturnsErrorOnFailure(t *testing.T) {
 	ctx := context.Background()
 	instanceID := "runner-workload-1"

@@ -14,6 +14,8 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -239,9 +241,10 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		r.compensateIdentity(ctx, zitiIdentityID, "start failure")
 		return
 	}
+	rawInstanceID := resp.GetId()
+	instanceID := normalizeRunnerWorkloadID(rawInstanceID)
 	if resp.GetStatus() == runnerv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
 		log.Printf("reconciler: workload failed for agent %s thread %s: %s", target.AgentID.String(), target.ThreadID.String(), failureSummary(resp.GetFailure()))
-		instanceID := resp.GetId()
 		if instanceID != "" {
 			if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
 				log.Printf("reconciler: stop workload %s after failure: %v", instanceID, err)
@@ -252,7 +255,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		r.compensateIdentity(ctx, zitiIdentityID, "workload failure")
 		return
 	}
-	if resp.GetId() == "" {
+	if rawInstanceID == "" {
 		log.Printf("reconciler: workload started without id for agent %s thread %s", target.AgentID.String(), target.ThreadID.String())
 		r.markWorkloadFailed(ctx, workloadKey, nil)
 		r.markVolumeRecordsFailed(ctx, createdVolumes)
@@ -261,8 +264,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 	}
 	status, err := runnerStatus(resp.GetStatus())
 	if err != nil {
-		log.Printf("reconciler: map workload status for workload %s: %v", resp.GetId(), err)
-		instanceID := resp.GetId()
+		log.Printf("reconciler: map workload status for workload %s: %v", rawInstanceID, err)
 		if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
 			log.Printf("reconciler: stop workload %s after status map failure: %v", instanceID, err)
 		}
@@ -272,7 +274,6 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		return
 	}
 	containers := buildContainers(request, resp)
-	instanceID := resp.GetId()
 	updateReq := &runnersv1.UpdateWorkloadRequest{
 		Id:         workloadKey,
 		Status:     workloadStatusPtr(status),
@@ -338,7 +339,16 @@ func (r *Reconciler) stopRunnerWorkload(ctx context.Context, runnerClient runner
 		WorkloadId: instanceID,
 		TimeoutSec: r.stopSec,
 	})
-	return err
+	if err == nil {
+		return nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return err
+	}
+	if _, parseErr := uuid.Parse(instanceID); parseErr != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Reconciler) deleteIdentity(ctx context.Context, identityID string) error {
