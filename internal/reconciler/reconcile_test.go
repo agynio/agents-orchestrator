@@ -19,7 +19,8 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
 	workloadKey := "workload-1"
-	instanceID := "instance-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
 
 	var updateReq *runnersv1.UpdateWorkloadRequest
 	runners := &fakeRunnersClient{
@@ -69,7 +70,7 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
 		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
 	}
-	if updateReq.GetInstanceId() != instanceID {
+	if updateReq.GetInstanceId() != rawInstanceID {
 		t.Fatalf("unexpected instance id: %v", updateReq.GetInstanceId())
 	}
 }
@@ -77,7 +78,8 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 func TestReconcileWorkloadsStopsOrphan(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
-	instanceID := "instance-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
 
 	stopCalled := false
 	runners := &fakeRunnersClient{
@@ -96,7 +98,7 @@ func TestReconcileWorkloadsStopsOrphan(t *testing.T) {
 			}}, nil
 		},
 		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
-			if req.GetWorkloadId() != instanceID {
+			if req.GetWorkloadId() != rawInstanceID {
 				return nil, errors.New("unexpected workload id")
 			}
 			stopCalled = true

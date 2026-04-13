@@ -93,7 +93,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 
 		for _, item := range runnerWorkloads {
-			instanceID := item.GetInstanceId()
+			instanceID := normalizeRunnerWorkloadID(item.GetInstanceId())
 			if instanceID == "" {
 				log.Printf("reconciler: warn: runner %s orphan workload missing instance id", runnerID)
 				continue
@@ -140,7 +140,7 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	if workloadID == "" {
 		return nil
 	}
-	instanceID := item.GetInstanceId()
+	instanceID := normalizeRunnerWorkloadID(item.GetInstanceId())
 	if instanceID == "" {
 		return nil
 	}
