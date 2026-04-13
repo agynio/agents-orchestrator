@@ -1005,7 +1005,7 @@ func (f *fakeRunnersClient) BatchUpdateVolumeSampledAt(ctx context.Context, req 
 	if f.batchUpdateVolume != nil {
 		return f.batchUpdateVolume(ctx, req, opts...)
 	}
-	return nil, errNotImplemented
+	return &runnersv1.BatchUpdateVolumeSampledAtResponse{}, nil
 }
 
 func (f *fakeRunnersClient) UpdateVolume(ctx context.Context, req *runnersv1.UpdateVolumeRequest, opts ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
