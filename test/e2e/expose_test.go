@@ -112,7 +112,7 @@ func TestAgentExposeListExec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wait for agent container: %v", err)
 	}
-	result := execPodCommand(t, execCtx, workloadNamespace(t), podName, containerName, []string{"agyn", "expose", "list"})
+	result := execPodCommand(t, execCtx, workloadNamespace(t), podName, containerName, []string{"/agyn-bin/cli/agyn", "expose", "list"})
 	if result.exitCode != 0 {
 		t.Fatalf("expected expose list exit code 0, got %d stdout=%q stderr=%q", result.exitCode, result.stdout, result.stderr)
 	}
