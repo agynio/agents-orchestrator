@@ -76,6 +76,10 @@ env:
     value: ""
   - name: RUNNERS_ADDRESS
     value: ""
+  - name: METERING_SERVICE_ADDRESS
+    value: ""
+  - name: METERING_SAMPLE_INTERVAL
+    value: "60s"
   - name: ZITI_ENABLED
     value: "false"
   - name: ZITI_LEASE_RENEWAL_INTERVAL

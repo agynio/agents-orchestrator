@@ -46,10 +46,12 @@ type Assembler struct {
 }
 
 type AssembleResult struct {
-	Request           *runnerv1.StartWorkloadRequest
-	OrganizationID    string
-	RunnerLabels      map[string]string
-	PersistentVolumes []PersistentVolumeInfo
+	Request                *runnerv1.StartWorkloadRequest
+	OrganizationID         string
+	RunnerLabels           map[string]string
+	PersistentVolumes      []PersistentVolumeInfo
+	AllocatedCPUMillicores int32
+	AllocatedRAMBytes      int64
 }
 
 type PersistentVolumeInfo struct {
@@ -167,6 +169,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err != nil {
 		return nil, fmt.Errorf("assign hooks: %w", err)
 	}
+	allocatedCPU, allocatedRAM, err := sumAllocatedResources(agent, mcpAssignments, hookAssignments)
+	if err != nil {
+		return nil, err
+	}
 	for _, assignment := range mcpAssignments {
 		mcpAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{McpId: assignment.id})
 		if err != nil {
@@ -247,10 +253,12 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, err
 	}
 	return &AssembleResult{
-		Request:           request,
-		OrganizationID:    agent.GetOrganizationId(),
-		RunnerLabels:      runnerLabels,
-		PersistentVolumes: persistentVolumes,
+		Request:                request,
+		OrganizationID:         agent.GetOrganizationId(),
+		RunnerLabels:           runnerLabels,
+		PersistentVolumes:      persistentVolumes,
+		AllocatedCPUMillicores: allocatedCPU,
+		AllocatedRAMBytes:      allocatedRAM,
 	}, nil
 }
 

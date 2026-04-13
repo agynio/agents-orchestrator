@@ -14,6 +14,8 @@ type Config struct {
 	SecretsAddress           string
 	RunnerAddress            string
 	RunnersAddress           string
+	MeteringServiceAddress   string
+	MeteringSampleInterval   time.Duration
 	ZitiEnabled              bool
 	ZitiManagementAddress    string
 	ZitiLeaseRenewalInterval time.Duration
@@ -55,6 +57,23 @@ func FromEnv() (Config, error) {
 	cfg.RunnersAddress = os.Getenv("RUNNERS_ADDRESS")
 	if cfg.RunnersAddress == "" {
 		cfg.RunnersAddress = "runners:50051"
+	}
+	cfg.MeteringServiceAddress = os.Getenv("METERING_SERVICE_ADDRESS")
+	if cfg.MeteringServiceAddress == "" {
+		cfg.MeteringServiceAddress = "metering:50051"
+	}
+	meteringSampleInterval := os.Getenv("METERING_SAMPLE_INTERVAL")
+	if meteringSampleInterval == "" {
+		cfg.MeteringSampleInterval = time.Minute
+	} else {
+		parsed, err := time.ParseDuration(meteringSampleInterval)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse METERING_SAMPLE_INTERVAL: %w", err)
+		}
+		cfg.MeteringSampleInterval = parsed
+	}
+	if cfg.MeteringSampleInterval <= 0 {
+		return Config{}, fmt.Errorf("METERING_SAMPLE_INTERVAL must be greater than 0")
 	}
 	zitiEnabled := os.Getenv("ZITI_ENABLED")
 	if zitiEnabled != "" {

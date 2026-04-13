@@ -31,6 +31,12 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.IdleTimeout != 5*time.Minute {
 		t.Fatalf("expected idle timeout %q, got %q", 5*time.Minute, cfg.IdleTimeout)
 	}
+	if cfg.MeteringServiceAddress != "metering:50051" {
+		t.Fatalf("expected metering service address %q, got %q", "metering:50051", cfg.MeteringServiceAddress)
+	}
+	if cfg.MeteringSampleInterval != time.Minute {
+		t.Fatalf("expected metering sample interval %q, got %q", time.Minute, cfg.MeteringSampleInterval)
+	}
 }
 
 func TestFromEnvDefaultsZiti(t *testing.T) {
@@ -76,6 +82,9 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("AGENTS_ADDRESS", "")
 	t.Setenv("SECRETS_ADDRESS", "")
 	t.Setenv("RUNNER_ADDRESS", "")
+	t.Setenv("RUNNERS_ADDRESS", "")
+	t.Setenv("METERING_SERVICE_ADDRESS", "")
+	t.Setenv("METERING_SAMPLE_INTERVAL", "")
 	t.Setenv("ZITI_MANAGEMENT_ADDRESS", "")
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
 	t.Setenv("ZITI_ENROLLMENT_TIMEOUT", "")

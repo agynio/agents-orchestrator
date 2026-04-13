@@ -24,6 +24,10 @@ func stringPtr(value string) *string {
 	return &value
 }
 
+func boolPtr(value bool) *bool {
+	return &value
+}
+
 func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, instanceID *string) {
 	status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED
 	req := &runnersv1.UpdateWorkloadRequest{
@@ -39,20 +43,22 @@ func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, 
 	}
 }
 
-func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runnerID string, target AgentThread, organizationID string, zitiIdentityID *string) error {
+func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runnerID string, target AgentThread, organizationID string, zitiIdentityID *string, allocatedCPUMillicores int32, allocatedRAMBytes int64) error {
 	status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING
 	zitiIdentityValue := ""
 	if zitiIdentityID != nil {
 		zitiIdentityValue = *zitiIdentityID
 	}
 	_, err := r.runners.CreateWorkload(ctx, &runnersv1.CreateWorkloadRequest{
-		Id:             workloadID,
-		RunnerId:       runnerID,
-		ThreadId:       target.ThreadID.String(),
-		AgentId:        target.AgentID.String(),
-		OrganizationId: organizationID,
-		Status:         status,
-		ZitiIdentityId: zitiIdentityValue,
+		Id:                     workloadID,
+		RunnerId:               runnerID,
+		ThreadId:               target.ThreadID.String(),
+		AgentId:                target.AgentID.String(),
+		OrganizationId:         organizationID,
+		Status:                 status,
+		ZitiIdentityId:         zitiIdentityValue,
+		AllocatedCpuMillicores: allocatedCPUMillicores,
+		AllocatedRamBytes:      allocatedRAMBytes,
 	})
 	return err
 }

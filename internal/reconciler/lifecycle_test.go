@@ -22,7 +22,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const testOrganizationID = "org-1"
+const (
+	testOrganizationID         = "org-1"
+	testAllocatedCPUMillicores = int32(500)
+	testAllocatedRAMBytes      = int64(1 << 30)
+)
 
 var errNotImplemented = errors.New("not implemented")
 
@@ -114,6 +118,12 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			}
 			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING {
 				return nil, errors.New("unexpected workload status")
+			}
+			if req.GetAllocatedCpuMillicores() != testAllocatedCPUMillicores {
+				return nil, errors.New("unexpected allocated cpu")
+			}
+			if req.GetAllocatedRamBytes() != testAllocatedRAMBytes {
+				return nil, errors.New("unexpected allocated ram")
 			}
 			return &runnersv1.CreateWorkloadResponse{}, nil
 		},
@@ -882,8 +892,14 @@ func newTestReconciler(cfg Config) *Reconciler {
 	if cfg.StopSec == 0 {
 		cfg.StopSec = 30
 	}
+	if cfg.MeteringSampleInterval == 0 {
+		cfg.MeteringSampleInterval = time.Minute
+	}
 	if cfg.RunnerDialer == nil {
 		cfg.RunnerDialer = &fakeRunnerDialer{}
+	}
+	if cfg.Metering == nil {
+		cfg.Metering = &fakeMeteringClient{}
 	}
 	return New(cfg)
 }
@@ -894,7 +910,16 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 			if req.GetId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: testOrganizationID, Image: "agent-image", InitImage: "agent-init-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{
+				Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+				OrganizationId: testOrganizationID,
+				Image:          "agent-image",
+				InitImage:      "agent-init-image",
+				Resources: &agentsv1.ComputeResources{
+					RequestsCpu:    "500m",
+					RequestsMemory: "1Gi",
+				},
+			}}, nil
 		},
 		ListSkillsFunc: func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
