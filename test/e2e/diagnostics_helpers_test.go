@@ -137,10 +137,10 @@ func truncateLogLine(line string) string {
 		return line
 	}
 	lineRunes := []rune(line)
-	if len(lineRunes) <= 200 {
+	if len(lineRunes) <= 1000 {
 		return line
 	}
-	return string(lineRunes[:200])
+	return string(lineRunes[:1000])
 }
 
 func logWorkloadPodDiagnostics(t *testing.T, ctx context.Context, workloadID string) {

@@ -54,8 +54,8 @@ var (
 	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
 	tracingAddr    = envOrDefault("TRACING_ADDRESS", "tracing:50051")
-	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:mcp-host-20260412-3")
-	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:mcp-host-20260412-6")
+	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:0.13.5")
+	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:0.4.1")
 )
 
 type pipelineRun struct {
@@ -456,6 +456,43 @@ func workloadNamespace(t *testing.T) string {
 	return envOrDefault("WORKLOAD_NAMESPACE", "agyn-workloads")
 }
 
+func truncateMessageBody(body string) string {
+	if body == "" {
+		return body
+	}
+	bodyRunes := []rune(body)
+	if len(bodyRunes) <= 200 {
+		return body
+	}
+	return string(bodyRunes[:200])
+}
+
+func truncateMessageID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
+}
+
+func formatMessageCreatedAt(msg *threadsv1.Message) string {
+	createdAt := msg.GetCreatedAt()
+	if createdAt == nil {
+		return "-"
+	}
+	return createdAt.AsTime().Format(time.RFC3339Nano)
+}
+
+func logMessageDiagnostics(t *testing.T, msg *threadsv1.Message) {
+	t.Helper()
+	t.Logf(
+		"diagnostics: message id=%s sender=%s created_at=%s body=%s",
+		truncateMessageID(msg.GetId()),
+		msg.GetSenderId(),
+		formatMessageCreatedAt(msg),
+		truncateMessageBody(msg.GetBody()),
+	)
+}
+
 // --- Verification Helpers ---
 
 func pollForAgentResponse(
@@ -470,29 +507,6 @@ func pollForAgentResponse(
 	expectedBody string,
 ) (string, error) {
 	t.Helper()
-	truncateBody := func(body string) string {
-		if body == "" {
-			return body
-		}
-		bodyRunes := []rune(body)
-		if len(bodyRunes) <= 200 {
-			return body
-		}
-		return string(bodyRunes[:200])
-	}
-	truncateID := func(id string) string {
-		if len(id) <= 8 {
-			return id
-		}
-		return id[:8]
-	}
-	formatCreatedAt := func(msg *threadsv1.Message) string {
-		createdAt := msg.GetCreatedAt()
-		if createdAt == nil {
-			return "-"
-		}
-		return createdAt.AsTime().Format(time.RFC3339Nano)
-	}
 	messageMatches := func(msg *threadsv1.Message) bool {
 		if msg.GetSenderId() != agentID {
 			return false
@@ -527,13 +541,7 @@ func pollForAgentResponse(
 		agentMessage := ""
 		for _, msg := range resp.GetMessages() {
 			if logDiagnostics {
-				t.Logf(
-					"diagnostics: message id=%s sender=%s created_at=%s body=%s",
-					truncateID(msg.GetId()),
-					msg.GetSenderId(),
-					formatCreatedAt(msg),
-					truncateBody(msg.GetBody()),
-				)
+				logMessageDiagnostics(t, msg)
 			}
 			if agentMessage == "" && messageMatches(msg) {
 				agentMessage = msg.GetBody()

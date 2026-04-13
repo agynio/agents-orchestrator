@@ -769,11 +769,13 @@ type fakeRunnersClient struct {
 	deleteWorkload        func(context.Context, *runnersv1.DeleteWorkloadRequest, ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error)
 	listWorkloads         func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error)
 	listWorkloadsByThread func(context.Context, *runnersv1.ListWorkloadsByThreadRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsByThreadResponse, error)
+	batchUpdateWorkload   func(context.Context, *runnersv1.BatchUpdateWorkloadSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error)
 	listVolumes           func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error)
 	listRunners           func(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error)
 	updateWorkload        func(context.Context, *runnersv1.UpdateWorkloadRequest, ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error)
 	updateWorkloadStatus  func(context.Context, *runnersv1.UpdateWorkloadStatusRequest, ...grpc.CallOption) (*runnersv1.UpdateWorkloadStatusResponse, error)
 	updateVolume          func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error)
+	batchUpdateVolume     func(context.Context, *runnersv1.BatchUpdateVolumeSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateVolumeSampledAtResponse, error)
 }
 
 func (f *fakeRunnersClient) RegisterRunner(context.Context, *runnersv1.RegisterRunnerRequest, ...grpc.CallOption) (*runnersv1.RegisterRunnerResponse, error) {
@@ -864,6 +866,13 @@ func (f *fakeRunnersClient) ListWorkloads(ctx context.Context, req *runnersv1.Li
 	return nil, errNotImplemented
 }
 
+func (f *fakeRunnersClient) BatchUpdateWorkloadSampledAt(ctx context.Context, req *runnersv1.BatchUpdateWorkloadSampledAtRequest, opts ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error) {
+	if f.batchUpdateWorkload != nil {
+		return f.batchUpdateWorkload(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
 func (f *fakeRunnersClient) ListVolumes(ctx context.Context, req *runnersv1.ListVolumesRequest, opts ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 	if f.listVolumes != nil {
 		return f.listVolumes(ctx, req, opts...)
@@ -872,6 +881,13 @@ func (f *fakeRunnersClient) ListVolumes(ctx context.Context, req *runnersv1.List
 }
 
 func (f *fakeRunnersClient) ListVolumesByThread(context.Context, *runnersv1.ListVolumesByThreadRequest, ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) BatchUpdateVolumeSampledAt(ctx context.Context, req *runnersv1.BatchUpdateVolumeSampledAtRequest, opts ...grpc.CallOption) (*runnersv1.BatchUpdateVolumeSampledAtResponse, error) {
+	if f.batchUpdateVolume != nil {
+		return f.batchUpdateVolume(ctx, req, opts...)
+	}
 	return nil, errNotImplemented
 }
 

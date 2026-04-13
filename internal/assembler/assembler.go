@@ -26,7 +26,7 @@ const (
 	agynBinBinaryPath                    = "/agyn-bin/agynd"
 	agynBinCLIDir                        = "/agyn-bin/cli"
 	agentWorkspaceDir                    = "/tmp"
-	agentHomeDir                         = "/root"
+	agentHomeDir                         = "/tmp"
 	mcpBasePort                          = 8100
 	ZitiSidecarInitContainerName         = "ziti-sidecar"
 	zitiIdentityVolumeName               = "ziti-identity"

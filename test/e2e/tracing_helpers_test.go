@@ -590,3 +590,67 @@ func logSpanSamples(
 		t.Logf("diagnostics: no spans found for %s", label)
 	}
 }
+
+func logShellToolExecutionDiagnostics(t *testing.T, startTimeMinNs uint64, threadID string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	conn, err := dialGRPCForCheck(ctx, tracingAddr)
+	if err != nil {
+		t.Logf("diagnostics: dial tracing: %v", err)
+		return
+	}
+	defer conn.Close()
+	client := tracingv1.NewTracingServiceClient(conn)
+
+	pageToken := ""
+	found := 0
+	for {
+		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+			Filter: &tracingv1.SpanFilter{
+				StartTimeMin: startTimeMinNs,
+				Names:        []string{"tool.execution"},
+			},
+			PageSize:  200,
+			PageToken: pageToken,
+			OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+		})
+		if err != nil {
+			t.Logf("diagnostics: list tool.execution spans: %v", err)
+			return
+		}
+		for _, resourceSpan := range resp.GetResourceSpans() {
+			resourceHasThread := resourceHasThreadID(resourceSpan, threadID)
+			for _, span := range spansFromResource(resourceSpan) {
+				if !resourceHasThread && !spanHasThreadID(span, threadID) {
+					continue
+				}
+				attrs := attributesToMap(span.GetAttributes())
+				if attrs["agyn.tool.name"] != "shell" {
+					continue
+				}
+				input := truncateLogLine(attrs["agyn.tool.input"])
+				output := truncateLogLine(attrs["agyn.tool.output"])
+				t.Logf(
+					"diagnostics: shell tool.execution trace=%x span=%x input=%s output=%s",
+					span.GetTraceId(),
+					span.GetSpanId(),
+					input,
+					output,
+				)
+				found++
+				if found >= 5 {
+					return
+				}
+			}
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	if found == 0 {
+		t.Log("diagnostics: no shell tool.execution spans found")
+	}
+}
