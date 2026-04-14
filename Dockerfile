@@ -35,7 +35,8 @@ RUN buf generate buf.build/agynio/api \
     --path agynio/api/llm/v1 \
     --path agynio/api/users/v1 \
     --path agynio/api/organizations/v1 \
-    --path agynio/api/tracing/v1
+    --path agynio/api/tracing/v1 \
+    --path agynio/api/metering/v1
 
 COPY . .
 
