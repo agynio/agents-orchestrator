@@ -92,6 +92,13 @@ func FromEnv() (Config, error) {
 		}
 	}
 	cfg.AgentTracingAddress = os.Getenv("AGENT_TRACING_ADDRESS")
+	if cfg.AgentTracingAddress == "" {
+		if cfg.ZitiEnabled {
+			cfg.AgentTracingAddress = "tracing.ziti:443"
+		} else {
+			cfg.AgentTracingAddress = "tracing:50051"
+		}
+	}
 	cfg.AgentLLMBaseURL = os.Getenv("AGENT_LLM_BASE_URL")
 	if cfg.AgentLLMBaseURL == "" {
 		if cfg.ZitiEnabled {
