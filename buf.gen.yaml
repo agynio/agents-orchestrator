@@ -6,9 +6,7 @@ managed:
     - file_option: go_package_prefix
       value: github.com/agynio/agents-orchestrator/.gen/go
 inputs:
-  - git_repo: https://github.com/agynio/api.git
-    branch: 6dcb04a7bdc5f46b3cb13bce95561b7bf3daceaf
-    subdir: proto
+  - module: buf.build/agynio/api
     paths:
       - agynio/api/runner/v1
       - agynio/api/runners/v1
