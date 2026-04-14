@@ -36,7 +36,7 @@ func TestAgentExposeListExec(t *testing.T) {
 	usersClient := usersv1.NewUsersServiceClient(usersConn)
 	orgsClient := organizationsv1.NewOrganizationsServiceClient(orgsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
-	exposeInitImage := envOrDefault("AGN_EXPOSE_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:0.3.5")
+	exposeInitImage := envOrDefault("AGN_EXPOSE_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:0.4.4")
 
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
 	token := createAPIToken(t, ctx, usersClient, identityID)
