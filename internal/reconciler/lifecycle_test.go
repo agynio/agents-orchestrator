@@ -32,20 +32,21 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 	threadID := uuid.New()
 	zitiID := "ziti-identity"
 	jwt := "enrollment-jwt"
-	workloadID := "workload-1"
 	runnerID := "runner-1"
 	mainContainerID := "container-main"
 	testAssembler := newTestAssembler(agentID, true)
 
 	var calls []string
 	var workloadKey string
+	var workloadID string
 	zitiMgmt := &fakeZitiMgmtClient{
 		createAgentIdentity: func(_ context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
 			calls = append(calls, "create")
 			if req.GetAgentId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
-			if req.GetWorkloadId() == "" {
+			workloadID = req.GetWorkloadId()
+			if workloadID == "" {
 				return nil, errors.New("missing workload id")
 			}
 			return &zitimgmtv1.CreateAgentIdentityResponse{ZitiIdentityId: zitiID, EnrollmentJwt: jwt}, nil
@@ -57,6 +58,9 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			calls = append(calls, "start")
 			if req.GetMain() == nil {
 				return nil, errors.New("missing main container")
+			}
+			if req.GetWorkloadId() != workloadID {
+				return nil, errors.New("unexpected workload id")
 			}
 			labelKey := assembler.LabelKeyPrefix + assembler.LabelWorkloadKey
 			if req.GetAdditionalProperties()[labelKey] != workloadKey {
@@ -162,18 +166,22 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
 	threadID := uuid.New()
-	workloadID := "workload-1"
 	runnerID := "runner-1"
 	mainContainerID := "container-main"
 	testAssembler := newTestAssembler(agentID, false)
 
 	var calls []string
 	var workloadKey string
+	var workloadID string
 	runner := &fakeRunnerClient{
 		startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
 			calls = append(calls, "start")
 			if req.GetMain() == nil {
 				return nil, errors.New("missing main container")
+			}
+			workloadID = req.GetWorkloadId()
+			if workloadID == "" {
+				return nil, errors.New("missing workload id")
 			}
 			labelKey := assembler.LabelKeyPrefix + assembler.LabelWorkloadKey
 			if req.GetAdditionalProperties()[labelKey] != workloadKey {
@@ -333,6 +341,115 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
 
 	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "start", "update-workload", "delete"}) {
+		t.Fatalf("unexpected call order: %v", calls)
+	}
+}
+
+func TestStartWorkloadRollsBackOnWorkloadIDMismatch(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	zitiID := "ziti-identity"
+	runnerID := "runner-1"
+	instanceID := "runner-workload-1"
+	mainContainerID := "container-main"
+	testAssembler := newTestAssembler(agentID, true)
+
+	var calls []string
+	var workloadKey string
+	var workloadID string
+	zitiMgmt := &fakeZitiMgmtClient{
+		createAgentIdentity: func(_ context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
+			calls = append(calls, "create")
+			workloadID = req.GetWorkloadId()
+			if workloadID == "" {
+				return nil, errors.New("missing workload id")
+			}
+			return &zitimgmtv1.CreateAgentIdentityResponse{ZitiIdentityId: zitiID, EnrollmentJwt: "jwt"}, nil
+		},
+		deleteIdentity: func(_ context.Context, req *zitimgmtv1.DeleteIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error) {
+			calls = append(calls, "delete")
+			if req.GetZitiIdentityId() != zitiID {
+				return nil, errors.New("unexpected ziti identity id")
+			}
+			return &zitimgmtv1.DeleteIdentityResponse{}, nil
+		},
+	}
+
+	runner := &fakeRunnerClient{
+		startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
+			calls = append(calls, "start")
+			if req.GetWorkloadId() != workloadID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return &runnerv1.StartWorkloadResponse{
+				Id:     instanceID,
+				Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				Containers: &runnerv1.WorkloadContainers{
+					Main: mainContainerID,
+				},
+			}, nil
+		},
+		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			calls = append(calls, "stop")
+			if req.GetWorkloadId() != instanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return &runnerv1.StopWorkloadResponse{}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+
+	runners := &fakeRunnersClient{
+		createWorkload: func(_ context.Context, req *runnersv1.CreateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
+			calls = append(calls, "create-workload")
+			if req.GetId() == "" {
+				return nil, errors.New("missing workload id")
+			}
+			workloadKey = req.GetId()
+			if req.GetRunnerId() != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.CreateWorkloadResponse{}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			calls = append(calls, "update-workload")
+			if req.GetId() != workloadKey {
+				return nil, errors.New("unexpected workload id")
+			}
+			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+				return nil, errors.New("unexpected workload status")
+			}
+			if req.GetInstanceId() != instanceID {
+				return nil, errors.New("unexpected instance id")
+			}
+			if req.GetRemovedAt() == nil {
+				return nil, errors.New("missing removed_at")
+			}
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		ZitiMgmt:     zitiMgmt,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
+
+	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "start", "stop", "update-workload", "delete"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -967,7 +1084,7 @@ func (f *fakeRunnersClient) BatchUpdateVolumeSampledAt(ctx context.Context, req 
 	if f.batchUpdateVolume != nil {
 		return f.batchUpdateVolume(ctx, req, opts...)
 	}
-	return nil, errNotImplemented
+	return &runnersv1.BatchUpdateVolumeSampledAtResponse{}, nil
 }
 
 func (f *fakeRunnersClient) UpdateVolume(ctx context.Context, req *runnersv1.UpdateVolumeRequest, opts ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {

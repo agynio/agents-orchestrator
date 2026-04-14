@@ -207,6 +207,8 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		return
 	}
 	workloadID := uuid.New()
+	requestedWorkloadID := workloadID.String()
+	request.WorkloadId = requestedWorkloadID
 	identity, err := r.createIdentity(ctx, target, workloadID)
 	if err != nil {
 		log.Printf("reconciler: %v", err)
@@ -260,6 +262,17 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		r.markWorkloadFailed(ctx, workloadKey, nil)
 		r.markVolumeRecordsFailed(ctx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "missing workload id")
+		return
+	}
+	if resp.GetId() != requestedWorkloadID {
+		log.Printf("reconciler: workload id mismatch for agent %s thread %s (expected %s got %s)", target.AgentID.String(), target.ThreadID.String(), requestedWorkloadID, resp.GetId())
+		instanceID := resp.GetId()
+		if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
+			log.Printf("reconciler: stop workload %s after id mismatch: %v", instanceID, err)
+		}
+		r.markWorkloadFailed(ctx, workloadKey, stringPtr(instanceID))
+		r.markVolumeRecordsFailed(ctx, createdVolumes)
+		r.compensateIdentity(ctx, zitiIdentityID, "workload id mismatch")
 		return
 	}
 	status, err := runnerStatus(resp.GetStatus())
