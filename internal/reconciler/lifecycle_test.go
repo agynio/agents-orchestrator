@@ -41,7 +41,6 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 	testAssembler := newTestAssembler(agentID, true)
 
 	var calls []string
-	var workloadKey string
 	var workloadID string
 	zitiMgmt := &fakeZitiMgmtClient{
 		createAgentIdentity: func(_ context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
@@ -67,7 +66,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 				return nil, errors.New("unexpected workload id")
 			}
 			labelKey := assembler.LabelKeyPrefix + assembler.LabelWorkloadKey
-			if req.GetAdditionalProperties()[labelKey] != workloadKey {
+			if req.GetAdditionalProperties()[labelKey] != workloadID {
 				return nil, errors.New("unexpected workload key label")
 			}
 			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
@@ -103,7 +102,12 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetId() == "" {
 				return nil, errors.New("missing workload id")
 			}
-			workloadKey = req.GetId()
+			if workloadID == "" {
+				return nil, errors.New("missing workload id")
+			}
+			if req.GetId() != workloadID {
+				return nil, errors.New("unexpected workload id")
+			}
 			if req.GetRunnerId() != runnerID {
 				return nil, errors.New("unexpected runner id")
 			}
@@ -129,7 +133,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 		},
 		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
 			calls = append(calls, "update-workload")
-			if req.GetId() != workloadKey {
+			if req.GetId() != workloadID {
 				return nil, errors.New("unexpected workload id")
 			}
 			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
@@ -181,7 +185,6 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 	testAssembler := newTestAssembler(agentID, false)
 
 	var calls []string
-	var workloadKey string
 	var workloadID string
 	runner := &fakeRunnerClient{
 		startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
@@ -189,12 +192,14 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			if req.GetMain() == nil {
 				return nil, errors.New("missing main container")
 			}
-			workloadID = req.GetWorkloadId()
-			if workloadID == "" {
+			if req.GetWorkloadId() == "" {
 				return nil, errors.New("missing workload id")
 			}
+			if req.GetWorkloadId() != workloadID {
+				return nil, errors.New("unexpected workload id")
+			}
 			labelKey := assembler.LabelKeyPrefix + assembler.LabelWorkloadKey
-			if req.GetAdditionalProperties()[labelKey] != workloadKey {
+			if req.GetAdditionalProperties()[labelKey] != workloadID {
 				return nil, errors.New("unexpected workload key label")
 			}
 			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
@@ -229,7 +234,7 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			if req.GetId() == "" {
 				return nil, errors.New("missing workload id")
 			}
-			workloadKey = req.GetId()
+			workloadID = req.GetId()
 			if req.GetRunnerId() != runnerID {
 				return nil, errors.New("unexpected runner id")
 			}
@@ -246,7 +251,7 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 		},
 		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
 			calls = append(calls, "update-workload")
-			if req.GetId() != workloadKey {
+			if req.GetId() != workloadID {
 				return nil, errors.New("unexpected workload id")
 			}
 			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
@@ -366,7 +371,6 @@ func TestStartWorkloadRollsBackOnWorkloadIDMismatch(t *testing.T) {
 	testAssembler := newTestAssembler(agentID, true)
 
 	var calls []string
-	var workloadKey string
 	var workloadID string
 	zitiMgmt := &fakeZitiMgmtClient{
 		createAgentIdentity: func(_ context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
@@ -424,7 +428,12 @@ func TestStartWorkloadRollsBackOnWorkloadIDMismatch(t *testing.T) {
 			if req.GetId() == "" {
 				return nil, errors.New("missing workload id")
 			}
-			workloadKey = req.GetId()
+			if workloadID == "" {
+				return nil, errors.New("missing workload id")
+			}
+			if req.GetId() != workloadID {
+				return nil, errors.New("unexpected workload id")
+			}
 			if req.GetRunnerId() != runnerID {
 				return nil, errors.New("unexpected runner id")
 			}
@@ -432,7 +441,7 @@ func TestStartWorkloadRollsBackOnWorkloadIDMismatch(t *testing.T) {
 		},
 		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
 			calls = append(calls, "update-workload")
-			if req.GetId() != workloadKey {
+			if req.GetId() != workloadID {
 				return nil, errors.New("unexpected workload id")
 			}
 			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
