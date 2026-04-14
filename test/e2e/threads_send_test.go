@@ -88,17 +88,12 @@ func TestThreadsSendShell(t *testing.T) {
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer pollCancel()
-	agentMessages, err := pollForAgentMessages(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, 2)
+	expectedBodies := []string{"Thinking", "Done thinking. Here is my reply."}
+	agentMessages, err := pollForAgentMessages(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expectedBodies)
 	if err != nil {
 		logShellToolExecutionDiagnostics(t, startTimeMinNs, threadID)
 		t.Fatalf("wait for agent messages: %v", err)
 	}
-
-	sort.Slice(agentMessages, func(i, j int) bool {
-		return messageCreatedAt(t, agentMessages[i]).Before(messageCreatedAt(t, agentMessages[j]))
-	})
-
-	expectedBodies := []string{"Thinking", "Done thinking. Here is my reply."}
 	if len(agentMessages) != len(expectedBodies) {
 		t.Fatalf("expected %d agent messages, got %d", len(expectedBodies), len(agentMessages))
 	}
@@ -119,9 +114,12 @@ func pollForAgentMessages(
 	agentID string,
 	labels map[string]string,
 	minCreatedAt time.Time,
-	expectedCount int,
+	expectedBodies []string,
 ) ([]*threadsv1.Message, error) {
 	t.Helper()
+	if len(expectedBodies) == 0 {
+		return nil, fmt.Errorf("expected bodies list is empty")
+	}
 	var agentMessages []*threadsv1.Message
 	pollCount := 0
 	err := pollUntil(ctx, pollInterval, func(ctx context.Context) error {
@@ -134,7 +132,7 @@ func pollForAgentMessages(
 		if err != nil {
 			return fmt.Errorf("get messages: %w", err)
 		}
-		filtered := make([]*threadsv1.Message, 0, expectedCount)
+		filtered := make([]*threadsv1.Message, 0, len(expectedBodies))
 		for _, msg := range resp.GetMessages() {
 			if logDiagnostics {
 				logMessageDiagnostics(t, msg)
@@ -151,8 +149,22 @@ func pollForAgentMessages(
 			}
 			filtered = append(filtered, msg)
 		}
-		if len(filtered) >= expectedCount {
-			agentMessages = filtered
+		sort.Slice(filtered, func(i, j int) bool {
+			return messageCreatedAt(t, filtered[i]).Before(messageCreatedAt(t, filtered[j]))
+		})
+		matched := make([]*threadsv1.Message, 0, len(expectedBodies))
+		expectedIndex := 0
+		for _, msg := range filtered {
+			if expectedIndex >= len(expectedBodies) {
+				break
+			}
+			if msg.GetBody() == expectedBodies[expectedIndex] {
+				matched = append(matched, msg)
+				expectedIndex++
+			}
+		}
+		if expectedIndex == len(expectedBodies) {
+			agentMessages = matched
 			return nil
 		}
 		if logDiagnostics {
@@ -176,7 +188,7 @@ func pollForAgentMessages(
 				}
 			}
 		}
-		return fmt.Errorf("expected %d agent messages, got %d", expectedCount, len(filtered))
+		return fmt.Errorf("expected %d agent messages, matched %d", len(expectedBodies), expectedIndex)
 	})
 	if err != nil {
 		return nil, err
