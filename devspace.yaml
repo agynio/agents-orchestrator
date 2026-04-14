@@ -78,21 +78,21 @@ functions:
                     sleep 1; elapsed=$((elapsed + 1))
                     [ "$elapsed" -ge 240 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
                   done
-                  buf generate https://github.com/agynio/api.git#commit=6dcb04a7bdc5f46b3cb13bce95561b7bf3daceaf \
+                  buf generate buf.build/agynio/api \
                     --include-imports \
-                    --path proto/agynio/api/runner/v1 \
-                    --path proto/agynio/api/runners/v1 \
-                    --path proto/agynio/api/threads/v1 \
-                    --path proto/agynio/api/notifications/v1 \
-                    --path proto/agynio/api/metering/v1 \
-                    --path proto/agynio/api/agents/v1 \
-                    --path proto/agynio/api/secrets/v1 \
-                    --path proto/agynio/api/ziti_management/v1 \
-                    --path proto/agynio/api/identity/v1 \
-                    --path proto/agynio/api/llm/v1 \
-                    --path proto/agynio/api/users/v1 \
-                    --path proto/agynio/api/organizations/v1 \
-                    --path proto/agynio/api/tracing/v1
+                    --path agynio/api/runner/v1 \
+                    --path agynio/api/runners/v1 \
+                    --path agynio/api/threads/v1 \
+                    --path agynio/api/notifications/v1 \
+                    --path agynio/api/metering/v1 \
+                    --path agynio/api/agents/v1 \
+                    --path agynio/api/secrets/v1 \
+                    --path agynio/api/ziti_management/v1 \
+                    --path agynio/api/identity/v1 \
+                    --path agynio/api/llm/v1 \
+                    --path agynio/api/users/v1 \
+                    --path agynio/api/organizations/v1 \
+                    --path agynio/api/tracing/v1
                   exec go run ./cmd/orchestrator
               volumeMounts:
                 - name: data
@@ -234,7 +234,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
         -n ${ORCHESTRATOR_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && buf generate https://github.com/agynio/api.git#commit=6dcb04a7bdc5f46b3cb13bce95561b7bf3daceaf --include-imports --path proto/agynio/api/runner/v1 --path proto/agynio/api/runners/v1 --path proto/agynio/api/threads/v1 --path proto/agynio/api/notifications/v1 --path proto/agynio/api/metering/v1 --path proto/agynio/api/agents/v1 --path proto/agynio/api/secrets/v1 --path proto/agynio/api/ziti_management/v1 --path proto/agynio/api/identity/v1 --path proto/agynio/api/llm/v1 --path proto/agynio/api/users/v1 --path proto/agynio/api/organizations/v1 --path proto/agynio/api/tracing/v1 && go test -v -count=1 -timeout=20m -tags e2e ./test/e2e/'
+        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --include-imports --path agynio/api/runner/v1 --path agynio/api/runners/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/metering/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 --path agynio/api/ziti_management/v1 --path agynio/api/identity/v1 --path agynio/api/llm/v1 --path agynio/api/users/v1 --path agynio/api/organizations/v1 --path agynio/api/tracing/v1 && go test -v -count=1 -timeout=20m -tags e2e ./test/e2e/'
       EXIT_CODE=$?
       purge_deployments e2e-runner e2e-rbac
       exit $EXIT_CODE
