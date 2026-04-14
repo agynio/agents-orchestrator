@@ -76,7 +76,7 @@ functions:
                   elapsed=0
                   while [ ! -f /opt/app/data/go.mod ]; do
                     sleep 1; elapsed=$((elapsed + 1))
-                    [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
+                    [ "$elapsed" -ge 240 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
                   done
                   buf generate https://github.com/agynio/api.git#commit=6dcb04a7bdc5f46b3cb13bce95561b7bf3daceaf \
                     --include-imports \
