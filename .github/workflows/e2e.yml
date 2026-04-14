@@ -58,6 +58,30 @@ jobs:
           kubectl cluster-info
           kubectl get pods -n platform
 
+      - name: Checkout ziti-management (branch)
+        id: checkout_ziti_management
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/ziti-management
+          path: ziti-management
+          ref: ${{ github.head_ref }}
+
+      - name: Checkout ziti-management (main)
+        if: steps.checkout_ziti_management.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/ziti-management
+          path: ziti-management
+
+      - name: Build and deploy ziti-management
+        working-directory: ziti-management
+        run: |
+          docker build -t ziti-management:e2e .
+          k3d image import -c agyn-local ziti-management:e2e
+          kubectl -n platform set image deployment/ziti-management "*=ziti-management:e2e"
+          kubectl -n platform rollout status deployment/ziti-management --timeout=180s
+
       # --- Install DevSpace ---
 
       - name: Install DevSpace

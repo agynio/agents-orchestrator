@@ -4,7 +4,9 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +20,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+type exposureOutput struct {
+	ID     string `json:"id"`
+	Port   int32  `json:"port"`
+	URL    string `json:"url"`
+	Status string `json:"status"`
+}
 
 func TestAgentExposeListExec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
@@ -36,7 +45,7 @@ func TestAgentExposeListExec(t *testing.T) {
 	usersClient := usersv1.NewUsersServiceClient(usersConn)
 	orgsClient := organizationsv1.NewOrganizationsServiceClient(orgsConn)
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
-	exposeInitImage := envOrDefault("AGN_EXPOSE_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:0.3.5")
+	exposeInitImage := envOrDefault("AGN_EXPOSE_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:0.4.4")
 
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
 	token := createAPIToken(t, ctx, usersClient, identityID)
@@ -112,9 +121,104 @@ func TestAgentExposeListExec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wait for agent container: %v", err)
 	}
-	result := execPodCommand(t, execCtx, workloadNamespace(t), podName, containerName, []string{"/agyn-bin/cli/agyn", "expose", "list"})
-	if result.exitCode != 0 {
-		t.Fatalf("expected expose list exit code 0, got %d stdout=%q stderr=%q", result.exitCode, result.stdout, result.stderr)
+
+	port := int32(15000 + time.Now().UnixNano()%10000)
+	addResult := execPodCommand(t, execCtx, workloadNamespace(t), podName, containerName, []string{
+		"/agyn-bin/cli/agyn",
+		"expose",
+		"add",
+		fmt.Sprintf("%d", port),
+		"--output",
+		"json",
+	})
+	if addResult.exitCode != 0 {
+		t.Fatalf("expected expose add exit code 0, got %d stdout=%q stderr=%q", addResult.exitCode, addResult.stdout, addResult.stderr)
+	}
+	var addOutput exposureOutput
+	if err := json.Unmarshal([]byte(addResult.stdout), &addOutput); err != nil {
+		t.Fatalf("decode expose add output: %v stdout=%q", err, addResult.stdout)
+	}
+	if addOutput.ID == "" {
+		t.Fatal("expose add output missing id")
+	}
+	if addOutput.URL == "" {
+		t.Fatal("expose add output missing url")
+	}
+	if addOutput.Port != port {
+		t.Fatalf("expected expose add port %d, got %d", port, addOutput.Port)
+	}
+	if addOutput.Status != "active" {
+		t.Fatalf("expected expose add status active, got %q", addOutput.Status)
+	}
+
+	listResult := execPodCommand(t, execCtx, workloadNamespace(t), podName, containerName, []string{
+		"/agyn-bin/cli/agyn",
+		"expose",
+		"list",
+		"--output",
+		"json",
+	})
+	if listResult.exitCode != 0 {
+		t.Fatalf("expected expose list exit code 0, got %d stdout=%q stderr=%q", listResult.exitCode, listResult.stdout, listResult.stderr)
+	}
+	var listOutputs []exposureOutput
+	if err := json.Unmarshal([]byte(listResult.stdout), &listOutputs); err != nil {
+		t.Fatalf("decode expose list output: %v stdout=%q", err, listResult.stdout)
+	}
+	foundPort := false
+	for _, exposure := range listOutputs {
+		if exposure.Port == port {
+			foundPort = true
+			break
+		}
+	}
+	if !foundPort {
+		t.Fatalf("expected expose list to include port %d", port)
+	}
+
+	duplicateResult := execPodCommand(t, execCtx, workloadNamespace(t), podName, containerName, []string{
+		"/agyn-bin/cli/agyn",
+		"expose",
+		"add",
+		fmt.Sprintf("%d", port),
+		"--output",
+		"json",
+	})
+	if duplicateResult.exitCode == 0 {
+		t.Fatalf("expected expose add duplicate exit code non-zero, got 0 stdout=%q stderr=%q", duplicateResult.stdout, duplicateResult.stderr)
+	}
+	if !strings.Contains(duplicateResult.stderr, "already_exists") {
+		t.Fatalf("expected expose add duplicate stderr to include already_exists, got %q", duplicateResult.stderr)
+	}
+
+	removeResult := execPodCommand(t, execCtx, workloadNamespace(t), podName, containerName, []string{
+		"/agyn-bin/cli/agyn",
+		"expose",
+		"remove",
+		fmt.Sprintf("%d", port),
+	})
+	if removeResult.exitCode != 0 {
+		t.Fatalf("expected expose remove exit code 0, got %d stdout=%q stderr=%q", removeResult.exitCode, removeResult.stdout, removeResult.stderr)
+	}
+
+	listAfterResult := execPodCommand(t, execCtx, workloadNamespace(t), podName, containerName, []string{
+		"/agyn-bin/cli/agyn",
+		"expose",
+		"list",
+		"--output",
+		"json",
+	})
+	if listAfterResult.exitCode != 0 {
+		t.Fatalf("expected expose list after remove exit code 0, got %d stdout=%q stderr=%q", listAfterResult.exitCode, listAfterResult.stdout, listAfterResult.stderr)
+	}
+	var listAfterOutputs []exposureOutput
+	if err := json.Unmarshal([]byte(listAfterResult.stdout), &listAfterOutputs); err != nil {
+		t.Fatalf("decode expose list after remove output: %v stdout=%q", err, listAfterResult.stdout)
+	}
+	for _, exposure := range listAfterOutputs {
+		if exposure.Port == port {
+			t.Fatalf("expected expose list after remove to exclude port %d", port)
+		}
 	}
 }
 
