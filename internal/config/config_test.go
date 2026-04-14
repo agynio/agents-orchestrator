@@ -19,6 +19,9 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.AgentGatewayAddress != "gateway:8080" {
 		t.Fatalf("expected gateway address %q, got %q", "gateway:8080", cfg.AgentGatewayAddress)
 	}
+	if cfg.AgentTracingAddress != "tracing:50051" {
+		t.Fatalf("expected tracing address %q, got %q", "tracing:50051", cfg.AgentTracingAddress)
+	}
 	if cfg.AgentLLMBaseURL != "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1" {
 		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1", cfg.AgentLLMBaseURL)
 	}
@@ -52,6 +55,9 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	}
 	if cfg.AgentGatewayAddress != "gateway.ziti:443" {
 		t.Fatalf("expected gateway address %q, got %q", "gateway.ziti:443", cfg.AgentGatewayAddress)
+	}
+	if cfg.AgentTracingAddress != "tracing.ziti:443" {
+		t.Fatalf("expected tracing address %q, got %q", "tracing.ziti:443", cfg.AgentTracingAddress)
 	}
 	if cfg.AgentLLMBaseURL != "http://llm-proxy.ziti/v1" {
 		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy.ziti/v1", cfg.AgentLLMBaseURL)
