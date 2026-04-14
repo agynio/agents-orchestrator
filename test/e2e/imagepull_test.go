@@ -162,10 +162,18 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	if secretName == "" {
 		t.Fatal("image pull secret name missing")
 	}
-
-	secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get secret %s: %v", secretName, err)
+	var secret *corev1.Secret
+	secretCtx, secretCancel := context.WithTimeout(ctx, 90*time.Second)
+	defer secretCancel()
+	if err := pollUntil(secretCtx, pollInterval, func(ctx context.Context) error {
+		fetched, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		secret = fetched
+		return nil
+	}); err != nil {
+		t.Fatalf("wait for image pull secret %s: %v", secretName, err)
 	}
 	if secret.Type != corev1.SecretTypeDockerConfigJson {
 		t.Fatalf("expected secret type %s, got %s", corev1.SecretTypeDockerConfigJson, secret.Type)
