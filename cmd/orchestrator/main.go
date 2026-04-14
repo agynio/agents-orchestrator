@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
@@ -84,6 +85,12 @@ func run() error {
 	}
 	defer closeConn(runnersConn)
 
+	meteringConn, err := grpc.NewClient(cfg.MeteringServiceAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("dial metering: %w", err)
+	}
+	defer closeConn(meteringConn)
+
 	var (
 		runnerDialer   runnerdial.RunnerDialer
 		zitiMgmtConn   *grpc.ClientConn
@@ -121,19 +128,22 @@ func run() error {
 	agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
+	meteringClient := meteringv1.NewMeteringServiceClient(meteringConn)
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
-		Threads:      threadsClient,
-		Agents:       agentsClient,
-		RunnerDialer: runnerDialer,
-		ZitiMgmt:     zitiMgmtClient,
-		Runners:      runnersClient,
-		Assembler:    assembler,
-		Wake:         subscriber.Wake(),
-		Poll:         cfg.PollInterval,
-		Idle:         cfg.IdleTimeout,
-		StopSec:      cfg.StopTimeoutSec,
+		Threads:                threadsClient,
+		Agents:                 agentsClient,
+		RunnerDialer:           runnerDialer,
+		ZitiMgmt:               zitiMgmtClient,
+		Runners:                runnersClient,
+		Metering:               meteringClient,
+		Assembler:              assembler,
+		Wake:                   subscriber.Wake(),
+		Poll:                   cfg.PollInterval,
+		Idle:                   cfg.IdleTimeout,
+		StopSec:                cfg.StopTimeoutSec,
+		MeteringSampleInterval: cfg.MeteringSampleInterval,
 	})
 
 	start := func(leadCtx context.Context) {

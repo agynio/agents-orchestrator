@@ -1356,6 +1356,94 @@ func (x *ListModelsResponse) GetNextPageToken() string {
 	return ""
 }
 
+type TestModelRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // UUID
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestModelRequest) Reset() {
+	*x = TestModelRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestModelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestModelRequest) ProtoMessage() {}
+
+func (x *TestModelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestModelRequest.ProtoReflect.Descriptor instead.
+func (*TestModelRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *TestModelRequest) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+type TestModelResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OutputText    string                 `protobuf:"bytes,1,opt,name=output_text,json=outputText,proto3" json:"output_text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestModelResponse) Reset() {
+	*x = TestModelResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestModelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestModelResponse) ProtoMessage() {}
+
+func (x *TestModelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestModelResponse.ProtoReflect.Descriptor instead.
+func (*TestModelResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *TestModelResponse) GetOutputText() string {
+	if x != nil {
+		return x.OutputText
+	}
+	return ""
+}
+
 type ResolveModelRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // UUID
@@ -1365,7 +1453,7 @@ type ResolveModelRequest struct {
 
 func (x *ResolveModelRequest) Reset() {
 	*x = ResolveModelRequest{}
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[23]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1377,7 +1465,7 @@ func (x *ResolveModelRequest) String() string {
 func (*ResolveModelRequest) ProtoMessage() {}
 
 func (x *ResolveModelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[23]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1390,7 +1478,7 @@ func (x *ResolveModelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveModelRequest.ProtoReflect.Descriptor instead.
 func (*ResolveModelRequest) Descriptor() ([]byte, []int) {
-	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{23}
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ResolveModelRequest) GetModelId() string {
@@ -1414,7 +1502,7 @@ type ResolveModelResponse struct {
 
 func (x *ResolveModelResponse) Reset() {
 	*x = ResolveModelResponse{}
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[24]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1426,7 +1514,7 @@ func (x *ResolveModelResponse) String() string {
 func (*ResolveModelResponse) ProtoMessage() {}
 
 func (x *ResolveModelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[24]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1439,7 +1527,7 @@ func (x *ResolveModelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveModelResponse.ProtoReflect.Descriptor instead.
 func (*ResolveModelResponse) Descriptor() ([]byte, []int) {
-	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{24}
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ResolveModelResponse) GetEndpoint() string {
@@ -1580,7 +1668,12 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\"n\n" +
 	"\x12ListModelsResponse\x120\n" +
 	"\x06models\x18\x01 \x03(\v2\x18.agynio.api.llm.v1.ModelR\x06models\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"0\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"-\n" +
+	"\x10TestModelRequest\x12\x19\n" +
+	"\bmodel_id\x18\x01 \x01(\tR\amodelId\"4\n" +
+	"\x11TestModelResponse\x12\x1f\n" +
+	"\voutput_text\x18\x01 \x01(\tR\n" +
+	"outputText\"0\n" +
 	"\x13ResolveModelRequest\x12\x19\n" +
 	"\bmodel_id\x18\x01 \x01(\tR\amodelId\"\x8b\x02\n" +
 	"\x14ResolveModelResponse\x12\x1a\n" +
@@ -1600,7 +1693,7 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\bProtocol\x12\x18\n" +
 	"\x14PROTOCOL_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12PROTOCOL_RESPONSES\x10\x01\x12\x1f\n" +
-	"\x1bPROTOCOL_ANTHROPIC_MESSAGES\x10\x022\xdb\b\n" +
+	"\x1bPROTOCOL_ANTHROPIC_MESSAGES\x10\x022\xb3\t\n" +
 	"\n" +
 	"LLMService\x12n\n" +
 	"\x11CreateLLMProvider\x12+.agynio.api.llm.v1.CreateLLMProviderRequest\x1a,.agynio.api.llm.v1.CreateLLMProviderResponse\x12e\n" +
@@ -1613,7 +1706,8 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\vUpdateModel\x12%.agynio.api.llm.v1.UpdateModelRequest\x1a&.agynio.api.llm.v1.UpdateModelResponse\x12\\\n" +
 	"\vDeleteModel\x12%.agynio.api.llm.v1.DeleteModelRequest\x1a&.agynio.api.llm.v1.DeleteModelResponse\x12Y\n" +
 	"\n" +
-	"ListModels\x12$.agynio.api.llm.v1.ListModelsRequest\x1a%.agynio.api.llm.v1.ListModelsResponse\x12_\n" +
+	"ListModels\x12$.agynio.api.llm.v1.ListModelsRequest\x1a%.agynio.api.llm.v1.ListModelsResponse\x12V\n" +
+	"\tTestModel\x12#.agynio.api.llm.v1.TestModelRequest\x1a$.agynio.api.llm.v1.TestModelResponse\x12_\n" +
 	"\fResolveModel\x12&.agynio.api.llm.v1.ResolveModelRequest\x1a'.agynio.api.llm.v1.ResolveModelResponseB\xcf\x01\n" +
 	"\x15com.agynio.api.llm.v1B\bLlmProtoP\x01ZEgithub.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1;llmv1\xa2\x02\x03AAL\xaa\x02\x11Agynio.Api.Llm.V1\xca\x02\x11Agynio\\Api\\Llm\\V1\xe2\x02\x1dAgynio\\Api\\Llm\\V1\\GPBMetadata\xea\x02\x14Agynio::Api::Llm::V1b\x06proto3"
 
@@ -1630,7 +1724,7 @@ func file_agynio_api_llm_v1_llm_proto_rawDescGZIP() []byte {
 }
 
 var file_agynio_api_llm_v1_llm_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agynio_api_llm_v1_llm_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_agynio_api_llm_v1_llm_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_agynio_api_llm_v1_llm_proto_goTypes = []any{
 	(AuthMethod)(0),                   // 0: agynio.api.llm.v1.AuthMethod
 	(Protocol)(0),                     // 1: agynio.api.llm.v1.Protocol
@@ -1657,13 +1751,15 @@ var file_agynio_api_llm_v1_llm_proto_goTypes = []any{
 	(*DeleteModelResponse)(nil),       // 22: agynio.api.llm.v1.DeleteModelResponse
 	(*ListModelsRequest)(nil),         // 23: agynio.api.llm.v1.ListModelsRequest
 	(*ListModelsResponse)(nil),        // 24: agynio.api.llm.v1.ListModelsResponse
-	(*ResolveModelRequest)(nil),       // 25: agynio.api.llm.v1.ResolveModelRequest
-	(*ResolveModelResponse)(nil),      // 26: agynio.api.llm.v1.ResolveModelResponse
-	(*timestamppb.Timestamp)(nil),     // 27: google.protobuf.Timestamp
+	(*TestModelRequest)(nil),          // 25: agynio.api.llm.v1.TestModelRequest
+	(*TestModelResponse)(nil),         // 26: agynio.api.llm.v1.TestModelResponse
+	(*ResolveModelRequest)(nil),       // 27: agynio.api.llm.v1.ResolveModelRequest
+	(*ResolveModelResponse)(nil),      // 28: agynio.api.llm.v1.ResolveModelResponse
+	(*timestamppb.Timestamp)(nil),     // 29: google.protobuf.Timestamp
 }
 var file_agynio_api_llm_v1_llm_proto_depIdxs = []int32{
-	27, // 0: agynio.api.llm.v1.EntityMeta.created_at:type_name -> google.protobuf.Timestamp
-	27, // 1: agynio.api.llm.v1.EntityMeta.updated_at:type_name -> google.protobuf.Timestamp
+	29, // 0: agynio.api.llm.v1.EntityMeta.created_at:type_name -> google.protobuf.Timestamp
+	29, // 1: agynio.api.llm.v1.EntityMeta.updated_at:type_name -> google.protobuf.Timestamp
 	2,  // 2: agynio.api.llm.v1.LLMProvider.meta:type_name -> agynio.api.llm.v1.EntityMeta
 	0,  // 3: agynio.api.llm.v1.LLMProvider.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
 	1,  // 4: agynio.api.llm.v1.LLMProvider.protocol:type_name -> agynio.api.llm.v1.Protocol
@@ -1692,20 +1788,22 @@ var file_agynio_api_llm_v1_llm_proto_depIdxs = []int32{
 	19, // 27: agynio.api.llm.v1.LLMService.UpdateModel:input_type -> agynio.api.llm.v1.UpdateModelRequest
 	21, // 28: agynio.api.llm.v1.LLMService.DeleteModel:input_type -> agynio.api.llm.v1.DeleteModelRequest
 	23, // 29: agynio.api.llm.v1.LLMService.ListModels:input_type -> agynio.api.llm.v1.ListModelsRequest
-	25, // 30: agynio.api.llm.v1.LLMService.ResolveModel:input_type -> agynio.api.llm.v1.ResolveModelRequest
-	5,  // 31: agynio.api.llm.v1.LLMService.CreateLLMProvider:output_type -> agynio.api.llm.v1.CreateLLMProviderResponse
-	7,  // 32: agynio.api.llm.v1.LLMService.GetLLMProvider:output_type -> agynio.api.llm.v1.GetLLMProviderResponse
-	9,  // 33: agynio.api.llm.v1.LLMService.UpdateLLMProvider:output_type -> agynio.api.llm.v1.UpdateLLMProviderResponse
-	11, // 34: agynio.api.llm.v1.LLMService.DeleteLLMProvider:output_type -> agynio.api.llm.v1.DeleteLLMProviderResponse
-	13, // 35: agynio.api.llm.v1.LLMService.ListLLMProviders:output_type -> agynio.api.llm.v1.ListLLMProvidersResponse
-	16, // 36: agynio.api.llm.v1.LLMService.CreateModel:output_type -> agynio.api.llm.v1.CreateModelResponse
-	18, // 37: agynio.api.llm.v1.LLMService.GetModel:output_type -> agynio.api.llm.v1.GetModelResponse
-	20, // 38: agynio.api.llm.v1.LLMService.UpdateModel:output_type -> agynio.api.llm.v1.UpdateModelResponse
-	22, // 39: agynio.api.llm.v1.LLMService.DeleteModel:output_type -> agynio.api.llm.v1.DeleteModelResponse
-	24, // 40: agynio.api.llm.v1.LLMService.ListModels:output_type -> agynio.api.llm.v1.ListModelsResponse
-	26, // 41: agynio.api.llm.v1.LLMService.ResolveModel:output_type -> agynio.api.llm.v1.ResolveModelResponse
-	31, // [31:42] is the sub-list for method output_type
-	20, // [20:31] is the sub-list for method input_type
+	25, // 30: agynio.api.llm.v1.LLMService.TestModel:input_type -> agynio.api.llm.v1.TestModelRequest
+	27, // 31: agynio.api.llm.v1.LLMService.ResolveModel:input_type -> agynio.api.llm.v1.ResolveModelRequest
+	5,  // 32: agynio.api.llm.v1.LLMService.CreateLLMProvider:output_type -> agynio.api.llm.v1.CreateLLMProviderResponse
+	7,  // 33: agynio.api.llm.v1.LLMService.GetLLMProvider:output_type -> agynio.api.llm.v1.GetLLMProviderResponse
+	9,  // 34: agynio.api.llm.v1.LLMService.UpdateLLMProvider:output_type -> agynio.api.llm.v1.UpdateLLMProviderResponse
+	11, // 35: agynio.api.llm.v1.LLMService.DeleteLLMProvider:output_type -> agynio.api.llm.v1.DeleteLLMProviderResponse
+	13, // 36: agynio.api.llm.v1.LLMService.ListLLMProviders:output_type -> agynio.api.llm.v1.ListLLMProvidersResponse
+	16, // 37: agynio.api.llm.v1.LLMService.CreateModel:output_type -> agynio.api.llm.v1.CreateModelResponse
+	18, // 38: agynio.api.llm.v1.LLMService.GetModel:output_type -> agynio.api.llm.v1.GetModelResponse
+	20, // 39: agynio.api.llm.v1.LLMService.UpdateModel:output_type -> agynio.api.llm.v1.UpdateModelResponse
+	22, // 40: agynio.api.llm.v1.LLMService.DeleteModel:output_type -> agynio.api.llm.v1.DeleteModelResponse
+	24, // 41: agynio.api.llm.v1.LLMService.ListModels:output_type -> agynio.api.llm.v1.ListModelsResponse
+	26, // 42: agynio.api.llm.v1.LLMService.TestModel:output_type -> agynio.api.llm.v1.TestModelResponse
+	28, // 43: agynio.api.llm.v1.LLMService.ResolveModel:output_type -> agynio.api.llm.v1.ResolveModelResponse
+	32, // [32:44] is the sub-list for method output_type
+	20, // [20:32] is the sub-list for method input_type
 	20, // [20:20] is the sub-list for extension type_name
 	20, // [20:20] is the sub-list for extension extendee
 	0,  // [0:20] is the sub-list for field type_name
@@ -1724,7 +1822,7 @@ func file_agynio_api_llm_v1_llm_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agynio_api_llm_v1_llm_proto_rawDesc), len(file_agynio_api_llm_v1_llm_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   25,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -29,6 +29,7 @@ const (
 	LLMService_UpdateModel_FullMethodName       = "/agynio.api.llm.v1.LLMService/UpdateModel"
 	LLMService_DeleteModel_FullMethodName       = "/agynio.api.llm.v1.LLMService/DeleteModel"
 	LLMService_ListModels_FullMethodName        = "/agynio.api.llm.v1.LLMService/ListModels"
+	LLMService_TestModel_FullMethodName         = "/agynio.api.llm.v1.LLMService/TestModel"
 	LLMService_ResolveModel_FullMethodName      = "/agynio.api.llm.v1.LLMService/ResolveModel"
 )
 
@@ -50,6 +51,8 @@ type LLMServiceClient interface {
 	UpdateModel(ctx context.Context, in *UpdateModelRequest, opts ...grpc.CallOption) (*UpdateModelResponse, error)
 	DeleteModel(ctx context.Context, in *DeleteModelRequest, opts ...grpc.CallOption) (*DeleteModelResponse, error)
 	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
+	// --- Test ---
+	TestModel(ctx context.Context, in *TestModelRequest, opts ...grpc.CallOption) (*TestModelResponse, error)
 	// --- Resolution ---
 	ResolveModel(ctx context.Context, in *ResolveModelRequest, opts ...grpc.CallOption) (*ResolveModelResponse, error)
 }
@@ -162,6 +165,16 @@ func (c *lLMServiceClient) ListModels(ctx context.Context, in *ListModelsRequest
 	return out, nil
 }
 
+func (c *lLMServiceClient) TestModel(ctx context.Context, in *TestModelRequest, opts ...grpc.CallOption) (*TestModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestModelResponse)
+	err := c.cc.Invoke(ctx, LLMService_TestModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *lLMServiceClient) ResolveModel(ctx context.Context, in *ResolveModelRequest, opts ...grpc.CallOption) (*ResolveModelResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ResolveModelResponse)
@@ -190,6 +203,8 @@ type LLMServiceServer interface {
 	UpdateModel(context.Context, *UpdateModelRequest) (*UpdateModelResponse, error)
 	DeleteModel(context.Context, *DeleteModelRequest) (*DeleteModelResponse, error)
 	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
+	// --- Test ---
+	TestModel(context.Context, *TestModelRequest) (*TestModelResponse, error)
 	// --- Resolution ---
 	ResolveModel(context.Context, *ResolveModelRequest) (*ResolveModelResponse, error)
 }
@@ -230,6 +245,9 @@ func (UnimplementedLLMServiceServer) DeleteModel(context.Context, *DeleteModelRe
 }
 func (UnimplementedLLMServiceServer) ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListModels not implemented")
+}
+func (UnimplementedLLMServiceServer) TestModel(context.Context, *TestModelRequest) (*TestModelResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TestModel not implemented")
 }
 func (UnimplementedLLMServiceServer) ResolveModel(context.Context, *ResolveModelRequest) (*ResolveModelResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResolveModel not implemented")
@@ -434,6 +452,24 @@ func _LLMService_ListModels_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LLMService_TestModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).TestModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_TestModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).TestModel(ctx, req.(*TestModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LLMService_ResolveModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ResolveModelRequest)
 	if err := dec(in); err != nil {
@@ -498,6 +534,10 @@ var LLMService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListModels",
 			Handler:    _LLMService_ListModels_Handler,
+		},
+		{
+			MethodName: "TestModel",
+			Handler:    _LLMService_TestModel_Handler,
 		},
 		{
 			MethodName: "ResolveModel",

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
@@ -26,49 +27,62 @@ const (
 )
 
 type Reconciler struct {
-	threads      threadsv1.ThreadsServiceClient
-	agents       agentsv1.AgentsServiceClient
-	runnerDialer runnerdial.RunnerDialer
-	runners      runnersv1.RunnersServiceClient
-	zitiMgmt     zitimgmtv1.ZitiManagementServiceClient
-	assembler    *assembler.Assembler
-	wake         <-chan struct{}
-	poll         time.Duration
-	idle         time.Duration
-	stopSec      uint32
+	threads                threadsv1.ThreadsServiceClient
+	agents                 agentsv1.AgentsServiceClient
+	runnerDialer           runnerdial.RunnerDialer
+	runners                runnersv1.RunnersServiceClient
+	metering               meteringv1.MeteringServiceClient
+	meteringSampleInterval time.Duration
+	zitiMgmt               zitimgmtv1.ZitiManagementServiceClient
+	assembler              *assembler.Assembler
+	wake                   <-chan struct{}
+	poll                   time.Duration
+	idle                   time.Duration
+	stopSec                uint32
 }
 
 type Config struct {
-	Threads      threadsv1.ThreadsServiceClient
-	Agents       agentsv1.AgentsServiceClient
-	RunnerDialer runnerdial.RunnerDialer
-	Runners      runnersv1.RunnersServiceClient
-	ZitiMgmt     zitimgmtv1.ZitiManagementServiceClient
-	Assembler    *assembler.Assembler
-	Wake         <-chan struct{}
-	Poll         time.Duration
-	Idle         time.Duration
-	StopSec      uint32
+	Threads                threadsv1.ThreadsServiceClient
+	Agents                 agentsv1.AgentsServiceClient
+	RunnerDialer           runnerdial.RunnerDialer
+	Runners                runnersv1.RunnersServiceClient
+	Metering               meteringv1.MeteringServiceClient
+	ZitiMgmt               zitimgmtv1.ZitiManagementServiceClient
+	Assembler              *assembler.Assembler
+	Wake                   <-chan struct{}
+	Poll                   time.Duration
+	Idle                   time.Duration
+	StopSec                uint32
+	MeteringSampleInterval time.Duration
 }
 
 func New(cfg Config) *Reconciler {
 	return &Reconciler{
-		threads:      cfg.Threads,
-		agents:       cfg.Agents,
-		runnerDialer: cfg.RunnerDialer,
-		runners:      cfg.Runners,
-		zitiMgmt:     cfg.ZitiMgmt,
-		assembler:    cfg.Assembler,
-		wake:         cfg.Wake,
-		poll:         cfg.Poll,
-		idle:         cfg.Idle,
-		stopSec:      cfg.StopSec,
+		threads:                cfg.Threads,
+		agents:                 cfg.Agents,
+		runnerDialer:           cfg.RunnerDialer,
+		runners:                cfg.Runners,
+		metering:               cfg.Metering,
+		meteringSampleInterval: cfg.MeteringSampleInterval,
+		zitiMgmt:               cfg.ZitiMgmt,
+		assembler:              cfg.Assembler,
+		wake:                   cfg.Wake,
+		poll:                   cfg.Poll,
+		idle:                   cfg.Idle,
+		stopSec:                cfg.StopSec,
 	}
 }
 
 func (r *Reconciler) Run(ctx context.Context) error {
+	if r.metering == nil {
+		return fmt.Errorf("metering client not configured")
+	}
+	if r.meteringSampleInterval <= 0 {
+		return fmt.Errorf("metering sample interval must be greater than 0")
+	}
 	go r.runWorkloadReconcileLoop(ctx)
 	go r.runVolumeReconcileLoop(ctx)
+	go r.runMeteringSampleLoop(ctx)
 
 	ticker := time.NewTicker(r.poll)
 	defer ticker.Stop()
@@ -229,7 +243,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		r.compensateIdentity(ctx, zitiIdentityID, "volume record failure")
 		return
 	}
-	if err := r.createWorkloadRecord(ctx, workloadKey, runnerID, target, assembled.OrganizationID, zitiIdentityID); err != nil {
+	if err := r.createWorkloadRecord(ctx, workloadKey, runnerID, target, assembled.OrganizationID, zitiIdentityID, assembled.AllocatedCPUMillicores, assembled.AllocatedRAMBytes); err != nil {
 		log.Printf("reconciler: create workload record %s for agent %s thread %s: %v", workloadKey, target.AgentID.String(), target.ThreadID.String(), err)
 		r.markVolumeRecordsFailed(ctx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "workload record failure")
