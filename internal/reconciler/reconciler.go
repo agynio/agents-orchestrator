@@ -322,6 +322,7 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 	instanceID := normalizeRunnerWorkloadID(workload.GetInstanceId())
 	if instanceID == "" {
 		log.Printf("reconciler: workload %s missing instance id", workloadID)
+		r.markWorkloadFailed(ctx, workloadID, nil)
 		return
 	}
 	runnerID := workload.GetRunnerId()

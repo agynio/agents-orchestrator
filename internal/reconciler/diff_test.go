@@ -37,6 +37,12 @@ func TestComputeActions(t *testing.T) {
 	workload4 := makeWorkload(agent1, thread1, now.Add(-5*time.Minute), nil)
 	workload5 := makeWorkload(agent2, thread2, now.Add(-20*time.Minute), nil)
 	workload6 := makeWorkload(missingAgent, missingThread, now.Add(-20*time.Minute), nil)
+	duplicateOldActivity := now.Add(-2 * time.Minute)
+	duplicateNewActivity := now.Add(-1 * time.Minute)
+	workloadDuplicateOld := makeWorkload(agent1, thread1, now, &duplicateOldActivity)
+	workloadDuplicateNew := makeWorkload(agent1, thread1, now, &duplicateNewActivity)
+	workloadStopping := makeWorkload(agent2, thread2, now, nil)
+	workloadStopping.Status = runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING
 
 	cases := []struct {
 		name     string
@@ -82,6 +88,28 @@ func TestComputeActions(t *testing.T) {
 		{
 			name:   "keep recent",
 			actual: []*runnersv1.Workload{workload4},
+		},
+		{
+			name:   "stop duplicates within idle",
+			actual: []*runnersv1.Workload{workloadDuplicateNew, workloadDuplicateOld},
+			expected: Actions{
+				ToStop: []*runnersv1.Workload{workloadDuplicateNew},
+			},
+		},
+		{
+			name:    "stop duplicates with desired",
+			desired: []AgentThread{{AgentID: agent1, ThreadID: thread1}},
+			actual:  []*runnersv1.Workload{workloadDuplicateNew, workloadDuplicateOld},
+			expected: Actions{
+				ToStop: []*runnersv1.Workload{workloadDuplicateNew},
+			},
+		},
+		{
+			name:   "stop stopping workload",
+			actual: []*runnersv1.Workload{workloadStopping},
+			expected: Actions{
+				ToStop: []*runnersv1.Workload{workloadStopping},
+			},
 		},
 		{
 			name:    "match",

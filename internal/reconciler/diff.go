@@ -25,6 +25,7 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 		desiredSet[item] = struct{}{}
 	}
 	actualSet := make(map[AgentThread]workloadEntry, len(actual))
+	var duplicates []*runnersv1.Workload
 	for _, workload := range actual {
 		agentID, err := uuidutil.ParseUUID(workload.GetAgentId(), "workload.agent_id")
 		if err != nil {
@@ -39,9 +40,19 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 			return Actions{}, err
 		}
 		key := AgentThread{AgentID: agentID, ThreadID: threadID}
-		actualSet[key] = workloadEntry{workload: workload, activityAt: activityAt}
+		entry := workloadEntry{workload: workload, activityAt: activityAt}
+		if existing, ok := actualSet[key]; ok {
+			if entry.activityAt.Before(existing.activityAt) {
+				duplicates = append(duplicates, existing.workload)
+				actualSet[key] = entry
+			} else {
+				duplicates = append(duplicates, entry.workload)
+			}
+			continue
+		}
+		actualSet[key] = entry
 	}
-	result := Actions{}
+	result := Actions{ToStop: duplicates}
 	for _, item := range desired {
 		if _, ok := actualSet[item]; !ok {
 			result.ToStart = append(result.ToStart, item)
@@ -49,6 +60,10 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 	}
 	for key, entry := range actualSet {
 		if _, ok := desiredSet[key]; ok {
+			continue
+		}
+		if entry.workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING {
+			result.ToStop = append(result.ToStop, entry.workload)
 			continue
 		}
 		idleTimeout, ok := idleTimeouts[key.AgentID]
