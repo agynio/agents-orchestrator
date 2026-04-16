@@ -72,7 +72,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	runnerLabels := agentRunnerLabels(agent)
 
 	resolver := newEnvResolver(a.secrets)
-	volumeResolver := newVolumeResolver(a.agents, agentID)
+	volumeResolver := newVolumeResolver(a.agents, threadID)
 	imagePullResolver := newImagePullResolver(a.secrets)
 
 	agentEnvs, err := a.listEnvs(ctx, &agentsv1.ListEnvsRequest{AgentId: agentID.String()})
@@ -677,18 +677,18 @@ func initScriptID(script *agentsv1.InitScript) string {
 }
 
 type volumeResolver struct {
-	agents  agentsv1.AgentsServiceClient
-	agentID uuid.UUID
-	cache   map[string]*agentsv1.Volume
-	specs   map[string]*runnerv1.VolumeSpec
+	agents   agentsv1.AgentsServiceClient
+	threadID uuid.UUID
+	cache    map[string]*agentsv1.Volume
+	specs    map[string]*runnerv1.VolumeSpec
 }
 
-func newVolumeResolver(agents agentsv1.AgentsServiceClient, agentID uuid.UUID) *volumeResolver {
+func newVolumeResolver(agents agentsv1.AgentsServiceClient, threadID uuid.UUID) *volumeResolver {
 	return &volumeResolver{
-		agents:  agents,
-		agentID: agentID,
-		cache:   map[string]*agentsv1.Volume{},
-		specs:   map[string]*runnerv1.VolumeSpec{},
+		agents:   agents,
+		threadID: threadID,
+		cache:    map[string]*agentsv1.Volume{},
+		specs:    map[string]*runnerv1.VolumeSpec{},
 	}
 }
 
@@ -814,7 +814,9 @@ func (v *volumeResolver) ensureSpec(volumeID uuid.UUID, volume *agentsv1.Volume)
 	}
 	if volume.GetPersistent() {
 		spec.Kind = runnerv1.VolumeKind_VOLUME_KIND_NAMED
-		spec.PersistentName = fmt.Sprintf("agent-%s-%s", v.agentID.String()[:8], shortVolume)
+		threadPrefix := v.threadID.String()[:12]
+		volumePrefix := key[:12]
+		spec.PersistentName = fmt.Sprintf("pv-%s-%s", threadPrefix, volumePrefix)
 	}
 	v.specs[key] = spec
 	return spec

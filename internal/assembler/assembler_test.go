@@ -641,7 +641,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	if volumeSpec.Kind != runnerv1.VolumeKind_VOLUME_KIND_NAMED {
 		t.Fatalf("expected named volume, got %v", volumeSpec.Kind)
 	}
-	expectedPersistent := "agent-" + agentID.String()[:8] + "-" + volumeID.String()[:8]
+	expectedPersistent := "pv-" + threadID.String()[:12] + "-" + volumeID.String()[:12]
 	if volumeSpec.PersistentName != expectedPersistent {
 		t.Fatalf("expected persistent name %q, got %q", expectedPersistent, volumeSpec.PersistentName)
 	}
@@ -664,6 +664,116 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	assertEnv(t, envs, "INIT_SCRIPT", "echo mcp")
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
+}
+
+func TestAssemblerSharesPersistentVolumeAcrossContainers(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadA := uuid.New()
+	threadB := uuid.New()
+	mcpID := uuid.New()
+	volumeID := uuid.New()
+
+	agentsClient := &testutil.FakeAgentsClient{
+		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
+		},
+		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{
+				{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Name: "shared", Image: "mcp-image", Command: "run-mcp"},
+			}}, nil
+		},
+		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		ListVolumeAttachmentsFunc: func(_ context.Context, req *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			switch {
+			case req.GetAgentId() == agentID.String(), req.GetMcpId() == mcpID.String():
+				return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: []*agentsv1.VolumeAttachment{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, VolumeId: volumeID.String()},
+				}}, nil
+			default:
+				return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+			}
+		},
+		ListImagePullSecretAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		GetVolumeFunc: func(_ context.Context, req *agentsv1.GetVolumeRequest, _ ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
+			if req.GetId() != volumeID.String() {
+				return nil, errors.New("unexpected volume id")
+			}
+			return &agentsv1.GetVolumeResponse{Volume: &agentsv1.Volume{
+				Meta:       &agentsv1.EntityMeta{Id: volumeID.String()},
+				Persistent: true,
+				MountPath:  "/data",
+			}}, nil
+		},
+		ListHooksFunc: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+
+	resultA, err := assembler.Assemble(ctx, agentID, threadA)
+	if err != nil {
+		t.Fatalf("assemble thread A: %v", err)
+	}
+	volumeName := "vol-" + volumeID.String()[:8]
+	if len(resultA.Request.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(resultA.Request.Volumes))
+	}
+	volumeSpecA := findVolumeSpec(resultA.Request.Volumes, volumeName)
+	if volumeSpecA == nil {
+		t.Fatalf("expected volume %q", volumeName)
+	}
+	expectedPersistentA := "pv-" + threadA.String()[:12] + "-" + volumeID.String()[:12]
+	if volumeSpecA.PersistentName != expectedPersistentA {
+		t.Fatalf("expected persistent name %q, got %q", expectedPersistentA, volumeSpecA.PersistentName)
+	}
+	mainMount := findVolumeMount(resultA.Request.Main, volumeName)
+	if mainMount == nil {
+		t.Fatalf("expected main mount for %q", volumeName)
+	}
+	if mainMount.MountPath != "/data" {
+		t.Fatalf("expected main mount path /data, got %q", mainMount.MountPath)
+	}
+	if len(resultA.Request.Sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(resultA.Request.Sidecars))
+	}
+	sidecarMount := findVolumeMount(resultA.Request.Sidecars[0], volumeName)
+	if sidecarMount == nil {
+		t.Fatalf("expected sidecar mount for %q", volumeName)
+	}
+	if sidecarMount.MountPath != "/data" {
+		t.Fatalf("expected sidecar mount path /data, got %q", sidecarMount.MountPath)
+	}
+
+	resultB, err := assembler.Assemble(ctx, agentID, threadB)
+	if err != nil {
+		t.Fatalf("assemble thread B: %v", err)
+	}
+	volumeSpecB := findVolumeSpec(resultB.Request.Volumes, volumeName)
+	if volumeSpecB == nil {
+		t.Fatalf("expected volume %q", volumeName)
+	}
+	expectedPersistentB := "pv-" + threadB.String()[:12] + "-" + volumeID.String()[:12]
+	if volumeSpecB.PersistentName != expectedPersistentB {
+		t.Fatalf("expected persistent name %q, got %q", expectedPersistentB, volumeSpecB.PersistentName)
+	}
+	if volumeSpecA.PersistentName == volumeSpecB.PersistentName {
+		t.Fatalf("expected different persistent names, got %q", volumeSpecA.PersistentName)
+	}
 }
 
 func TestAssemblerMcpPortAllocation(t *testing.T) {
@@ -1130,6 +1240,18 @@ func envMap(envs []*runnerv1.EnvVar) map[string]string {
 		result[env.Name] = env.Value
 	}
 	return result
+}
+
+func findVolumeMount(container *runnerv1.ContainerSpec, volumeName string) *runnerv1.VolumeMount {
+	if container == nil {
+		return nil
+	}
+	for _, mount := range container.Mounts {
+		if mount != nil && mount.GetVolume() == volumeName {
+			return mount
+		}
+	}
+	return nil
 }
 
 func findVolumeSpec(volumes []*runnerv1.VolumeSpec, name string) *runnerv1.VolumeSpec {
