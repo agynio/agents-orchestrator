@@ -609,6 +609,57 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 	}
 }
 
+func TestStopWorkloadMarksFailedWhenInstanceMissing(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	testAssembler := newTestAssembler(agentID, true)
+	runnerID := "runner-1"
+
+	updateCalled := false
+	var updateRequest *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateCalled = true
+			updateRequest = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	dialCalled := false
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, _ string) (runnerv1.RunnerServiceClient, error) {
+			dialCalled = true
+			return nil, errors.New("unexpected dial")
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID})
+
+	if dialCalled {
+		t.Fatal("expected no dial call")
+	}
+	if !updateCalled {
+		t.Fatal("expected update workload call")
+	}
+	if updateRequest.GetId() != "workload-1" {
+		t.Fatalf("unexpected workload id: %s", updateRequest.GetId())
+	}
+	if updateRequest.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+		t.Fatalf("unexpected workload status: %v", updateRequest.GetStatus())
+	}
+	if updateRequest.GetRemovedAt() == nil {
+		t.Fatal("expected removed_at")
+	}
+	if updateRequest.GetInstanceId() != "" {
+		t.Fatalf("expected empty instance id, got %q", updateRequest.GetInstanceId())
+	}
+}
+
 func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
