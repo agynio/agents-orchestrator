@@ -144,14 +144,23 @@ func createModel(t *testing.T, ctx context.Context, client llmv1.LLMServiceClien
 
 func createAgent(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model, organizationID, initImage string) *agentsv1.Agent {
 	t.Helper()
-	resp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
+	return createAgentWithIdleTimeout(t, ctx, client, name, model, organizationID, initImage, "")
+}
+
+func createAgentWithIdleTimeout(t *testing.T, ctx context.Context, client agentsv1.AgentsServiceClient, name, model, organizationID, initImage, idleTimeout string) *agentsv1.Agent {
+	t.Helper()
+	request := &agentsv1.CreateAgentRequest{
 		Name:           name,
 		Role:           "assistant",
 		Model:          model,
 		Image:          "alpine:3.21",
 		InitImage:      initImage,
 		OrganizationId: organizationID,
-	})
+	}
+	if idleTimeout != "" {
+		request.IdleTimeout = &idleTimeout
+	}
+	resp, err := client.CreateAgent(ctx, request)
 	if err != nil {
 		t.Fatalf("create agent %q: %v", name, err)
 	}

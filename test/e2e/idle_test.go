@@ -1,4 +1,4 @@
-//go:build e2e && short_idle
+//go:build e2e
 
 package e2e
 
@@ -50,7 +50,8 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 		t.Fatal("create model: missing id")
 	}
 
-	agent := createAgent(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-idle-%s", uuid.NewString()), modelID, orgID, codexInitImage)
+	idleTimeout := "30s"
+	agent := createAgentWithIdleTimeout(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-idle-%s", uuid.NewString()), modelID, orgID, codexInitImage, idleTimeout)
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
@@ -103,7 +104,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 
 	ackMessages(t, ctx, threadsClient, agentID, []string{messageID})
 
-	idleCtx, idleCancel := context.WithTimeout(ctx, 50*time.Second)
+	idleCtx, idleCancel := context.WithTimeout(ctx, 90*time.Second)
 	defer idleCancel()
 	if err := pollUntil(idleCtx, pollInterval, func(ctx context.Context) error {
 		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
