@@ -34,6 +34,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 		InitImage:      "agent-init-image",
 		Description:    "test agent",
 		Configuration:  "{\"mode\":\"test\"}",
+		Capabilities:   []string{"privileged", "dind"},
 	}
 
 	skills := []*agentsv1.Skill{{Name: "skill-a", Body: "do-a"}}
@@ -164,6 +165,9 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 	if !equalStringMap(labels, expectedLabels) {
 		t.Fatalf("expected labels %+v, got %+v", expectedLabels, labels)
+	}
+	if !equalStringSlice(request.Capabilities, agent.GetCapabilities()) {
+		t.Fatalf("expected capabilities %+v, got %+v", agent.GetCapabilities(), request.Capabilities)
 	}
 	envs := envMap(request.Main.Env)
 	assertEnv(t, envs, "AGENT_ID", agentID.String())

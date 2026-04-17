@@ -194,7 +194,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		log.Printf("reconciler: assemble workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		return
 	}
-	selectedRunner, err := r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels)
+	selectedRunner, err := r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
 	if err != nil {
 		log.Printf("reconciler: select runner for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		return

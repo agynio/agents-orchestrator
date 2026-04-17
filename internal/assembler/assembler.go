@@ -236,6 +236,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Volumes:              volumes,
 		InitContainers:       initContainers,
 		ImagePullCredentials: imagePullCredentials,
+		Capabilities:         append([]string(nil), agent.GetCapabilities()...),
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
