@@ -362,17 +362,29 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 }
 
 func (r *Reconciler) stopRunnerWorkload(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) error {
-	_, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
-		WorkloadId: instanceID,
-		TimeoutSec: r.stopSec,
-	})
-	if err == nil {
+	if err := r.stopRunnerWorkloadID(ctx, runnerClient, instanceID); err == nil {
 		return nil
-	}
-	if status.Code(err) != codes.NotFound {
+	} else if status.Code(err) != codes.NotFound {
+		return err
+	} else if _, parseErr := uuid.Parse(instanceID); parseErr != nil {
 		return err
 	}
-	if _, parseErr := uuid.Parse(instanceID); parseErr != nil {
+	return r.stopRunnerWorkloadWithPrefix(ctx, runnerClient, instanceID)
+}
+
+func (r *Reconciler) stopRunnerWorkloadID(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workloadID string) error {
+	_, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
+		WorkloadId: workloadID,
+		TimeoutSec: r.stopSec,
+	})
+	return err
+}
+
+func (r *Reconciler) stopRunnerWorkloadWithPrefix(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) error {
+	prefixedID := runnerWorkloadPrefix + instanceID
+	if err := r.stopRunnerWorkloadID(ctx, runnerClient, prefixedID); err == nil {
+		return nil
+	} else if status.Code(err) != codes.NotFound {
 		return err
 	}
 	return nil
