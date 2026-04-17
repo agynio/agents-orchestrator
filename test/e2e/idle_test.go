@@ -102,7 +102,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 		t.Fatalf("wait for workload: %v", err)
 	}
 
-	ackMessages(t, ctx, threadsClient, agentID, []string{messageID})
+	ackAllUnackedMessages(t, ctx, threadsClient, agentID)
 
 	idleCtx, idleCancel := context.WithTimeout(ctx, 90*time.Second)
 	defer idleCancel()

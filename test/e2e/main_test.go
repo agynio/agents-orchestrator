@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	pollInterval = 2 * time.Second
-	testTimeout  = 120 * time.Second
+	pollInterval          = 2 * time.Second
+	testTimeout           = 120 * time.Second
+	unackedPageSize int32 = 100
 
 	tracingDiscoverTimeout = 2 * time.Minute
 	tracingSummaryTimeout  = 2 * time.Minute
@@ -371,6 +372,49 @@ func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServ
 	})
 	if err != nil {
 		t.Fatalf("ack messages for %s: %v", participantID, err)
+	}
+}
+
+func ackAllUnackedMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string) {
+	t.Helper()
+	for {
+		messageIDs, err := listUnackedMessageIDs(ctx, client, participantID)
+		if err != nil {
+			t.Fatalf("list unacked messages for %s: %v", participantID, err)
+		}
+		if len(messageIDs) == 0 {
+			return
+		}
+		ackMessages(t, ctx, client, participantID, messageIDs)
+	}
+}
+
+func listUnackedMessageIDs(ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string) ([]string, error) {
+	messageIDs := make([]string, 0, unackedPageSize)
+	token := ""
+	for {
+		page, err := client.GetUnackedMessages(ctx, &threadsv1.GetUnackedMessagesRequest{
+			ParticipantId: participantID,
+			PageSize:      unackedPageSize,
+			PageToken:     token,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, message := range page.GetMessages() {
+			if message == nil {
+				return nil, fmt.Errorf("unacked message is nil")
+			}
+			messageID := message.GetId()
+			if messageID == "" {
+				return nil, fmt.Errorf("unacked message missing id")
+			}
+			messageIDs = append(messageIDs, messageID)
+		}
+		token = page.GetNextPageToken()
+		if token == "" {
+			return messageIDs, nil
+		}
 	}
 }
 
