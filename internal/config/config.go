@@ -8,28 +8,29 @@ import (
 )
 
 type Config struct {
-	ThreadsAddress           string
-	NotificationsAddress     string
-	AgentsAddress            string
-	SecretsAddress           string
-	RunnerAddress            string
-	RunnersAddress           string
-	MeteringServiceAddress   string
-	MeteringSampleInterval   time.Duration
-	ZitiEnabled              bool
-	ZitiManagementAddress    string
-	ZitiLeaseRenewalInterval time.Duration
-	ZitiEnrollmentTimeout    time.Duration
-	ZitiSidecarImage         string
-	ClusterDNS               string
-	AgentGatewayAddress      string
-	AgentTracingAddress      string
-	AgentLLMBaseURL          string
-	PollInterval             time.Duration
-	IdleTimeout              time.Duration
-	StopTimeoutSec           uint32
-	LeaseName                string
-	LeaseNamespace           string
+	ThreadsAddress            string
+	NotificationsAddress      string
+	AgentsAddress             string
+	SecretsAddress            string
+	RunnerAddress             string
+	RunnersAddress            string
+	MeteringServiceAddress    string
+	MeteringSampleInterval    time.Duration
+	ZitiEnabled               bool
+	ZitiManagementAddress     string
+	ZitiLeaseRenewalInterval  time.Duration
+	ZitiEnrollmentTimeout     time.Duration
+	ZitiSidecarImage          string
+	ClusterDNS                string
+	AgentGatewayAddress       string
+	AgentTracingAddress       string
+	AgentLLMBaseURL           string
+	PollInterval              time.Duration
+	WorkloadReconcileInterval time.Duration
+	IdleTimeout               time.Duration
+	StopTimeoutSec            uint32
+	LeaseName                 string
+	LeaseNamespace            string
 }
 
 func FromEnv() (Config, error) {
@@ -154,6 +155,20 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("parse POLL_INTERVAL: %w", err)
 		}
 		cfg.PollInterval = parsed
+	}
+
+	workloadReconcileInterval := os.Getenv("WORKLOAD_RECONCILE_INTERVAL")
+	if workloadReconcileInterval == "" {
+		cfg.WorkloadReconcileInterval = time.Minute
+	} else {
+		parsed, err := time.ParseDuration(workloadReconcileInterval)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse WORKLOAD_RECONCILE_INTERVAL: %w", err)
+		}
+		cfg.WorkloadReconcileInterval = parsed
+	}
+	if cfg.WorkloadReconcileInterval <= 0 {
+		return Config{}, fmt.Errorf("WORKLOAD_RECONCILE_INTERVAL must be greater than 0")
 	}
 
 	idleTimeout := os.Getenv("IDLE_TIMEOUT")

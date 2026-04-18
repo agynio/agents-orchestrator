@@ -18,10 +18,11 @@ import (
 )
 
 func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
-	idleTestTimeout := 6 * time.Minute
+	idleTestTimeout := 8 * time.Minute
 	workloadWaitTimeout := 90 * time.Second
 	agentResponseTimeout := 2 * time.Minute
-	idleStopTimeout := 120 * time.Second
+	unackedDrainTimeout := 2 * time.Minute
+	idleStopTimeout := 180 * time.Second
 
 	ctx, cancel := context.WithTimeout(context.Background(), idleTestTimeout)
 	t.Cleanup(cancel)
@@ -55,7 +56,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 		t.Fatal("create model: missing id")
 	}
 
-	idleTimeout := "30s"
+	idleTimeout := "15s"
 	agent := createAgentWithIdleTimeout(t, ctx, agentsClient, fmt.Sprintf("e2e-test-agent-idle-%s", uuid.NewString()), modelID, orgID, codexInitImage, idleTimeout)
 	agentID := agent.GetMeta().GetId()
 	if agentID == "" {
@@ -115,6 +116,21 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	}
 
 	ackAllUnackedMessages(t, ctx, threadsClient, agentID)
+	unackedCtx, unackedCancel := context.WithTimeout(ctx, unackedDrainTimeout)
+	defer unackedCancel()
+	if err := pollUntil(unackedCtx, pollInterval, func(ctx context.Context) error {
+		messageIDs, err := listUnackedMessageIDs(ctx, threadsClient, agentID)
+		if err != nil {
+			return err
+		}
+		if len(messageIDs) == 0 {
+			return nil
+		}
+		ackMessages(t, ctx, threadsClient, agentID, messageIDs)
+		return fmt.Errorf("expected 0 unacked messages, got %d", len(messageIDs))
+	}); err != nil {
+		t.Fatalf("wait for unacked messages to drain: %v", err)
+	}
 
 	idleCtx, idleCancel := context.WithTimeout(ctx, idleStopTimeout)
 	defer idleCancel()

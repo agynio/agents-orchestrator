@@ -7,7 +7,7 @@ import (
 )
 
 func (r *Reconciler) runWorkloadReconcileLoop(ctx context.Context) {
-	ticker := time.NewTicker(workloadReconcileInterval)
+	ticker := time.NewTicker(r.workloadReconcileInterval)
 	defer ticker.Stop()
 	r.runWorkloadReconcileCycle(ctx)
 	for {

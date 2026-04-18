@@ -46,6 +46,8 @@ functions:
               env:
                 - name: POLL_INTERVAL
                   value: "10s"
+                - name: WORKLOAD_RECONCILE_INTERVAL
+                  value: "10s"
               command:
                 - sh
                 - -c

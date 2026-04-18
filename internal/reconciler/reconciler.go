@@ -21,55 +21,57 @@ import (
 )
 
 const (
-	reconcileTimeout          = 30 * time.Second
-	workloadReconcileInterval = time.Minute
-	volumeReconcileInterval   = time.Minute
+	reconcileTimeout        = 30 * time.Second
+	volumeReconcileInterval = time.Minute
 )
 
 type Reconciler struct {
-	threads                threadsv1.ThreadsServiceClient
-	agents                 agentsv1.AgentsServiceClient
-	runnerDialer           runnerdial.RunnerDialer
-	runners                runnersv1.RunnersServiceClient
-	metering               meteringv1.MeteringServiceClient
-	meteringSampleInterval time.Duration
-	zitiMgmt               zitimgmtv1.ZitiManagementServiceClient
-	assembler              *assembler.Assembler
-	wake                   <-chan struct{}
-	poll                   time.Duration
-	idle                   time.Duration
-	stopSec                uint32
+	threads                   threadsv1.ThreadsServiceClient
+	agents                    agentsv1.AgentsServiceClient
+	runnerDialer              runnerdial.RunnerDialer
+	runners                   runnersv1.RunnersServiceClient
+	metering                  meteringv1.MeteringServiceClient
+	meteringSampleInterval    time.Duration
+	zitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
+	assembler                 *assembler.Assembler
+	wake                      <-chan struct{}
+	poll                      time.Duration
+	workloadReconcileInterval time.Duration
+	idle                      time.Duration
+	stopSec                   uint32
 }
 
 type Config struct {
-	Threads                threadsv1.ThreadsServiceClient
-	Agents                 agentsv1.AgentsServiceClient
-	RunnerDialer           runnerdial.RunnerDialer
-	Runners                runnersv1.RunnersServiceClient
-	Metering               meteringv1.MeteringServiceClient
-	ZitiMgmt               zitimgmtv1.ZitiManagementServiceClient
-	Assembler              *assembler.Assembler
-	Wake                   <-chan struct{}
-	Poll                   time.Duration
-	Idle                   time.Duration
-	StopSec                uint32
-	MeteringSampleInterval time.Duration
+	Threads                   threadsv1.ThreadsServiceClient
+	Agents                    agentsv1.AgentsServiceClient
+	RunnerDialer              runnerdial.RunnerDialer
+	Runners                   runnersv1.RunnersServiceClient
+	Metering                  meteringv1.MeteringServiceClient
+	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
+	Assembler                 *assembler.Assembler
+	Wake                      <-chan struct{}
+	Poll                      time.Duration
+	WorkloadReconcileInterval time.Duration
+	Idle                      time.Duration
+	StopSec                   uint32
+	MeteringSampleInterval    time.Duration
 }
 
 func New(cfg Config) *Reconciler {
 	return &Reconciler{
-		threads:                cfg.Threads,
-		agents:                 cfg.Agents,
-		runnerDialer:           cfg.RunnerDialer,
-		runners:                cfg.Runners,
-		metering:               cfg.Metering,
-		meteringSampleInterval: cfg.MeteringSampleInterval,
-		zitiMgmt:               cfg.ZitiMgmt,
-		assembler:              cfg.Assembler,
-		wake:                   cfg.Wake,
-		poll:                   cfg.Poll,
-		idle:                   cfg.Idle,
-		stopSec:                cfg.StopSec,
+		threads:                   cfg.Threads,
+		agents:                    cfg.Agents,
+		runnerDialer:              cfg.RunnerDialer,
+		runners:                   cfg.Runners,
+		metering:                  cfg.Metering,
+		meteringSampleInterval:    cfg.MeteringSampleInterval,
+		zitiMgmt:                  cfg.ZitiMgmt,
+		assembler:                 cfg.Assembler,
+		wake:                      cfg.Wake,
+		poll:                      cfg.Poll,
+		workloadReconcileInterval: cfg.WorkloadReconcileInterval,
+		idle:                      cfg.Idle,
+		stopSec:                   cfg.StopSec,
 	}
 }
 

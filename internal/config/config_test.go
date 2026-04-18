@@ -40,6 +40,9 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.MeteringSampleInterval != time.Minute {
 		t.Fatalf("expected metering sample interval %q, got %q", time.Minute, cfg.MeteringSampleInterval)
 	}
+	if cfg.WorkloadReconcileInterval != time.Minute {
+		t.Fatalf("expected workload reconcile interval %q, got %q", time.Minute, cfg.WorkloadReconcileInterval)
+	}
 }
 
 func TestFromEnvDefaultsZiti(t *testing.T) {
@@ -100,6 +103,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("AGENT_TRACING_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
 	t.Setenv("POLL_INTERVAL", "")
+	t.Setenv("WORKLOAD_RECONCILE_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")
 	t.Setenv("STOP_TIMEOUT_SEC", "")
 	t.Setenv("LEASE_NAME", "")
