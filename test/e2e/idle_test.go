@@ -71,7 +71,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	message := sendMessage(t, ctx, threadsClient, threadID, identityID, "e2e idle message")
+	message := sendMessage(t, ctx, threadsClient, threadID, identityID, "hello")
 	messageID := message.GetId()
 	if messageID == "" {
 		t.Fatal("send message: missing id")
