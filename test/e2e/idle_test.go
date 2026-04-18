@@ -18,7 +18,12 @@ import (
 )
 
 func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	idleTestTimeout := 6 * time.Minute
+	workloadWaitTimeout := 90 * time.Second
+	agentResponseTimeout := 2 * time.Minute
+	idleStopTimeout := 120 * time.Second
+
+	ctx, cancel := context.WithTimeout(context.Background(), idleTestTimeout)
 	t.Cleanup(cancel)
 
 	agentsConn := dialGRPC(t, agentsAddr)
@@ -71,6 +76,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	if messageID == "" {
 		t.Fatal("send message: missing id")
 	}
+	sentMessageTime := messageCreatedAt(t, message)
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -86,7 +92,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 		cleanupWorkload(t, ctx, runnerClient, workloadID)
 	})
 
-	pollCtx, pollCancel := context.WithTimeout(ctx, 90*time.Second)
+	pollCtx, pollCancel := context.WithTimeout(ctx, workloadWaitTimeout)
 	defer pollCancel()
 	if err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
 		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)
@@ -102,9 +108,15 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 		t.Fatalf("wait for workload: %v", err)
 	}
 
+	responseCtx, responseCancel := context.WithTimeout(ctx, agentResponseTimeout)
+	defer responseCancel()
+	if _, err := pollForAgentResponse(t, responseCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, ""); err != nil {
+		t.Fatalf("wait for agent response: %v", err)
+	}
+
 	ackAllUnackedMessages(t, ctx, threadsClient, agentID)
 
-	idleCtx, idleCancel := context.WithTimeout(ctx, 90*time.Second)
+	idleCtx, idleCancel := context.WithTimeout(ctx, idleStopTimeout)
 	defer idleCancel()
 	if err := pollUntil(idleCtx, pollInterval, func(ctx context.Context) error {
 		ids, err := findWorkloadsByLabels(ctx, runnerClient, labels)

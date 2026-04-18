@@ -43,6 +43,9 @@ functions:
             - name: agents-orchestrator
               image: ghcr.io/agynio/devcontainer-go:1 # keep in sync with DEV_IMAGE
               workingDir: /opt/app/data
+              env:
+                - name: POLL_INTERVAL
+                  value: "10s"
               command:
                 - sh
                 - -c
