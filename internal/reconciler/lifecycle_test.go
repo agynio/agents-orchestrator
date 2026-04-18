@@ -761,14 +761,11 @@ func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 func TestStopRunnerWorkloadIgnoresNotFoundForUUID(t *testing.T) {
 	ctx := context.Background()
 	instanceID := uuid.New().String()
-	called := false
+	calls := []string{}
 
 	runner := &fakeRunnerClient{
 		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
-			called = true
-			if req.GetWorkloadId() != instanceID {
-				return nil, errors.New("unexpected workload id")
-			}
+			calls = append(calls, req.GetWorkloadId())
 			if req.GetTimeoutSec() != 30 {
 				return nil, errors.New("unexpected timeout")
 			}
@@ -780,8 +777,41 @@ func TestStopRunnerWorkloadIgnoresNotFoundForUUID(t *testing.T) {
 	if err := reconciler.stopRunnerWorkload(ctx, runner, instanceID); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if !called {
-		t.Fatal("expected stop workload call")
+	expected := []string{instanceID, "workload-" + instanceID}
+	if !reflect.DeepEqual(calls, expected) {
+		t.Fatalf("expected calls %v, got %v", expected, calls)
+	}
+}
+
+func TestStopRunnerWorkloadRetriesWithPrefixedID(t *testing.T) {
+	ctx := context.Background()
+	instanceID := uuid.New().String()
+	calls := []string{}
+
+	runner := &fakeRunnerClient{
+		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			calls = append(calls, req.GetWorkloadId())
+			if req.GetTimeoutSec() != 30 {
+				return nil, errors.New("unexpected timeout")
+			}
+			switch req.GetWorkloadId() {
+			case instanceID:
+				return nil, status.Error(codes.NotFound, "not found")
+			case "workload-" + instanceID:
+				return &runnerv1.StopWorkloadResponse{}, nil
+			default:
+				return nil, errors.New("unexpected workload id")
+			}
+		},
+	}
+
+	reconciler := newTestReconciler(Config{})
+	if err := reconciler.stopRunnerWorkload(ctx, runner, instanceID); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	expected := []string{instanceID, "workload-" + instanceID}
+	if !reflect.DeepEqual(calls, expected) {
+		t.Fatalf("expected calls %v, got %v", expected, calls)
 	}
 }
 

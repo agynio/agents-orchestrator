@@ -27,22 +27,6 @@ functions:
       echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
     fi
   patch_deployment: |-
-    echo "Registering k8s-runner with runners service..."
-    kubectl run register-runner --rm -i --restart=Never \
-      --image=ghcr.io/agynio/devcontainer-go:1 \
-      -n ${ORCHESTRATOR_NAMESPACE} \
-      --override-type=strategic \
-      --overrides='{"spec":{"securityContext":{"runAsUser":1000,"fsGroup":1000}}}' \
-      -- buf curl \
-        --schema buf.build/agynio/api \
-        --protocol grpc \
-        --http2-prior-knowledge \
-        -d '{"name":"k8s-runner"}' \
-        http://runners:50051/agynio.api.runners.v1.RunnersService/RegisterRunner 2>&1 || true
-    echo "Updating runner status to enrolled..."
-    kubectl exec -n ${ORCHESTRATOR_NAMESPACE} runners-db-0 -- \
-      psql -U runners -d runners -c "UPDATE runners SET status = 'enrolled' WHERE name = 'k8s-runner'" || true
-    echo "Runner setup complete."
     echo "Patching agents-orchestrator deployment for DevSpace..."
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
     spec:
@@ -59,6 +43,11 @@ functions:
             - name: agents-orchestrator
               image: ghcr.io/agynio/devcontainer-go:1 # keep in sync with DEV_IMAGE
               workingDir: /opt/app/data
+              env:
+                - name: POLL_INTERVAL
+                  value: "10s"
+                - name: WORKLOAD_RECONCILE_INTERVAL
+                  value: "10s"
               command:
                 - sh
                 - -c
@@ -157,6 +146,8 @@ deployments:
                 value: "tenants:50051"
               - name: RUNNER_ADDRESS
                 value: "k8s-runner:50051"
+              - name: RUNNERS_ADDRESS
+                value: "runners:50051"
               - name: SECRETS_ADDRESS
                 value: "secrets:50051"
               - name: TRACING_ADDRESS

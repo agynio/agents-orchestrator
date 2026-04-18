@@ -132,18 +132,19 @@ func run() error {
 	subscriber := subscriber.New(notificationsClient)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
-		Threads:                threadsClient,
-		Agents:                 agentsClient,
-		RunnerDialer:           runnerDialer,
-		ZitiMgmt:               zitiMgmtClient,
-		Runners:                runnersClient,
-		Metering:               meteringClient,
-		Assembler:              assembler,
-		Wake:                   subscriber.Wake(),
-		Poll:                   cfg.PollInterval,
-		Idle:                   cfg.IdleTimeout,
-		StopSec:                cfg.StopTimeoutSec,
-		MeteringSampleInterval: cfg.MeteringSampleInterval,
+		Threads:                   threadsClient,
+		Agents:                    agentsClient,
+		RunnerDialer:              runnerDialer,
+		ZitiMgmt:                  zitiMgmtClient,
+		Runners:                   runnersClient,
+		Metering:                  meteringClient,
+		Assembler:                 assembler,
+		Wake:                      subscriber.Wake(),
+		Poll:                      cfg.PollInterval,
+		WorkloadReconcileInterval: cfg.WorkloadReconcileInterval,
+		Idle:                      cfg.IdleTimeout,
+		StopSec:                   cfg.StopTimeoutSec,
+		MeteringSampleInterval:    cfg.MeteringSampleInterval,
 	})
 
 	start := func(leadCtx context.Context) {

@@ -21,55 +21,57 @@ import (
 )
 
 const (
-	reconcileTimeout          = 30 * time.Second
-	workloadReconcileInterval = time.Minute
-	volumeReconcileInterval   = time.Minute
+	reconcileTimeout        = 30 * time.Second
+	volumeReconcileInterval = time.Minute
 )
 
 type Reconciler struct {
-	threads                threadsv1.ThreadsServiceClient
-	agents                 agentsv1.AgentsServiceClient
-	runnerDialer           runnerdial.RunnerDialer
-	runners                runnersv1.RunnersServiceClient
-	metering               meteringv1.MeteringServiceClient
-	meteringSampleInterval time.Duration
-	zitiMgmt               zitimgmtv1.ZitiManagementServiceClient
-	assembler              *assembler.Assembler
-	wake                   <-chan struct{}
-	poll                   time.Duration
-	idle                   time.Duration
-	stopSec                uint32
+	threads                   threadsv1.ThreadsServiceClient
+	agents                    agentsv1.AgentsServiceClient
+	runnerDialer              runnerdial.RunnerDialer
+	runners                   runnersv1.RunnersServiceClient
+	metering                  meteringv1.MeteringServiceClient
+	meteringSampleInterval    time.Duration
+	zitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
+	assembler                 *assembler.Assembler
+	wake                      <-chan struct{}
+	poll                      time.Duration
+	workloadReconcileInterval time.Duration
+	idle                      time.Duration
+	stopSec                   uint32
 }
 
 type Config struct {
-	Threads                threadsv1.ThreadsServiceClient
-	Agents                 agentsv1.AgentsServiceClient
-	RunnerDialer           runnerdial.RunnerDialer
-	Runners                runnersv1.RunnersServiceClient
-	Metering               meteringv1.MeteringServiceClient
-	ZitiMgmt               zitimgmtv1.ZitiManagementServiceClient
-	Assembler              *assembler.Assembler
-	Wake                   <-chan struct{}
-	Poll                   time.Duration
-	Idle                   time.Duration
-	StopSec                uint32
-	MeteringSampleInterval time.Duration
+	Threads                   threadsv1.ThreadsServiceClient
+	Agents                    agentsv1.AgentsServiceClient
+	RunnerDialer              runnerdial.RunnerDialer
+	Runners                   runnersv1.RunnersServiceClient
+	Metering                  meteringv1.MeteringServiceClient
+	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
+	Assembler                 *assembler.Assembler
+	Wake                      <-chan struct{}
+	Poll                      time.Duration
+	WorkloadReconcileInterval time.Duration
+	Idle                      time.Duration
+	StopSec                   uint32
+	MeteringSampleInterval    time.Duration
 }
 
 func New(cfg Config) *Reconciler {
 	return &Reconciler{
-		threads:                cfg.Threads,
-		agents:                 cfg.Agents,
-		runnerDialer:           cfg.RunnerDialer,
-		runners:                cfg.Runners,
-		metering:               cfg.Metering,
-		meteringSampleInterval: cfg.MeteringSampleInterval,
-		zitiMgmt:               cfg.ZitiMgmt,
-		assembler:              cfg.Assembler,
-		wake:                   cfg.Wake,
-		poll:                   cfg.Poll,
-		idle:                   cfg.Idle,
-		stopSec:                cfg.StopSec,
+		threads:                   cfg.Threads,
+		agents:                    cfg.Agents,
+		runnerDialer:              cfg.RunnerDialer,
+		runners:                   cfg.Runners,
+		metering:                  cfg.Metering,
+		meteringSampleInterval:    cfg.MeteringSampleInterval,
+		zitiMgmt:                  cfg.ZitiMgmt,
+		assembler:                 cfg.Assembler,
+		wake:                      cfg.Wake,
+		poll:                      cfg.Poll,
+		workloadReconcileInterval: cfg.WorkloadReconcileInterval,
+		idle:                      cfg.Idle,
+		stopSec:                   cfg.StopSec,
 	}
 }
 
@@ -194,7 +196,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
 		log.Printf("reconciler: assemble workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		return
 	}
-	selectedRunner, err := r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels)
+	selectedRunner, err := r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
 	if err != nil {
 		log.Printf("reconciler: select runner for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		return
@@ -362,17 +364,29 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 }
 
 func (r *Reconciler) stopRunnerWorkload(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) error {
-	_, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
-		WorkloadId: instanceID,
-		TimeoutSec: r.stopSec,
-	})
-	if err == nil {
+	if err := r.stopRunnerWorkloadID(ctx, runnerClient, instanceID); err == nil {
 		return nil
-	}
-	if status.Code(err) != codes.NotFound {
+	} else if status.Code(err) != codes.NotFound {
+		return err
+	} else if _, parseErr := uuid.Parse(instanceID); parseErr != nil {
 		return err
 	}
-	if _, parseErr := uuid.Parse(instanceID); parseErr != nil {
+	return r.stopRunnerWorkloadWithPrefix(ctx, runnerClient, instanceID)
+}
+
+func (r *Reconciler) stopRunnerWorkloadID(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workloadID string) error {
+	_, err := runnerClient.StopWorkload(ctx, &runnerv1.StopWorkloadRequest{
+		WorkloadId: workloadID,
+		TimeoutSec: r.stopSec,
+	})
+	return err
+}
+
+func (r *Reconciler) stopRunnerWorkloadWithPrefix(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) error {
+	prefixedID := runnerWorkloadPrefix + instanceID
+	if err := r.stopRunnerWorkloadID(ctx, runnerClient, prefixedID); err == nil {
+		return nil
+	} else if status.Code(err) != codes.NotFound {
 		return err
 	}
 	return nil

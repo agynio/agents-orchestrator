@@ -10,12 +10,12 @@ import (
 
 const runnerPageSize int32 = 100
 
-func (r *Reconciler) selectRunner(ctx context.Context, organizationID string, runnerLabels map[string]string) (*runnersv1.Runner, error) {
+func (r *Reconciler) selectRunner(ctx context.Context, organizationID string, runnerLabels map[string]string, requiredCapabilities []string) (*runnersv1.Runner, error) {
 	runners, err := r.listRunners(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return runnerselect.Select(runners, organizationID, runnerLabels)
+	return runnerselect.Select(runners, organizationID, runnerLabels, requiredCapabilities)
 }
 
 func (r *Reconciler) listRunners(ctx context.Context) ([]*runnersv1.Runner, error) {

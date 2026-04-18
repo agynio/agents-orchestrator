@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	pollInterval = 2 * time.Second
-	testTimeout  = 120 * time.Second
+	pollInterval          = 2 * time.Second
+	testTimeout           = 120 * time.Second
+	unackedPageSize int32 = 100
 
 	tracingDiscoverTimeout = 2 * time.Minute
 	tracingSummaryTimeout  = 2 * time.Minute
@@ -52,9 +53,10 @@ var (
 	usersAddr      = envOrDefault("USERS_ADDRESS", "users:50051")
 	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
 	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
+	runnersAddr    = envOrDefault("RUNNERS_ADDRESS", "runners:50051")
 	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
 	tracingAddr    = envOrDefault("TRACING_ADDRESS", "tracing:50051")
-	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:0.13.5")
+	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:0.13.15")
 	agnInitImage   = envOrDefault("AGN_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:0.4.1")
 )
 
@@ -371,6 +373,83 @@ func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServ
 	})
 	if err != nil {
 		t.Fatalf("ack messages for %s: %v", participantID, err)
+	}
+}
+
+func ackAllUnackedMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string) {
+	t.Helper()
+	for {
+		messageIDs, err := listUnackedMessageIDs(ctx, client, participantID)
+		if err != nil {
+			t.Fatalf("list unacked messages for %s: %v", participantID, err)
+		}
+		if len(messageIDs) == 0 {
+			return
+		}
+		ackMessages(t, ctx, client, participantID, messageIDs)
+	}
+}
+
+func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string) {
+	t.Helper()
+	drainCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		messageIDs, err := listUnackedMessageIDs(drainCtx, client, participantID)
+		if err != nil {
+			t.Logf("cleanup: list unacked messages for %s: %v", participantID, err)
+			return
+		}
+		if len(messageIDs) == 0 {
+			return
+		}
+		_, err = client.AckMessages(drainCtx, &threadsv1.AckMessagesRequest{
+			ParticipantId: participantID,
+			MessageIds:    messageIDs,
+		})
+		if err != nil {
+			t.Logf("cleanup: ack messages for %s: %v", participantID, err)
+			return
+		}
+		select {
+		case <-drainCtx.Done():
+			t.Logf("cleanup: unacked message drain timeout for %s", participantID)
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func listUnackedMessageIDs(ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string) ([]string, error) {
+	messageIDs := make([]string, 0, unackedPageSize)
+	token := ""
+	for {
+		page, err := client.GetUnackedMessages(ctx, &threadsv1.GetUnackedMessagesRequest{
+			ParticipantId: participantID,
+			PageSize:      unackedPageSize,
+			PageToken:     token,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, message := range page.GetMessages() {
+			if message == nil {
+				return nil, fmt.Errorf("unacked message is nil")
+			}
+			messageID := message.GetId()
+			if messageID == "" {
+				return nil, fmt.Errorf("unacked message missing id")
+			}
+			messageIDs = append(messageIDs, messageID)
+		}
+		token = page.GetNextPageToken()
+		if token == "" {
+			return messageIDs, nil
+		}
 	}
 }
 
