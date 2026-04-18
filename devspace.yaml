@@ -146,6 +146,8 @@ deployments:
                 value: "tenants:50051"
               - name: RUNNER_ADDRESS
                 value: "k8s-runner:50051"
+              - name: RUNNERS_ADDRESS
+                value: "runners:50051"
               - name: SECRETS_ADDRESS
                 value: "secrets:50051"
               - name: TRACING_ADDRESS

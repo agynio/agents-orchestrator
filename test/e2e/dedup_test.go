@@ -74,11 +74,18 @@ func TestNoDuplicateWorkloads(t *testing.T) {
 		labelAgentID:   agentID,
 		labelThreadID:  threadID,
 	}
-
-	workloadIDs := []string{}
 	t.Cleanup(func() {
-		for _, workloadID := range workloadIDs {
-			cleanupWorkload(t, ctx, runnerClient, workloadID)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		ackAllUnackedMessagesBestEffort(t, cleanupCtx, threadsClient, agentID)
+		ids, err := findWorkloadsByLabels(cleanupCtx, runnerClient, labels)
+		if err != nil {
+			t.Logf("cleanup: find workloads: %v", err)
+			return
+		}
+		for _, workloadID := range ids {
+			cleanupWorkload(t, cleanupCtx, runnerClient, workloadID)
 		}
 	})
 
@@ -92,7 +99,6 @@ func TestNoDuplicateWorkloads(t *testing.T) {
 		if len(ids) < 1 {
 			return fmt.Errorf("expected at least 1 workload, got %d", len(ids))
 		}
-		workloadIDs = ids
 		return nil
 	}); err != nil {
 		t.Fatalf("wait for workload: %v", err)
@@ -110,9 +116,6 @@ func TestNoDuplicateWorkloads(t *testing.T) {
 		}
 		if len(ids) > 1 {
 			t.Fatalf("expected at most 1 workload, got %d", len(ids))
-		}
-		if len(ids) > 0 {
-			workloadIDs = ids
 		}
 		select {
 		case <-dedupTimer.C:

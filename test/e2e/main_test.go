@@ -53,6 +53,7 @@ var (
 	usersAddr      = envOrDefault("USERS_ADDRESS", "users:50051")
 	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
 	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
+	runnersAddr    = envOrDefault("RUNNERS_ADDRESS", "runners:50051")
 	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
 	tracingAddr    = envOrDefault("TRACING_ADDRESS", "tracing:50051")
 	codexInitImage = envOrDefault("CODEX_INIT_IMAGE", "ghcr.io/agynio/agent-init-codex:0.13.5")
@@ -386,6 +387,40 @@ func ackAllUnackedMessages(t *testing.T, ctx context.Context, client threadsv1.T
 			return
 		}
 		ackMessages(t, ctx, client, participantID, messageIDs)
+	}
+}
+
+func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string) {
+	t.Helper()
+	drainCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		messageIDs, err := listUnackedMessageIDs(drainCtx, client, participantID)
+		if err != nil {
+			t.Logf("cleanup: list unacked messages for %s: %v", participantID, err)
+			return
+		}
+		if len(messageIDs) == 0 {
+			return
+		}
+		_, err = client.AckMessages(drainCtx, &threadsv1.AckMessagesRequest{
+			ParticipantId: participantID,
+			MessageIds:    messageIDs,
+		})
+		if err != nil {
+			t.Logf("cleanup: ack messages for %s: %v", participantID, err)
+			return
+		}
+		select {
+		case <-drainCtx.Done():
+			t.Logf("cleanup: unacked message drain timeout for %s", participantID)
+			return
+		case <-ticker.C:
+		}
 	}
 }
 
