@@ -70,13 +70,17 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetAdditionalProperties()[labelKey] != workloadID {
 				return nil, errors.New("unexpected workload key label")
 			}
-			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
+			mainEnvs := envMap(req.GetMain().GetEnv())
+			if mainEnvs["WORKLOAD_ID"] != workloadID {
+				return nil, errors.New("missing WORKLOAD_ID")
+			}
+			zitiContainer := testutil.FindContainer(req.GetSidecars(), assembler.ZitiSidecarContainerName)
 			if zitiContainer == nil {
-				return nil, errors.New("missing ziti sidecar init container")
+				return nil, errors.New("missing ziti sidecar container")
 			}
 			envs := envMap(zitiContainer.GetEnv())
-			if envs["ZITI_ENROLL_TOKEN"] != jwt {
-				return nil, errors.New("missing ZITI_ENROLL_TOKEN")
+			if envs["ZITI_ENROLLMENT_JWT"] != jwt {
+				return nil, errors.New("missing ZITI_ENROLLMENT_JWT")
 			}
 			return &runnerv1.StartWorkloadResponse{
 				Id:     workloadID,
@@ -203,11 +207,15 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			if req.GetAdditionalProperties()[labelKey] != workloadID {
 				return nil, errors.New("unexpected workload key label")
 			}
-			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarInitContainerName)
+			mainEnvs := envMap(req.GetMain().GetEnv())
+			if mainEnvs["WORKLOAD_ID"] != workloadID {
+				return nil, errors.New("missing WORKLOAD_ID")
+			}
+			zitiContainer := testutil.FindContainer(req.GetSidecars(), assembler.ZitiSidecarContainerName)
 			if zitiContainer != nil {
 				envs := envMap(zitiContainer.GetEnv())
-				if _, ok := envs["ZITI_ENROLL_TOKEN"]; ok {
-					return nil, errors.New("unexpected ZITI_ENROLL_TOKEN")
+				if _, ok := envs["ZITI_ENROLLMENT_JWT"]; ok {
+					return nil, errors.New("unexpected ZITI_ENROLLMENT_JWT")
 				}
 			}
 			return &runnerv1.StartWorkloadResponse{
