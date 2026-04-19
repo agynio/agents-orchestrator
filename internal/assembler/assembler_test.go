@@ -239,17 +239,17 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
 		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
 	}
-	if len(request.InitContainers) != 2 {
-		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
 		t.Fatal("expected agent-init container")
 	}
-	if len(request.Sidecars) != 0 {
-		t.Fatalf("expected 0 sidecars, got %d", len(request.Sidecars))
+	if len(request.Sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(request.Sidecars))
 	}
-	zitiSidecar := testutil.FindInitContainer(request.InitContainers, ZitiSidecarContainerName)
+	zitiSidecar := testutil.FindContainer(request.Sidecars, ZitiSidecarContainerName)
 	if zitiSidecar == nil {
 		t.Fatal("expected ziti-sidecar container")
 	}
@@ -262,13 +262,6 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 	if !equalStringSlice(zitiSidecar.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
 		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiSidecar.RequiredCapabilities)
-	}
-	if len(zitiSidecar.Env) != 1 {
-		t.Fatalf("expected 1 ziti sidecar env, got %d", len(zitiSidecar.Env))
-	}
-	zitiEnv := envMap(zitiSidecar.Env)
-	if zitiEnv[ZitiIdentityBasenameEnvVar] != ZitiIdentityBasename {
-		t.Fatalf("expected ziti sidecar basename %q, got %q", ZitiIdentityBasename, zitiEnv[ZitiIdentityBasenameEnvVar])
 	}
 	expectedProperties := map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways}
 	if !equalStringMap(zitiSidecar.AdditionalProperties, expectedProperties) {

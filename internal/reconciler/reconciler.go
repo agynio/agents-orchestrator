@@ -498,12 +498,12 @@ func failureSummary(failure *runnerv1.WorkloadFailure) string {
 	return failure.GetCode()
 }
 
-func attachZitiEnrollmentToken(request *runnerv1.StartWorkloadRequest, jwt string) error {
-	for _, container := range request.InitContainers {
+func attachZitiEnrollmentJWT(request *runnerv1.StartWorkloadRequest, jwt string) error {
+	for _, container := range request.Sidecars {
 		if container.Name == assembler.ZitiSidecarContainerName {
-			container.Env = append(container.Env, &runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt})
+			container.Env = append(container.Env, &runnerv1.EnvVar{Name: "ZITI_ENROLLMENT_JWT", Value: jwt})
 			return nil
 		}
 	}
-	return fmt.Errorf("missing ziti init container")
+	return fmt.Errorf("missing ziti sidecar container")
 }

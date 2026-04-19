@@ -170,6 +170,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 
 	sidecarCapacity := len(mcpAssignments) + len(hookAssignments)
+	if a.cfg.ZitiEnabled {
+		sidecarCapacity++
+	}
 	sidecars := make([]*runnerv1.ContainerSpec, 0, sidecarCapacity)
 	mcpServers := make([]string, 0, len(mcpAssignments))
 	for _, assignment := range mcpAssignments {
@@ -188,13 +191,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		sidecars = append(sidecars, sidecar)
 	}
 	if a.cfg.ZitiEnabled {
-		initContainers = append(initContainers, &runnerv1.ContainerSpec{
-			Image: a.cfg.ZitiSidecarImage,
-			Name:  ZitiSidecarContainerName,
-			Cmd:   []string{zitiSidecarCommand},
-			Env: []*runnerv1.EnvVar{
-				{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename},
-			},
+		sidecars = append(sidecars, &runnerv1.ContainerSpec{
+			Image:                a.cfg.ZitiSidecarImage,
+			Name:                 ZitiSidecarContainerName,
+			Cmd:                  []string{zitiSidecarCommand},
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
