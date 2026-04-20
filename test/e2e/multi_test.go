@@ -62,8 +62,8 @@ func TestMultipleAgentsSeparateThreads(t *testing.T) {
 	createAgentEnv(t, ctx, agentsClient, agentAID, "LLM_API_TOKEN", token)
 	createAgentEnv(t, ctx, agentsClient, agentBID, "LLM_API_TOKEN", token)
 
-	threadA := createThread(t, ctx, threadsClient, []string{identityID, agentAID})
-	threadB := createThread(t, ctx, threadsClient, []string{identityID, agentBID})
+	threadA := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentAID})
+	threadB := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentBID})
 	threadAID := threadA.GetId()
 	threadBID := threadB.GetId()
 	if threadAID == "" || threadBID == "" {
@@ -192,8 +192,8 @@ func TestSameAgentMultipleThreads(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	threadA := createThread(t, ctx, threadsClient, []string{identityID, agentID})
-	threadB := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	threadA := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
+	threadB := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
 	threadAID := threadA.GetId()
 	threadBID := threadB.GetId()
 	if threadAID == "" || threadBID == "" {

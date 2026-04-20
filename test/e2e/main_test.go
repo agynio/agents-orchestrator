@@ -307,10 +307,14 @@ func createMCPEnv(t *testing.T, ctx context.Context, client agentsv1.AgentsServi
 	return env
 }
 
-func createThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantIDs []string) *threadsv1.Thread {
+func createThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, organizationID string, participantIDs []string) *threadsv1.Thread {
 	t.Helper()
+	if organizationID == "" {
+		t.Fatal("create thread: missing organization id")
+	}
 	resp, err := client.CreateThread(ctx, &threadsv1.CreateThreadRequest{
 		ParticipantIds: participantIDs,
+		OrganizationId: &organizationID,
 	})
 	if err != nil {
 		t.Fatalf("create thread: %v", err)

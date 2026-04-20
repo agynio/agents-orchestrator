@@ -97,7 +97,7 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	}
 	t.Cleanup(func() { deleteMCP(t, ctx, agentsClient, filesystemMcpID) })
 
-	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
