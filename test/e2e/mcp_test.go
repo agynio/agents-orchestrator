@@ -146,6 +146,7 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 
 	return pipelineRun{
 		threadID:       threadID,
+		organizationID: orgID,
 		startTimeMinNs: startTimeMinNs,
 		agentResponse:  agentBody,
 		messageText:    message,

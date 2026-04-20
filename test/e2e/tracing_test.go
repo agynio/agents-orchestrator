@@ -15,7 +15,7 @@ func TestAgentSimpleHelloProducesTrace(t *testing.T) {
 
 	ctx := context.Background()
 	tracingClient := newTracingClient(t)
-	traceID := discoverTraceID(t, ctx, tracingClient, result.threadID, result.startTimeMinNs, result.messageText)
+	traceID := discoverTraceID(t, ctx, tracingClient, result.organizationID, result.threadID, result.startTimeMinNs, result.messageText)
 	assertTraceSummary(t, ctx, tracingClient, traceID, map[string]int64{
 		"invocation.message": 1,
 		"llm.call":           1,
@@ -42,7 +42,7 @@ func TestAgentMCPToolsProducesTrace(t *testing.T) {
 
 	ctx := context.Background()
 	tracingClient := newTracingClient(t)
-	traceID := discoverTraceID(t, ctx, tracingClient, result.threadID, result.startTimeMinNs, result.messageText)
+	traceID := discoverTraceID(t, ctx, tracingClient, result.organizationID, result.threadID, result.startTimeMinNs, result.messageText)
 	expectedCounts := map[string]int64{
 		"invocation.message": 1,
 		"llm.call":           2,
