@@ -58,12 +58,12 @@ func TestWorkloadStartsOnUnackedMessage(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadID) })
 
 	_ = sendMessage(t, ctx, threadsClient, threadID, identityID, "e2e test message")
 

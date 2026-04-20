@@ -81,12 +81,12 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	}
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadID) })
 
 	message := sendMessage(t, ctx, threadsClient, threadID, identityID, "hello")
 	messageID := message.GetId()
@@ -127,7 +127,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 
 	responseCtx, responseCancel := context.WithTimeout(ctx, agentResponseTimeout)
 	defer responseCancel()
-	if _, err := pollForAgentResponse(t, responseCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, ""); err != nil {
+	if _, err := pollForAgentResponse(t, responseCtx, threadsClient, runnerClient, threadID, identityID, agentID, labels, sentMessageTime, ""); err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}
 

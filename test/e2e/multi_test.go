@@ -62,15 +62,15 @@ func TestMultipleAgentsSeparateThreads(t *testing.T) {
 	createAgentEnv(t, ctx, agentsClient, agentAID, "LLM_API_TOKEN", token)
 	createAgentEnv(t, ctx, agentsClient, agentBID, "LLM_API_TOKEN", token)
 
-	threadA := createThread(t, ctx, threadsClient, []string{identityID, agentAID})
-	threadB := createThread(t, ctx, threadsClient, []string{identityID, agentBID})
+	threadA := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentAID})
+	threadB := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentBID})
 	threadAID := threadA.GetId()
 	threadBID := threadB.GetId()
 	if threadAID == "" || threadBID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadAID) })
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadBID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadAID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadBID) })
 
 	sendMessage(t, ctx, threadsClient, threadAID, identityID, "multi agent message a")
 	sendMessage(t, ctx, threadsClient, threadBID, identityID, "multi agent message b")
@@ -192,15 +192,15 @@ func TestSameAgentMultipleThreads(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	threadA := createThread(t, ctx, threadsClient, []string{identityID, agentID})
-	threadB := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	threadA := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentID})
+	threadB := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentID})
 	threadAID := threadA.GetId()
 	threadBID := threadB.GetId()
 	if threadAID == "" || threadBID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadAID) })
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadBID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadAID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadBID) })
 
 	sendMessage(t, ctx, threadsClient, threadAID, identityID, "multi thread message a")
 	sendMessage(t, ctx, threadsClient, threadBID, identityID, "multi thread message b")

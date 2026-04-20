@@ -16,13 +16,26 @@ import (
 )
 
 const (
-	setupTimeout = 30 * time.Second
-	apiTokenName = "e2e-orchestrator"
+	setupTimeout      = 30 * time.Second
+	apiTokenName      = "e2e-orchestrator"
+	identityTypeUser  = "user"
+	identityTypeAgent = "agent"
 )
 
-func withIdentity(ctx context.Context, identityID string) context.Context {
-	md := metadata.New(map[string]string{"x-identity-id": identityID})
+func withIdentity(ctx context.Context, identityID, identityType string) context.Context {
+	md := metadata.Pairs(
+		"x-identity-id", identityID,
+		"x-identity-type", identityType,
+	)
 	return metadata.NewOutgoingContext(ctx, md)
+}
+
+func withUserIdentity(ctx context.Context, identityID string) context.Context {
+	return withIdentity(ctx, identityID, identityTypeUser)
+}
+
+func withAgentIdentity(ctx context.Context, identityID string) context.Context {
+	return withIdentity(ctx, identityID, identityTypeAgent)
 }
 
 func resolveOrCreateUser(t *testing.T, ctx context.Context, client usersv1.UsersServiceClient) string {
@@ -57,7 +70,7 @@ func createAPIToken(t *testing.T, ctx context.Context, client usersv1.UsersServi
 	callCtx, cancel := context.WithTimeout(ctx, setupTimeout)
 	defer cancel()
 
-	callCtx = withIdentity(callCtx, identityID)
+	callCtx = withUserIdentity(callCtx, identityID)
 	resp, err := client.CreateAPIToken(callCtx, &usersv1.CreateAPITokenRequest{Name: apiTokenName})
 	if err != nil {
 		t.Fatalf("create api token: %v", err)
@@ -78,7 +91,7 @@ func createTestOrganization(t *testing.T, ctx context.Context, client organizati
 	defer cancel()
 
 	name := fmt.Sprintf("e2e-orchestrator-org-%s", uuid.NewString())
-	callCtx = withIdentity(callCtx, identityID)
+	callCtx = withUserIdentity(callCtx, identityID)
 	resp, err := client.CreateOrganization(callCtx, &organizationsv1.CreateOrganizationRequest{Name: name})
 	if err != nil {
 		t.Fatalf("create organization %s: %v", name, err)

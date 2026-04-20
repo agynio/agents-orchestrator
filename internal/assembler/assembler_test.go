@@ -2,12 +2,10 @@ package assembler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
@@ -16,7 +14,6 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestAssemblerMainContainer(t *testing.T) {
@@ -37,20 +34,12 @@ func TestAssemblerMainContainer(t *testing.T) {
 		Capabilities:   []string{"privileged", "dind"},
 	}
 
-	skills := []*agentsv1.Skill{{Name: "skill-a", Body: "do-a"}}
-
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
 			if req.GetId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
 			return &agentsv1.GetAgentResponse{Agent: agent}, nil
-		},
-		ListSkillsFunc: func(_ context.Context, req *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
-			if req.GetAgentId() != agentID.String() {
-				return nil, errors.New("unexpected skills agent id")
-			}
-			return &agentsv1.ListSkillsResponse{Skills: skills}, nil
 		},
 		ListEnvsFunc: func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			if req.GetAgentId() == agentID.String() {
@@ -59,14 +48,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 				}}, nil
 			}
 			return &agentsv1.ListEnvsResponse{}, nil
-		},
-		ListInitScriptsFunc: func(_ context.Context, req *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
-			if req.GetAgentId() != agentID.String() {
-				return &agentsv1.ListInitScriptsResponse{}, nil
-			}
-			return &agentsv1.ListInitScriptsResponse{InitScripts: []*agentsv1.InitScript{
-				{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Script: "echo ready"},
-			}}, nil
 		},
 		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
@@ -183,14 +164,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "WORKSPACE_DIR", agentWorkspaceDir)
 	assertEnv(t, envs, "HOME", agentHomeDir)
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
-	assertEnv(t, envs, "INIT_SCRIPT", "echo ready")
-	var parsedSkills []skillPayload
-	if err := json.Unmarshal([]byte(envs["AGENT_SKILLS"]), &parsedSkills); err != nil {
-		t.Fatalf("unmarshal skills: %v", err)
-	}
-	if len(parsedSkills) != 1 || parsedSkills[0].Name != "skill-a" || parsedSkills[0].Body != "do-a" {
-		t.Fatalf("unexpected skills payload: %+v", parsedSkills)
-	}
 }
 
 func TestAssemblerAddsZitiSidecar(t *testing.T) {
@@ -273,28 +246,38 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if initContainer == nil {
 		t.Fatal("expected agent-init container")
 	}
-	zitiInit := testutil.FindInitContainer(request.InitContainers, ZitiSidecarInitContainerName)
-	if zitiInit == nil {
-		t.Fatal("expected ziti-sidecar init container")
+	if len(request.Sidecars) != 0 {
+		t.Fatalf("expected 0 sidecars, got %d", len(request.Sidecars))
 	}
-	if zitiInit.Image != cfg.ZitiSidecarImage {
-		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiInit.Image)
+	zitiSidecar := testutil.FindInitContainer(request.InitContainers, ZitiSidecarContainerName)
+	if zitiSidecar == nil {
+		t.Fatal("expected ziti-sidecar container")
+	}
+	if zitiSidecar.Image != cfg.ZitiSidecarImage {
+		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiSidecar.Image)
 	}
 	expectedCmd := []string{zitiSidecarCommand}
-	if !equalStringSlice(zitiInit.Cmd, expectedCmd) {
-		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiInit.Cmd)
+	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
+		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
 	}
-	if !equalStringSlice(zitiInit.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
-		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiInit.RequiredCapabilities)
+	if !equalStringSlice(zitiSidecar.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
+		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiSidecar.RequiredCapabilities)
+	}
+	if len(zitiSidecar.Env) != 1 {
+		t.Fatalf("expected 1 ziti sidecar env, got %d", len(zitiSidecar.Env))
+	}
+	zitiEnv := envMap(zitiSidecar.Env)
+	if zitiEnv[ZitiIdentityBasenameEnvVar] != ZitiIdentityBasename {
+		t.Fatalf("expected ziti sidecar basename %q, got %q", ZitiIdentityBasename, zitiEnv[ZitiIdentityBasenameEnvVar])
 	}
 	expectedProperties := map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways}
-	if !equalStringMap(zitiInit.AdditionalProperties, expectedProperties) {
-		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiInit.AdditionalProperties)
+	if !equalStringMap(zitiSidecar.AdditionalProperties, expectedProperties) {
+		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiSidecar.AdditionalProperties)
 	}
-	if len(zitiInit.Mounts) != 1 {
-		t.Fatalf("expected 1 ziti sidecar mount, got %d", len(zitiInit.Mounts))
+	if len(zitiSidecar.Mounts) != 1 {
+		t.Fatalf("expected 1 ziti sidecar mount, got %d", len(zitiSidecar.Mounts))
 	}
-	zitiMount := zitiInit.Mounts[0]
+	zitiMount := zitiSidecar.Mounts[0]
 	if zitiMount.Volume != zitiIdentityVolumeName {
 		t.Fatalf("expected ziti mount volume %q, got %q", zitiIdentityVolumeName, zitiMount.Volume)
 	}
@@ -354,9 +337,8 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 		Configuration: "{}",
 	}
 
-	ctx := context.Background()
 	assembler := New(&testutil.FakeAgentsClient{}, &testutil.FakeSecretsClient{}, &cfg)
-	envs := envMap(assembler.baseAgentEnvVars(ctx, agent, agentID, threadID, "[]", ""))
+	envs := envMap(assembler.baseAgentEnvVars(agent, agentID, threadID))
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
@@ -573,14 +555,6 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 			}
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListInitScriptsFunc: func(_ context.Context, req *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
-			if req.GetMcpId() == mcpID.String() {
-				return &agentsv1.ListInitScriptsResponse{InitScripts: []*agentsv1.InitScript{
-					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString(), CreatedAt: timestamppb.New(time.Unix(5, 0))}, Script: "echo mcp"},
-				}}, nil
-			}
-			return &agentsv1.ListInitScriptsResponse{}, nil
-		},
 		ListVolumeAttachmentsFunc: func(_ context.Context, req *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			if req.GetMcpId() == mcpID.String() {
 				return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: []*agentsv1.VolumeAttachment{
@@ -665,7 +639,6 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	}
 	envs := envMap(sidecar.Env)
 	assertEnv(t, envs, "MCP_ENV", "enabled")
-	assertEnv(t, envs, "INIT_SCRIPT", "echo mcp")
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 }
