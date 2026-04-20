@@ -9,6 +9,7 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -142,7 +143,7 @@ func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminators(t *testing.T) {
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
-			return &runnersv1.ListRunnersResponse{}, nil
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
 		},
 		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
 			updateReq = req
@@ -196,7 +197,7 @@ func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminatorsListError(t *testing
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
-			return &runnersv1.ListRunnersResponse{}, nil
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
 		},
 		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
 			updateReq = req
@@ -239,6 +240,77 @@ func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminatorsListError(t *testing
 	}
 	if updateReq.GetRemovedAt() == nil {
 		t.Fatal("expected removed_at")
+	}
+}
+
+func TestReconcileWorkloadsDegradesUnenrolledRunner(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	threadID := uuid.New().String()
+	workloadID := "workload-1"
+	secondWorkloadID := "workload-2"
+
+	updateCount := 0
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, ThreadId: threadID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
+				{Meta: &runnersv1.EntityMeta{Id: secondWorkloadID}, RunnerId: runnerID, ThreadId: threadID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{
+				{Meta: &runnersv1.EntityMeta{Id: runnerID}, Status: runnersv1.RunnerStatus_RUNNER_STATUS_OFFLINE},
+			}}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateCount++
+			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+				return nil, errors.New("unexpected workload status")
+			}
+			if req.GetRemovedAt() == nil {
+				return nil, errors.New("missing removed_at")
+			}
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	degradeCalls := 0
+	threads := &fakeThreadsClient{
+		degradeThread: func(_ context.Context, req *threadsv1.DegradeThreadRequest, _ ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error) {
+			degradeCalls++
+			if req.GetThreadId() != threadID {
+				return nil, errors.New("unexpected thread id")
+			}
+			if req.GetReason() != degradeReasonRunnerDeprovisioned {
+				return nil, errors.New("unexpected degrade reason")
+			}
+			return &threadsv1.DegradeThreadResponse{}, nil
+		},
+	}
+
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(context.Context, string) (runnerv1.RunnerServiceClient, error) {
+			return nil, errors.New("unexpected dial")
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Threads:      threads,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileWorkloads(ctx); err != nil {
+		t.Fatalf("reconcile workloads: %v", err)
+	}
+	if updateCount != 2 {
+		t.Fatalf("expected 2 workload updates, got %d", updateCount)
+	}
+	if degradeCalls != 1 {
+		t.Fatalf("expected 1 degrade call, got %d", degradeCalls)
 	}
 }
 
@@ -318,7 +390,7 @@ func TestReconcileVolumesMarksMissingRunnerOnNoTerminatorsListError(t *testing.T
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
-			return &runnersv1.ListRunnersResponse{}, nil
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
 		},
 		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
 			updateReq = req
@@ -358,6 +430,146 @@ func TestReconcileVolumesMarksMissingRunnerOnNoTerminatorsListError(t *testing.T
 	}
 	if updateReq.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_FAILED {
 		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	}
+}
+
+func TestReconcileVolumesDegradesOnMissingPVC(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	volumeKey := "volume-1"
+	threadID := uuid.New().String()
+	volumeID := uuid.New().String()
+
+	var updateReq *runnersv1.UpdateVolumeRequest
+	runners := &fakeRunnersClient{
+		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateVolumeResponse{}, nil
+		},
+	}
+
+	degradeCalls := 0
+	threads := &fakeThreadsClient{
+		degradeThread: func(_ context.Context, req *threadsv1.DegradeThreadRequest, _ ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error) {
+			degradeCalls++
+			if req.GetThreadId() != threadID {
+				return nil, errors.New("unexpected thread id")
+			}
+			if req.GetReason() != degradeReasonVolumeLost {
+				return nil, errors.New("unexpected degrade reason")
+			}
+			return &threadsv1.DegradeThreadResponse{}, nil
+		},
+	}
+
+	runner := &fakeRunnerClient{
+		listVolumes: func(_ context.Context, _ *runnerv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnerv1.ListVolumesResponse, error) {
+			return &runnerv1.ListVolumesResponse{}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Threads:      threads,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileVolumes(ctx); err != nil {
+		t.Fatalf("reconcile volumes: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected update volume")
+	}
+	if updateReq.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_FAILED {
+		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	}
+	if degradeCalls != 1 {
+		t.Fatalf("expected 1 degrade call, got %d", degradeCalls)
+	}
+}
+
+func TestReconcileVolumesDegradesUnenrolledRunner(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	volumeKey := "volume-1"
+	threadID := uuid.New().String()
+	volumeID := uuid.New().String()
+
+	updateCount := 0
+	runners := &fakeRunnersClient{
+		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{
+				{Meta: &runnersv1.EntityMeta{Id: runnerID}, Status: runnersv1.RunnerStatus_RUNNER_STATUS_OFFLINE},
+			}}, nil
+		},
+		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateCount++
+			if req.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_FAILED {
+				return nil, errors.New("unexpected volume status")
+			}
+			return &runnersv1.UpdateVolumeResponse{}, nil
+		},
+	}
+
+	degradeCalls := 0
+	threads := &fakeThreadsClient{
+		degradeThread: func(_ context.Context, req *threadsv1.DegradeThreadRequest, _ ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error) {
+			degradeCalls++
+			if req.GetThreadId() != threadID {
+				return nil, errors.New("unexpected thread id")
+			}
+			if req.GetReason() != degradeReasonRunnerDeprovisioned {
+				return nil, errors.New("unexpected degrade reason")
+			}
+			return &threadsv1.DegradeThreadResponse{}, nil
+		},
+	}
+
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(context.Context, string) (runnerv1.RunnerServiceClient, error) {
+			return nil, errors.New("unexpected dial")
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Threads:      threads,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileVolumes(ctx); err != nil {
+		t.Fatalf("reconcile volumes: %v", err)
+	}
+	if updateCount != 1 {
+		t.Fatalf("expected 1 volume update, got %d", updateCount)
+	}
+	if degradeCalls != 1 {
+		t.Fatalf("expected 1 degrade call, got %d", degradeCalls)
 	}
 }
 

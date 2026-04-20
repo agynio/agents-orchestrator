@@ -28,6 +28,7 @@ func (f *fakeAgentsClient) ListAgents(ctx context.Context, req *agentsv1.ListAge
 type fakeThreadsClient struct {
 	getThreads         func(context.Context, *threadsv1.GetThreadsRequest, ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error)
 	getUnackedMessages func(context.Context, *threadsv1.GetUnackedMessagesRequest, ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error)
+	degradeThread      func(context.Context, *threadsv1.DegradeThreadRequest, ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error)
 }
 
 func (f *fakeThreadsClient) CreateThread(context.Context, *threadsv1.CreateThreadRequest, ...grpc.CallOption) (*threadsv1.CreateThreadResponse, error) {
@@ -35,6 +36,13 @@ func (f *fakeThreadsClient) CreateThread(context.Context, *threadsv1.CreateThrea
 }
 
 func (f *fakeThreadsClient) ArchiveThread(context.Context, *threadsv1.ArchiveThreadRequest, ...grpc.CallOption) (*threadsv1.ArchiveThreadResponse, error) {
+	return nil, testutil.ErrNotImplemented
+}
+
+func (f *fakeThreadsClient) DegradeThread(ctx context.Context, req *threadsv1.DegradeThreadRequest, opts ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error) {
+	if f.degradeThread != nil {
+		return f.degradeThread(ctx, req, opts...)
+	}
 	return nil, testutil.ErrNotImplemented
 }
 

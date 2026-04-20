@@ -124,8 +124,9 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	degraded := newDegradeTracker()
 	for _, candidate := range actions.ToStart {
-		r.startWorkload(ctx, candidate)
+		r.startWorkload(ctx, candidate, degraded)
 	}
 	for _, workload := range actions.ToStop {
 		r.stopWorkload(ctx, workload)
@@ -190,16 +191,35 @@ func (r *Reconciler) compensateIdentity(ctx context.Context, zitiIdentityID *str
 	}
 }
 
-func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread) {
+func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degraded *degradeTracker) {
 	assembled, err := r.assembler.Assemble(ctx, target.AgentID, target.ThreadID)
 	if err != nil {
 		log.Printf("reconciler: assemble workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		return
 	}
-	selectedRunner, err := r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
+	pinnedRunnerID, err := r.pinnedRunnerForThread(ctx, target.ThreadID.String())
 	if err != nil {
-		log.Printf("reconciler: select runner for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
+		log.Printf("reconciler: list volumes for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		return
+	}
+	var selectedRunner *runnersv1.Runner
+	if pinnedRunnerID != "" {
+		runner, enrolled, err := r.getRunnerIfEnrolled(ctx, pinnedRunnerID)
+		if err != nil {
+			log.Printf("reconciler: get runner %s for agent %s thread %s: %v", pinnedRunnerID, target.AgentID.String(), target.ThreadID.String(), err)
+			return
+		}
+		if !enrolled {
+			r.degradeThread(ctx, target.ThreadID.String(), degradeReasonRunnerDeprovisioned, degraded)
+			return
+		}
+		selectedRunner = runner
+	} else {
+		selectedRunner, err = r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
+		if err != nil {
+			log.Printf("reconciler: select runner for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
+			return
+		}
 	}
 	runnerID := selectedRunner.GetMeta().GetId()
 	if runnerID == "" {

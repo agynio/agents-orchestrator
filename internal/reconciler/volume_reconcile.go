@@ -55,25 +55,40 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 		volumesByRunner[runnerID][volumeID] = volume
 	}
-	if runners, err := r.listRunners(ctx); err != nil {
-		log.Printf("reconciler: warn: list runners for volume reconciliation: %v", err)
-	} else {
-		for _, runner := range runners {
-			if runner == nil {
-				continue
-			}
-			runnerID := runner.GetMeta().GetId()
-			if runnerID == "" {
-				continue
-			}
-			runnerIDs[runnerID] = struct{}{}
+	runners, err := r.listRunners(ctx)
+	if err != nil {
+		return err
+	}
+	enrolledRunnerIDs := map[string]struct{}{}
+	for _, runner := range runners {
+		if runner == nil {
+			continue
 		}
+		runnerID := runner.GetMeta().GetId()
+		if runnerID == "" {
+			continue
+		}
+		if runner.GetStatus() != runnersv1.RunnerStatus_RUNNER_STATUS_ENROLLED {
+			continue
+		}
+		enrolledRunnerIDs[runnerID] = struct{}{}
+		runnerIDs[runnerID] = struct{}{}
 	}
 
+	degraded := newDegradeTracker()
 	volumeInfoCache := map[string]volumeTTLInfo{}
 	threadCache := map[string]threadActivity{}
 	for runnerID := range runnerIDs {
 		trackedVolumes := volumesByRunner[runnerID]
+		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
+			for volumeID, volume := range trackedVolumes {
+				if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
+					log.Printf("reconciler: warn: handle missing volume %s on unenrolled runner: %v", volumeID, err)
+				}
+				r.degradeThread(ctx, volume.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
+			}
+			continue
+		}
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
@@ -122,6 +137,9 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			if !ok {
 				if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s: %v", volumeID, err)
+				}
+				if volume.GetStatus() == runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
+					r.degradeThread(ctx, volume.GetThreadId(), degradeReasonVolumeLost, degraded)
 				}
 				continue
 			}
