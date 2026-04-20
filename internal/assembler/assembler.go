@@ -28,7 +28,8 @@ const (
 	mcpBasePort                          = 8100
 	ZitiSidecarContainerName             = "ziti-sidecar"
 	zitiIdentityVolumeName               = "ziti-identity"
-	zitiIdentityMountPath                = "/netfoundry"
+	zitiIdentityMountPath                = "/var/lib/ziti/identity"
+	ZitiIdentityBasename                 = "/var/lib/ziti/identity/agent"
 	zitiDNSNameserver                    = "127.0.0.1"
 	zitiSidecarCommand                   = "tproxy"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
@@ -36,6 +37,7 @@ const (
 	zitiRestartPolicyAlways              = "Always"
 	zitiDNSSearchService                 = "svc.cluster.local"
 	zitiDNSSearchCluster                 = "cluster.local"
+	zitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
 )
 
 type Assembler struct {
@@ -167,9 +169,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 
 	sidecarCapacity := len(mcpAssignments) + len(hookAssignments)
-	if a.cfg.ZitiEnabled {
-		sidecarCapacity++
-	}
 	sidecars := make([]*runnerv1.ContainerSpec, 0, sidecarCapacity)
 	mcpServers := make([]string, 0, len(mcpAssignments))
 	for _, assignment := range mcpAssignments {
@@ -188,10 +187,13 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		sidecars = append(sidecars, sidecar)
 	}
 	if a.cfg.ZitiEnabled {
-		sidecars = append(sidecars, &runnerv1.ContainerSpec{
-			Image:                a.cfg.ZitiSidecarImage,
-			Name:                 ZitiSidecarContainerName,
-			Cmd:                  []string{zitiSidecarCommand},
+		initContainers = append(initContainers, &runnerv1.ContainerSpec{
+			Image: a.cfg.ZitiSidecarImage,
+			Name:  ZitiSidecarContainerName,
+			Cmd:   []string{zitiSidecarCommand},
+			Env: []*runnerv1.EnvVar{
+				{Name: zitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename},
+			},
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
