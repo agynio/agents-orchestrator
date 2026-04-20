@@ -30,6 +30,8 @@ const (
 	zitiIdentityVolumeName               = "ziti-identity"
 	zitiIdentityMountPath                = "/var/lib/ziti/identity"
 	ZitiIdentityBasename                 = "/var/lib/ziti/identity/agent"
+	ZitiEnrollmentJWTEnvVar              = "ZITI_ENROLLMENT_JWT"
+	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
 	zitiDNSNameserver                    = "127.0.0.1"
 	zitiSidecarCommand                   = "tproxy"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
@@ -37,7 +39,6 @@ const (
 	zitiRestartPolicyAlways              = "Always"
 	zitiDNSSearchService                 = "svc.cluster.local"
 	zitiDNSSearchCluster                 = "cluster.local"
-	zitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
 )
 
 type Assembler struct {
@@ -192,7 +193,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Name:  ZitiSidecarContainerName,
 			Cmd:   []string{zitiSidecarCommand},
 			Env: []*runnerv1.EnvVar{
-				{Name: zitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename},
+				{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename},
 			},
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
