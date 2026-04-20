@@ -62,6 +62,8 @@ var (
 
 type pipelineRun struct {
 	threadID       string
+	organizationID string
+	identityID     string
 	startTimeMinNs uint64
 	agentResponse  string
 	messageText    string

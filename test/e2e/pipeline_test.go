@@ -107,6 +107,8 @@ func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, messag
 
 	return pipelineRun{
 		threadID:       threadID,
+		organizationID: orgID,
+		identityID:     identityID,
 		startTimeMinNs: startTimeMinNs,
 		agentResponse:  agentBody,
 		messageText:    message,

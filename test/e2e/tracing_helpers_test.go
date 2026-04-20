@@ -37,6 +37,14 @@ func newTracingClient(t *testing.T) tracingv1.TracingServiceClient {
 	return tracingv1.NewTracingServiceClient(conn)
 }
 
+func traceQueryContext(ctx context.Context, identityID string) context.Context {
+	identityID = strings.TrimSpace(identityID)
+	if identityID == "" {
+		return ctx
+	}
+	return withUserIdentity(ctx, identityID)
+}
+
 var traceSearchSpanNames = []string{
 	"invocation.message",
 	"tool.execution",
@@ -47,6 +55,8 @@ func discoverTraceID(
 	t *testing.T,
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
+	identityID string,
 	threadID string,
 	startTimeMinNs uint64,
 	messageText string,
@@ -69,7 +79,7 @@ func discoverTraceID(
 	var traceID []byte
 	err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
 		var err error
-		traceID, err = findTraceID(ctx, client, threadID, messageText, searchStartTimeMinNs)
+		traceID, err = findTraceID(ctx, client, organizationID, identityID, threadID, messageText, searchStartTimeMinNs)
 		if err != nil {
 			return err
 		}
@@ -79,7 +89,7 @@ func discoverTraceID(
 		return fmt.Errorf("trace id not found")
 	})
 	if err != nil {
-		logTraceSearchDiagnostics(t, client, searchStartTimeMinNs, messageText)
+		logTraceSearchDiagnostics(t, client, organizationID, identityID, searchStartTimeMinNs, messageText)
 		logTracingDiagnostics(t, threadID)
 		t.Fatalf("discover trace id: %v", err)
 	}
@@ -89,12 +99,14 @@ func discoverTraceID(
 func findTraceID(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
+	identityID string,
 	threadID string,
 	messageText string,
 	startTimeMinNs uint64,
 ) ([]byte, error) {
 	for _, spanName := range traceSearchSpanNames {
-		traceID, err := listTraceIDForSpanName(ctx, client, threadID, messageText, startTimeMinNs, spanName)
+		traceID, err := listTraceIDForSpanName(ctx, client, organizationID, identityID, threadID, messageText, startTimeMinNs, spanName)
 		if err != nil {
 			return nil, err
 		}
@@ -108,6 +120,8 @@ func findTraceID(
 func listTraceIDForSpanName(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
+	identityID string,
 	threadID string,
 	messageText string,
 	startTimeMinNs uint64,
@@ -115,7 +129,9 @@ func listTraceIDForSpanName(
 ) ([]byte, error) {
 	pageToken := ""
 	for {
-		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+		callCtx := traceQueryContext(ctx, identityID)
+		resp, err := client.ListSpans(callCtx, &tracingv1.ListSpansRequest{
+			OrganizationId: organizationID,
 			Filter: &tracingv1.SpanFilter{
 				StartTimeMin: startTimeMinNs,
 				Names:        []string{spanName},
@@ -148,6 +164,8 @@ type traceIDSet map[string]struct{}
 func traceIDsForSpanName(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
+	identityID string,
 	threadID string,
 	messageText string,
 	startTimeMinNs uint64,
@@ -156,7 +174,9 @@ func traceIDsForSpanName(
 	pageToken := ""
 	traceIDs := make(traceIDSet)
 	for {
-		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+		callCtx := traceQueryContext(ctx, identityID)
+		resp, err := client.ListSpans(callCtx, &tracingv1.ListSpansRequest{
+			OrganizationId: organizationID,
 			Filter: &tracingv1.SpanFilter{
 				StartTimeMin: startTimeMinNs,
 				Names:        []string{spanName},
@@ -198,6 +218,8 @@ func traceIDsForSpanName(
 func countSpansForThread(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
+	identityID string,
 	threadID string,
 	messageText string,
 	startTimeMinNs uint64,
@@ -206,7 +228,9 @@ func countSpansForThread(
 	pageToken := ""
 	var count int64
 	for {
-		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+		callCtx := traceQueryContext(ctx, identityID)
+		resp, err := client.ListSpans(callCtx, &tracingv1.ListSpansRequest{
+			OrganizationId: organizationID,
 			Filter: &tracingv1.SpanFilter{
 				StartTimeMin: startTimeMinNs,
 				Names:        []string{spanName},
@@ -267,13 +291,14 @@ func assertTraceSummary(
 	expectedCounts map[string]int64,
 	expectedTotal int64,
 	threadID string,
+	identityID string,
 ) {
 	t.Helper()
 	ranges := make(map[string]spanCountRange, len(expectedCounts))
 	for name, count := range expectedCounts {
 		ranges[name] = spanCountRange{min: count, max: count}
 	}
-	assertTraceSummaryRange(t, ctx, client, traceID, ranges, spanCountRange{min: expectedTotal, max: expectedTotal}, threadID)
+	assertTraceSummaryRange(t, ctx, client, traceID, ranges, spanCountRange{min: expectedTotal, max: expectedTotal}, threadID, identityID)
 }
 
 type spanCountRange struct {
@@ -289,9 +314,10 @@ func assertTraceSummaryRange(
 	expectedCounts map[string]spanCountRange,
 	expectedTotal spanCountRange,
 	threadID string,
+	identityID string,
 ) {
 	t.Helper()
-	err := waitForTraceSummaryRange(ctx, client, traceID, expectedCounts, expectedTotal)
+	err := waitForTraceSummaryRange(ctx, client, traceID, expectedCounts, expectedTotal, identityID)
 	if err == nil {
 		return
 	}
@@ -307,12 +333,14 @@ func waitForTraceSummaryRange(
 	traceID []byte,
 	expectedCounts map[string]spanCountRange,
 	expectedTotal spanCountRange,
+	identityID string,
 ) error {
 	pollCtx, cancel := context.WithTimeout(ctx, tracingSummaryTimeout)
 	defer cancel()
 
 	return pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
-		resp, err := client.GetTraceSummary(ctx, &tracingv1.GetTraceSummaryRequest{TraceId: traceID})
+		callCtx := traceQueryContext(ctx, identityID)
+		resp, err := client.GetTraceSummary(callCtx, &tracingv1.GetTraceSummaryRequest{TraceId: traceID})
 		if err != nil {
 			return fmt.Errorf("get trace summary: %w", err)
 		}
@@ -344,10 +372,11 @@ func assertSpanAttributes(
 	traceID []byte,
 	spanName string,
 	expectedAttrs map[string]string,
+	identityID string,
 ) map[string]string {
 	t.Helper()
 
-	spans := traceSpans(t, ctx, client, traceID)
+	spans := traceSpans(t, ctx, client, traceID, identityID)
 	for _, span := range spans {
 		if span.GetName() != spanName {
 			continue
@@ -373,11 +402,12 @@ func traceSpans(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
 	traceID []byte,
+	identityID string,
 ) []*tracev1.Span {
 	t.Helper()
 	callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-
+	callCtx = traceQueryContext(callCtx, identityID)
 	resp, err := client.GetTrace(callCtx, &tracingv1.GetTraceRequest{TraceId: traceID})
 	if err != nil {
 		t.Fatalf("get trace: %v", err)
@@ -520,6 +550,8 @@ func attributeStringValue(value *commonv1.AnyValue) (string, bool) {
 func logTraceSearchDiagnostics(
 	t *testing.T,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
+	identityID string,
 	startTimeMinNs uint64,
 	messageText string,
 ) {
@@ -530,10 +562,10 @@ func logTraceSearchDiagnostics(
 	if strings.TrimSpace(messageText) != "" {
 		t.Logf("diagnostics: trace search message=%s", truncateLogLine(messageText))
 	}
-	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"invocation.message"}, "invocation.message")
-	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"tool.execution"}, "tool.execution")
-	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"llm.call"}, "llm.call")
-	logSpanSamples(t, ctx, client, startTimeMinNs, nil, "all-spans")
+	logSpanSamples(t, ctx, client, organizationID, identityID, startTimeMinNs, []string{"invocation.message"}, "invocation.message")
+	logSpanSamples(t, ctx, client, organizationID, identityID, startTimeMinNs, []string{"tool.execution"}, "tool.execution")
+	logSpanSamples(t, ctx, client, organizationID, identityID, startTimeMinNs, []string{"llm.call"}, "llm.call")
+	logSpanSamples(t, ctx, client, organizationID, identityID, startTimeMinNs, nil, "all-spans")
 	logTracingStackDiagnostics(t)
 }
 
@@ -541,6 +573,8 @@ func logSpanSamples(
 	t *testing.T,
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
+	identityID string,
 	startTimeMinNs uint64,
 	spanNames []string,
 	label string,
@@ -550,10 +584,12 @@ func logSpanSamples(
 	if len(spanNames) > 0 {
 		filter.Names = spanNames
 	}
-	resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
-		Filter:   filter,
-		PageSize: 10,
-		OrderBy:  tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+	callCtx := traceQueryContext(ctx, identityID)
+	resp, err := client.ListSpans(callCtx, &tracingv1.ListSpansRequest{
+		OrganizationId: organizationID,
+		Filter:         filter,
+		PageSize:       10,
+		OrderBy:        tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
 	})
 	if err != nil {
 		t.Logf("diagnostics: list spans %s error: %v", label, err)
@@ -591,7 +627,7 @@ func logSpanSamples(
 	}
 }
 
-func logShellToolExecutionDiagnostics(t *testing.T, startTimeMinNs uint64, threadID string) {
+func logShellToolExecutionDiagnostics(t *testing.T, organizationID string, identityID string, startTimeMinNs uint64, threadID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -607,7 +643,9 @@ func logShellToolExecutionDiagnostics(t *testing.T, startTimeMinNs uint64, threa
 	pageToken := ""
 	found := 0
 	for {
-		resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
+		callCtx := traceQueryContext(ctx, identityID)
+		resp, err := client.ListSpans(callCtx, &tracingv1.ListSpansRequest{
+			OrganizationId: organizationID,
 			Filter: &tracingv1.SpanFilter{
 				StartTimeMin: startTimeMinNs,
 				Names:        []string{"tool.execution"},

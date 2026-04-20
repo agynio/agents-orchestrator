@@ -91,7 +91,7 @@ func TestThreadsSendShell(t *testing.T) {
 	expectedBodies := []string{"Thinking", "Done thinking. Here is my reply."}
 	agentMessages, err := pollForAgentMessages(t, pollCtx, threadsClient, runnerClient, threadID, identityID, agentID, labels, sentMessageTime, expectedBodies)
 	if err != nil {
-		logShellToolExecutionDiagnostics(t, startTimeMinNs, threadID)
+		logShellToolExecutionDiagnostics(t, orgID, identityID, startTimeMinNs, threadID)
 		t.Fatalf("wait for agent messages: %v", err)
 	}
 	if len(agentMessages) != len(expectedBodies) {
