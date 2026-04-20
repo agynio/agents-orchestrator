@@ -143,7 +143,7 @@ deployments:
               - name: USERS_ADDRESS
                 value: "users:50051"
               - name: ORGANIZATIONS_ADDRESS
-                value: "tenants:50051"
+                value: "organizations:50051"
               - name: RUNNER_ADDRESS
                 value: "k8s-runner:50051"
               - name: RUNNERS_ADDRESS
