@@ -28,9 +28,9 @@ const (
 	mcpBasePort                          = 8100
 	ZitiSidecarContainerName             = "ziti-sidecar"
 	zitiIdentityVolumeName               = "ziti-identity"
-	zitiIdentityMountPath                = "/var/lib/ziti/identity"
-	ZitiIdentityBasename                 = "/var/lib/ziti/identity/agent"
-	ZitiEnrollmentJWTEnvVar              = "ZITI_ENROLLMENT_JWT"
+	zitiIdentityMountPath                = "/netfoundry"
+	ZitiIdentityBasename                 = "agent"
+	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
 	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
 	zitiDNSNameserver                    = "127.0.0.1"
 	zitiSidecarCommand                   = "tproxy"
