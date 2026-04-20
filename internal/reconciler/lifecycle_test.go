@@ -82,10 +82,10 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 				return nil, errors.New("unexpected ziti env count")
 			}
 			envs := envMap(zitiContainer.GetEnv())
-			if envs["ZITI_ENROLLMENT_JWT"] != jwt {
+			if envs[assembler.ZitiEnrollmentJWTEnvVar] != jwt {
 				return nil, errors.New("missing ZITI_ENROLLMENT_JWT")
 			}
-			if envs["ZITI_IDENTITY_BASENAME"] != assembler.ZitiIdentityBasename {
+			if envs[assembler.ZitiIdentityBasenameEnvVar] != assembler.ZitiIdentityBasename {
 				return nil, errors.New("missing ZITI_IDENTITY_BASENAME")
 			}
 			return &runnerv1.StartWorkloadResponse{
@@ -220,7 +220,7 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarContainerName)
 			if zitiContainer != nil {
 				envs := envMap(zitiContainer.GetEnv())
-				if _, ok := envs["ZITI_ENROLLMENT_JWT"]; ok {
+				if _, ok := envs[assembler.ZitiEnrollmentJWTEnvVar]; ok {
 					return nil, errors.New("unexpected ZITI_ENROLLMENT_JWT")
 				}
 			}

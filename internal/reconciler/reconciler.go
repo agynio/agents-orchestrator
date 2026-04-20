@@ -501,7 +501,7 @@ func failureSummary(failure *runnerv1.WorkloadFailure) string {
 func attachZitiEnrollmentJWT(request *runnerv1.StartWorkloadRequest, jwt string) error {
 	for _, container := range request.InitContainers {
 		if container.Name == assembler.ZitiSidecarContainerName {
-			container.Env = append(container.Env, &runnerv1.EnvVar{Name: "ZITI_ENROLLMENT_JWT", Value: jwt})
+			container.Env = append(container.Env, &runnerv1.EnvVar{Name: assembler.ZitiEnrollmentJWTEnvVar, Value: jwt})
 			return nil
 		}
 	}
