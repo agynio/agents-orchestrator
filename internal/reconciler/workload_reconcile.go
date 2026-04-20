@@ -7,6 +7,7 @@ import (
 
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -52,6 +53,15 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 	for runnerID := range runnerIDs {
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
+			if runnerdial.IsNoTerminators(err) {
+				trackedWorkloads := workloadsByRunner[runnerID]
+				for workloadID, workload := range trackedWorkloads {
+					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+						log.Printf("reconciler: warn: handle missing workload %s after runner dial failure: %v", workloadID, err)
+					}
+				}
+				continue
+			}
 			log.Printf("reconciler: warn: dial runner %s for workload reconciliation: %v", runnerID, err)
 			continue
 		}

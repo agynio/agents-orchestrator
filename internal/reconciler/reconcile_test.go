@@ -129,6 +129,60 @@ func TestReconcileWorkloadsStopsOrphan(t *testing.T) {
 	}
 }
 
+func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminators(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	workloadID := "workload-1"
+
+	var updateReq *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return nil, errors.New("service runner-1 has no terminators")
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileWorkloads(ctx); err != nil {
+		t.Fatalf("reconcile workloads: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected update workload")
+	}
+	if updateReq.GetId() != workloadID {
+		t.Fatalf("unexpected workload id: %v", updateReq.GetId())
+	}
+	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	}
+	if updateReq.GetRemovedAt() == nil {
+		t.Fatal("expected removed_at")
+	}
+}
+
 func TestReconcileVolumesActivatesProvisioning(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"

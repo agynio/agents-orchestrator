@@ -334,6 +334,12 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 	}
 	runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 	if err != nil {
+		if runnerdial.IsNoTerminators(err) {
+			if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+				log.Printf("reconciler: handle missing workload %s after runner dial failure: %v", workloadID, err)
+			}
+			return
+		}
 		log.Printf("reconciler: dial runner %s for workload %s: %v", runnerID, workloadID, err)
 		return
 	}
