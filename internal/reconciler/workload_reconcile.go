@@ -51,10 +51,10 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 	}
 
 	for runnerID := range runnerIDs {
+		trackedWorkloads := workloadsByRunner[runnerID]
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
-				trackedWorkloads := workloadsByRunner[runnerID]
 				for workloadID, workload := range trackedWorkloads {
 					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 						log.Printf("reconciler: warn: handle missing workload %s after runner dial failure: %v", workloadID, err)
@@ -67,6 +67,14 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 		resp, err := runnerClient.ListWorkloads(ctx, &runnerv1.ListWorkloadsRequest{})
 		if err != nil {
+			if runnerdial.IsNoTerminators(err) {
+				for workloadID, workload := range trackedWorkloads {
+					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+						log.Printf("reconciler: warn: handle missing workload %s after runner list failure: %v", workloadID, err)
+					}
+				}
+				continue
+			}
 			log.Printf("reconciler: warn: list workloads for runner %s: %v", runnerID, err)
 			continue
 		}
@@ -87,7 +95,6 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			runnerWorkloads[workloadKey] = item
 		}
 
-		trackedWorkloads := workloadsByRunner[runnerID]
 		for workloadID, workload := range trackedWorkloads {
 			item, ok := runnerWorkloads[workloadID]
 			if !ok {

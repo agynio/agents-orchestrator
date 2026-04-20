@@ -659,6 +659,65 @@ func TestStopWorkloadMarksMissingRunnerOnNoTerminators(t *testing.T) {
 	}
 }
 
+func TestStopWorkloadMarksMissingRunnerOnNoTerminatorsStopError(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	testAssembler := newTestAssembler(agentID, true)
+	runnerID := "runner-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
+
+	var updateStatuses []runnersv1.WorkloadStatus
+	runners := &fakeRunnersClient{
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateStatuses = append(updateStatuses, req.GetStatus())
+			if req.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED && req.GetRemovedAt() == nil {
+				return nil, errors.New("missing removed_at")
+			}
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	stopCalled := false
+	runner := &fakeRunnerClient{
+		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			stopCalled = true
+			return nil, errors.New("service runner-1 has no terminators")
+		},
+	}
+
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{
+		Meta:       &runnersv1.EntityMeta{Id: "workload-1"},
+		RunnerId:   runnerID,
+		InstanceId: stringPtr(instanceID),
+		Status:     runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+	})
+
+	if !stopCalled {
+		t.Fatal("expected stop workload")
+	}
+	if !reflect.DeepEqual(updateStatuses, []runnersv1.WorkloadStatus{runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING, runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED}) {
+		t.Fatalf("unexpected update statuses: %v", updateStatuses)
+	}
+}
+
 func TestStopWorkloadMarksFailedWhenInstanceMissing(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()

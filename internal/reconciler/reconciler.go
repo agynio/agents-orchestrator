@@ -350,7 +350,14 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 	}); err != nil {
 		log.Printf("reconciler: update workload %s to stopping: %v", workloadID, err)
 	}
+	workload.Status = stoppingStatus
 	if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
+		if runnerdial.IsNoTerminators(err) {
+			if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+				log.Printf("reconciler: handle missing workload %s after runner stop failure: %v", workloadID, err)
+			}
+			return
+		}
 		log.Printf("reconciler: stop workload %s: %v", workloadID, err)
 		return
 	}

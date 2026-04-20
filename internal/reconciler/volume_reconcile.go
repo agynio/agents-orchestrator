@@ -73,10 +73,10 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 	volumeInfoCache := map[string]volumeTTLInfo{}
 	threadCache := map[string]threadActivity{}
 	for runnerID := range runnerIDs {
+		trackedVolumes := volumesByRunner[runnerID]
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
-				trackedVolumes := volumesByRunner[runnerID]
 				for volumeID, volume := range trackedVolumes {
 					if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 						log.Printf("reconciler: warn: handle missing volume %s after runner dial failure: %v", volumeID, err)
@@ -89,6 +89,14 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 		resp, err := runnerClient.ListVolumes(ctx, &runnerv1.ListVolumesRequest{})
 		if err != nil {
+			if runnerdial.IsNoTerminators(err) {
+				for volumeID, volume := range trackedVolumes {
+					if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
+						log.Printf("reconciler: warn: handle missing volume %s after runner list failure: %v", volumeID, err)
+					}
+				}
+				continue
+			}
 			log.Printf("reconciler: warn: list volumes for runner %s: %v", runnerID, err)
 			continue
 		}
@@ -109,7 +117,6 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			runnerVolumes[volumeKey] = item
 		}
 
-		trackedVolumes := volumesByRunner[runnerID]
 		for volumeID, volume := range trackedVolumes {
 			item, ok := runnerVolumes[volumeID]
 			if !ok {
