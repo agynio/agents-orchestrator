@@ -51,7 +51,7 @@ var (
 	threadsAddr    = envOrDefault("THREADS_ADDRESS", "threads:50051")
 	llmAddr        = envOrDefault("LLM_ADDRESS", "llm:50051")
 	usersAddr      = envOrDefault("USERS_ADDRESS", "users:50051")
-	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
+	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "organizations:50051")
 	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 	runnersAddr    = envOrDefault("RUNNERS_ADDRESS", "runners:50051")
 	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
