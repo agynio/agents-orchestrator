@@ -94,12 +94,12 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	}
 	t.Cleanup(func() { deleteImagePullSecretAttachment(t, ctx, agentsClient, attachmentID) })
 
-	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadID) })
 
 	sendMessage(t, ctx, threadsClient, threadID, identityID, "e2e image pull secret")
 

@@ -97,12 +97,12 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	}
 	t.Cleanup(func() { deleteMCP(t, ctx, agentsClient, filesystemMcpID) })
 
-	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadID) })
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -136,7 +136,7 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer pollCancel()
-	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expected)
+	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, identityID, agentID, labels, sentMessageTime, expected)
 	if err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}

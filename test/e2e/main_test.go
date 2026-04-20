@@ -307,10 +307,40 @@ func createMCPEnv(t *testing.T, ctx context.Context, client agentsv1.AgentsServi
 	return env
 }
 
-func createThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantIDs []string) *threadsv1.Thread {
+func createThread(
+	t *testing.T,
+	ctx context.Context,
+	client threadsv1.ThreadsServiceClient,
+	organizationID string,
+	initiatorID string,
+	participantIDs []string,
+) *threadsv1.Thread {
 	t.Helper()
-	resp, err := client.CreateThread(ctx, &threadsv1.CreateThreadRequest{
-		ParticipantIds: participantIDs,
+	if organizationID == "" {
+		t.Fatal("create thread: organization id missing")
+	}
+	if initiatorID == "" {
+		t.Fatal("create thread: initiator id missing")
+	}
+	participants := make([]*threadsv1.ParticipantIdentifier, 0, len(participantIDs))
+	for _, participantID := range participantIDs {
+		if participantID == "" {
+			t.Fatal("create thread: participant id missing")
+		}
+		if participantID == initiatorID {
+			continue
+		}
+		participants = append(participants, &threadsv1.ParticipantIdentifier{
+			Identifier: &threadsv1.ParticipantIdentifier_ParticipantId{ParticipantId: participantID},
+		})
+	}
+	if len(participants) == 0 {
+		t.Fatal("create thread: participants list is empty")
+	}
+	callCtx := withUserIdentity(ctx, initiatorID)
+	resp, err := client.CreateThread(callCtx, &threadsv1.CreateThreadRequest{
+		Participants:   participants,
+		OrganizationId: &organizationID,
 	})
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
@@ -322,9 +352,10 @@ func createThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsSer
 	return thread
 }
 
-func archiveThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, threadID string) {
+func archiveThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, identityID, threadID string) {
 	t.Helper()
-	_, err := client.ArchiveThread(ctx, &threadsv1.ArchiveThreadRequest{ThreadId: threadID})
+	callCtx := withUserIdentity(ctx, identityID)
+	_, err := client.ArchiveThread(callCtx, &threadsv1.ArchiveThreadRequest{ThreadId: threadID})
 	if err != nil {
 		t.Logf("cleanup: archive thread %s: %v", threadID, err)
 	}
@@ -332,7 +363,8 @@ func archiveThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsSe
 
 func sendMessage(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, threadID, senderID, body string) *threadsv1.Message {
 	t.Helper()
-	resp, err := client.SendMessage(ctx, &threadsv1.SendMessageRequest{
+	callCtx := withUserIdentity(ctx, senderID)
+	resp, err := client.SendMessage(callCtx, &threadsv1.SendMessageRequest{
 		ThreadId: threadID,
 		SenderId: senderID,
 		Body:     body,
@@ -367,7 +399,8 @@ func messageStartTimeMinNs(t *testing.T, msg *threadsv1.Message) uint64 {
 
 func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string, messageIDs []string) {
 	t.Helper()
-	_, err := client.AckMessages(ctx, &threadsv1.AckMessagesRequest{
+	callCtx := withAgentIdentity(ctx, participantID)
+	_, err := client.AckMessages(callCtx, &threadsv1.AckMessagesRequest{
 		ParticipantId: participantID,
 		MessageIds:    messageIDs,
 	})
@@ -407,7 +440,8 @@ func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client t
 		if len(messageIDs) == 0 {
 			return
 		}
-		_, err = client.AckMessages(drainCtx, &threadsv1.AckMessagesRequest{
+		callCtx := withAgentIdentity(drainCtx, participantID)
+		_, err = client.AckMessages(callCtx, &threadsv1.AckMessagesRequest{
 			ParticipantId: participantID,
 			MessageIds:    messageIDs,
 		})
@@ -428,7 +462,8 @@ func listUnackedMessageIDs(ctx context.Context, client threadsv1.ThreadsServiceC
 	messageIDs := make([]string, 0, unackedPageSize)
 	token := ""
 	for {
-		page, err := client.GetUnackedMessages(ctx, &threadsv1.GetUnackedMessagesRequest{
+		callCtx := withAgentIdentity(ctx, participantID)
+		page, err := client.GetUnackedMessages(callCtx, &threadsv1.GetUnackedMessagesRequest{
 			ParticipantId: participantID,
 			PageSize:      unackedPageSize,
 			PageToken:     token,
@@ -589,6 +624,7 @@ func pollForAgentResponse(
 	threadsClient threadsv1.ThreadsServiceClient,
 	runnerClient runnerv1.RunnerServiceClient,
 	threadID string,
+	identityID string,
 	agentID string,
 	labels map[string]string,
 	minCreatedAt time.Time,
@@ -619,7 +655,8 @@ func pollForAgentResponse(
 	err := pollUntil(ctx, pollInterval, func(ctx context.Context) error {
 		pollCount++
 		logDiagnostics := pollCount%10 == 0
-		resp, err := threadsClient.GetMessages(ctx, &threadsv1.GetMessagesRequest{
+		threadsCtx := withUserIdentity(ctx, identityID)
+		resp, err := threadsClient.GetMessages(threadsCtx, &threadsv1.GetMessagesRequest{
 			ThreadId: threadID,
 			PageSize: 50,
 		})

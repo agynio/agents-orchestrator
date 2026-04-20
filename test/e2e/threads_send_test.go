@@ -59,12 +59,12 @@ func TestThreadsSendShell(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadID) })
 
 	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, "Send me an intermediate update then reply")
 	sentMessageTime := messageCreatedAt(t, sentMessage)
@@ -89,7 +89,7 @@ func TestThreadsSendShell(t *testing.T) {
 	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer pollCancel()
 	expectedBodies := []string{"Thinking", "Done thinking. Here is my reply."}
-	agentMessages, err := pollForAgentMessages(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expectedBodies)
+	agentMessages, err := pollForAgentMessages(t, pollCtx, threadsClient, runnerClient, threadID, identityID, agentID, labels, sentMessageTime, expectedBodies)
 	if err != nil {
 		logShellToolExecutionDiagnostics(t, startTimeMinNs, threadID)
 		t.Fatalf("wait for agent messages: %v", err)
@@ -111,6 +111,7 @@ func pollForAgentMessages(
 	threadsClient threadsv1.ThreadsServiceClient,
 	runnerClient runnerv1.RunnerServiceClient,
 	threadID string,
+	identityID string,
 	agentID string,
 	labels map[string]string,
 	minCreatedAt time.Time,
@@ -125,7 +126,8 @@ func pollForAgentMessages(
 	err := pollUntil(ctx, pollInterval, func(ctx context.Context) error {
 		pollCount++
 		logDiagnostics := pollCount%10 == 0
-		resp, err := threadsClient.GetMessages(ctx, &threadsv1.GetMessagesRequest{
+		threadsCtx := withUserIdentity(ctx, identityID)
+		resp, err := threadsClient.GetMessages(threadsCtx, &threadsv1.GetMessagesRequest{
 			ThreadId: threadID,
 			PageSize: 50,
 		})

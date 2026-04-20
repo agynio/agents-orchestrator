@@ -68,12 +68,12 @@ func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, messag
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, identityID, []string{agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, identityID, threadID) })
 
 	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, message)
 	sentMessageTime := messageCreatedAt(t, sentMessage)
@@ -97,7 +97,7 @@ func runFullPipelineMessageResponse(t *testing.T, llmEndpoint, initImage, messag
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer pollCancel()
-	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expectedResponse)
+	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, identityID, agentID, labels, sentMessageTime, expectedResponse)
 	if err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}
