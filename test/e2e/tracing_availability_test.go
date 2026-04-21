@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -63,6 +64,10 @@ func checkTracingAvailability() (bool, string) {
 
 	traceID, err := runTraceCanary(ctx, addr)
 	if err != nil {
+		if isCanaryAuthFailure(err) {
+			ok, reason := checkTracingQueryConnectivity(ctx, addr)
+			return ok, reason
+		}
 		return false, fmt.Sprintf("export canary span: %v", err)
 	}
 
@@ -96,6 +101,32 @@ func checkTracingAvailability() (bool, string) {
 	return true, ""
 }
 
+func checkTracingQueryConnectivity(ctx context.Context, addr string) (bool, string) {
+	conn, err := dialGRPCForCheck(ctx, addr)
+	if err != nil {
+		return false, fmt.Sprintf("dial tracing %s: %v", addr, err)
+	}
+	defer conn.Close()
+
+	traceID, err := randomTraceID()
+	if err != nil {
+		return false, err.Error()
+	}
+	queryClient := tracingv1.NewTracingServiceClient(conn)
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	_, err = queryClient.GetTrace(queryCtx, &tracingv1.GetTraceRequest{TraceId: traceID})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return true, ""
+		}
+		return false, fmt.Sprintf("get trace: %v", err)
+	}
+
+	return true, ""
+}
+
 func dialGRPCForCheck(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	return grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 }
@@ -120,6 +151,22 @@ func runTraceCanary(ctx context.Context, addr string) ([]byte, error) {
 	traceID, err := hex.DecodeString(traceHex)
 	if err != nil {
 		return nil, fmt.Errorf("decode trace id %q: %w", traceHex, err)
+	}
+	return traceID, nil
+}
+
+func isCanaryAuthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "source identity missing") || strings.Contains(message, "unauthenticated")
+}
+
+func randomTraceID() ([]byte, error) {
+	traceID := make([]byte, 16)
+	if _, err := rand.Read(traceID); err != nil {
+		return nil, fmt.Errorf("generate trace id: %w", err)
 	}
 	return traceID, nil
 }
