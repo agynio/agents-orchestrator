@@ -18,13 +18,7 @@ func runnerIdentityContext(ctx context.Context, identityID string) (context.Cont
 	if _, err := uuidutil.ParseUUID(identityID, "identity_id"); err != nil {
 		return nil, err
 	}
-	md, ok := metadata.FromOutgoingContext(ctx)
-	if !ok {
-		md = metadata.MD{}
-	}
-	md = md.Copy()
-	md.Set(identityMetadataKey, identityID)
-	return metadata.NewOutgoingContext(ctx, md), nil
+	return metadata.NewOutgoingContext(ctx, metadata.Pairs(identityMetadataKey, identityID)), nil
 }
 
 func (r *Reconciler) runnerIdentityContextForAgent(ctx context.Context, agentID uuid.UUID) (context.Context, error) {
