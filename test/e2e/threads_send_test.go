@@ -59,7 +59,7 @@ func TestThreadsSendShell(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, ctx, threadsClient, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
@@ -91,7 +91,7 @@ func TestThreadsSendShell(t *testing.T) {
 	expectedBodies := []string{"Thinking", "Done thinking. Here is my reply."}
 	agentMessages, err := pollForAgentMessages(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expectedBodies)
 	if err != nil {
-		logShellToolExecutionDiagnostics(t, startTimeMinNs, threadID)
+		logShellToolExecutionDiagnostics(t, startTimeMinNs, orgID, threadID)
 		t.Fatalf("wait for agent messages: %v", err)
 	}
 	if len(agentMessages) != len(expectedBodies) {

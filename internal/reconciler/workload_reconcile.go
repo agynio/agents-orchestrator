@@ -7,6 +7,7 @@ import (
 
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -34,29 +35,62 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 		workloadsByRunner[runnerID][workloadID] = workload
 	}
-	if runners, err := r.listRunners(ctx); err != nil {
-		log.Printf("reconciler: warn: list runners for workload reconciliation: %v", err)
-	} else {
-		for _, runner := range runners {
-			if runner == nil {
-				continue
-			}
-			runnerID := runner.GetMeta().GetId()
-			if runnerID == "" {
-				continue
-			}
-			runnerIDs[runnerID] = struct{}{}
+	runners, err := r.listRunners(ctx)
+	if err != nil {
+		return err
+	}
+	enrolledRunnerIDs := map[string]struct{}{}
+	for _, runner := range runners {
+		if runner == nil {
+			continue
 		}
+		runnerID := runner.GetMeta().GetId()
+		if runnerID == "" {
+			continue
+		}
+		if runner.GetStatus() != runnersv1.RunnerStatus_RUNNER_STATUS_ENROLLED {
+			continue
+		}
+		enrolledRunnerIDs[runnerID] = struct{}{}
+		runnerIDs[runnerID] = struct{}{}
 	}
 
+	degraded := newDegradeTracker()
+
 	for runnerID := range runnerIDs {
+		trackedWorkloads := workloadsByRunner[runnerID]
+		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
+			for workloadID, workload := range trackedWorkloads {
+				if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+					log.Printf("reconciler: warn: handle missing workload %s on unenrolled runner: %v", workloadID, err)
+				}
+				r.degradeThread(ctx, workload.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
+			}
+			continue
+		}
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
+			if runnerdial.IsNoTerminators(err) {
+				for workloadID, workload := range trackedWorkloads {
+					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+						log.Printf("reconciler: warn: handle missing workload %s after runner dial failure: %v", workloadID, err)
+					}
+				}
+				continue
+			}
 			log.Printf("reconciler: warn: dial runner %s for workload reconciliation: %v", runnerID, err)
 			continue
 		}
 		resp, err := runnerClient.ListWorkloads(ctx, &runnerv1.ListWorkloadsRequest{})
 		if err != nil {
+			if runnerdial.IsNoTerminators(err) {
+				for workloadID, workload := range trackedWorkloads {
+					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+						log.Printf("reconciler: warn: handle missing workload %s after runner list failure: %v", workloadID, err)
+					}
+				}
+				continue
+			}
 			log.Printf("reconciler: warn: list workloads for runner %s: %v", runnerID, err)
 			continue
 		}
@@ -77,7 +111,6 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			runnerWorkloads[workloadKey] = item
 		}
 
-		trackedWorkloads := workloadsByRunner[runnerID]
 		for workloadID, workload := range trackedWorkloads {
 			item, ok := runnerWorkloads[workloadID]
 			if !ok {

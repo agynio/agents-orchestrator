@@ -11,6 +11,7 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -54,31 +55,63 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 		volumesByRunner[runnerID][volumeID] = volume
 	}
-	if runners, err := r.listRunners(ctx); err != nil {
-		log.Printf("reconciler: warn: list runners for volume reconciliation: %v", err)
-	} else {
-		for _, runner := range runners {
-			if runner == nil {
-				continue
-			}
-			runnerID := runner.GetMeta().GetId()
-			if runnerID == "" {
-				continue
-			}
-			runnerIDs[runnerID] = struct{}{}
+	runners, err := r.listRunners(ctx)
+	if err != nil {
+		return err
+	}
+	enrolledRunnerIDs := map[string]struct{}{}
+	for _, runner := range runners {
+		if runner == nil {
+			continue
 		}
+		runnerID := runner.GetMeta().GetId()
+		if runnerID == "" {
+			continue
+		}
+		if runner.GetStatus() != runnersv1.RunnerStatus_RUNNER_STATUS_ENROLLED {
+			continue
+		}
+		enrolledRunnerIDs[runnerID] = struct{}{}
+		runnerIDs[runnerID] = struct{}{}
 	}
 
+	degraded := newDegradeTracker()
 	volumeInfoCache := map[string]volumeTTLInfo{}
 	threadCache := map[string]threadActivity{}
 	for runnerID := range runnerIDs {
+		trackedVolumes := volumesByRunner[runnerID]
+		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
+			for volumeID, volume := range trackedVolumes {
+				if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
+					log.Printf("reconciler: warn: handle missing volume %s on unenrolled runner: %v", volumeID, err)
+				}
+				r.degradeThread(ctx, volume.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
+			}
+			continue
+		}
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
+			if runnerdial.IsNoTerminators(err) {
+				for volumeID, volume := range trackedVolumes {
+					if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
+						log.Printf("reconciler: warn: handle missing volume %s after runner dial failure: %v", volumeID, err)
+					}
+				}
+				continue
+			}
 			log.Printf("reconciler: warn: dial runner %s for volume reconciliation: %v", runnerID, err)
 			continue
 		}
 		resp, err := runnerClient.ListVolumes(ctx, &runnerv1.ListVolumesRequest{})
 		if err != nil {
+			if runnerdial.IsNoTerminators(err) {
+				for volumeID, volume := range trackedVolumes {
+					if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
+						log.Printf("reconciler: warn: handle missing volume %s after runner list failure: %v", volumeID, err)
+					}
+				}
+				continue
+			}
 			log.Printf("reconciler: warn: list volumes for runner %s: %v", runnerID, err)
 			continue
 		}
@@ -99,12 +132,14 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			runnerVolumes[volumeKey] = item
 		}
 
-		trackedVolumes := volumesByRunner[runnerID]
 		for volumeID, volume := range trackedVolumes {
 			item, ok := runnerVolumes[volumeID]
 			if !ok {
 				if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s: %v", volumeID, err)
+				}
+				if volume.GetStatus() == runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
+					r.degradeThread(ctx, volume.GetThreadId(), degradeReasonVolumeLost, degraded)
 				}
 				continue
 			}

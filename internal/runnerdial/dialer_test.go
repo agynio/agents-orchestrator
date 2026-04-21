@@ -142,6 +142,41 @@ func TestDialerErrorsOnMissingRunnerID(t *testing.T) {
 	}
 }
 
+func TestIsNoTerminators(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "has no terminators",
+			err:      errors.New("service runner-a has no terminators"),
+			expected: true,
+		},
+		{
+			name:     "no terminators",
+			err:      errors.New("no terminators available"),
+			expected: true,
+		},
+		{
+			name:     "other",
+			err:      errors.New("other"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		if got := IsNoTerminators(tt.err); got != tt.expected {
+			t.Fatalf("%s: expected %v, got %v", tt.name, tt.expected, got)
+		}
+	}
+}
+
 func TestIsAuthFailure(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -222,6 +257,21 @@ func TestDialZitiWithRetryAuthFailureWaits(t *testing.T) {
 	}
 }
 
+func TestDialZitiWithRetryStopsOnNoTerminators(t *testing.T) {
+	dialer := &noTerminatorsDialer{dialError: errors.New("service runner-a has no terminators")}
+
+	_, err := dialZitiWithRetry(context.Background(), dialer, "service-a")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if dialer.dialCalls.Load() != 1 {
+		t.Fatalf("expected 1 dial attempt, got %d", dialer.dialCalls.Load())
+	}
+	if dialer.notifyCalls.Load() != 0 {
+		t.Fatalf("expected 0 notify calls, got %d", dialer.notifyCalls.Load())
+	}
+}
+
 type authFailureDialer struct {
 	dialErrors    []error
 	dialCalls     atomic.Int32
@@ -250,4 +300,19 @@ func (a *authFailureDialer) NotifyAuthFailure(ctx context.Context) {
 		return
 	case <-a.notifyRelease:
 	}
+}
+
+type noTerminatorsDialer struct {
+	dialCalls   atomic.Int32
+	notifyCalls atomic.Int32
+	dialError   error
+}
+
+func (n *noTerminatorsDialer) DialContext(context.Context, string) (edge.Conn, error) {
+	n.dialCalls.Add(1)
+	return nil, n.dialError
+}
+
+func (n *noTerminatorsDialer) NotifyAuthFailure(context.Context) {
+	n.notifyCalls.Add(1)
 }

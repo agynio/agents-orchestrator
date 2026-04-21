@@ -47,11 +47,15 @@ func discoverTraceID(
 	t *testing.T,
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
 	threadID string,
 	startTimeMinNs uint64,
 	messageText string,
 ) []byte {
 	t.Helper()
+	if strings.TrimSpace(organizationID) == "" {
+		t.Fatal("discover trace id: missing organization id")
+	}
 	searchStartTimeMinNs := startTimeMinNs
 	if tracingStartTimeBuffer > 0 {
 		bufferNs := uint64(tracingStartTimeBuffer.Nanoseconds())
@@ -69,7 +73,7 @@ func discoverTraceID(
 	var traceID []byte
 	err := pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
 		var err error
-		traceID, err = findTraceID(ctx, client, threadID, messageText, searchStartTimeMinNs)
+		traceID, err = findTraceID(ctx, client, organizationID, threadID, messageText, searchStartTimeMinNs)
 		if err != nil {
 			return err
 		}
@@ -79,7 +83,7 @@ func discoverTraceID(
 		return fmt.Errorf("trace id not found")
 	})
 	if err != nil {
-		logTraceSearchDiagnostics(t, client, searchStartTimeMinNs, messageText)
+		logTraceSearchDiagnostics(t, client, organizationID, searchStartTimeMinNs, messageText)
 		logTracingDiagnostics(t, threadID)
 		t.Fatalf("discover trace id: %v", err)
 	}
@@ -89,12 +93,13 @@ func discoverTraceID(
 func findTraceID(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
 	threadID string,
 	messageText string,
 	startTimeMinNs uint64,
 ) ([]byte, error) {
 	for _, spanName := range traceSearchSpanNames {
-		traceID, err := listTraceIDForSpanName(ctx, client, threadID, messageText, startTimeMinNs, spanName)
+		traceID, err := listTraceIDForSpanName(ctx, client, organizationID, threadID, messageText, startTimeMinNs, spanName)
 		if err != nil {
 			return nil, err
 		}
@@ -108,6 +113,7 @@ func findTraceID(
 func listTraceIDForSpanName(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
 	threadID string,
 	messageText string,
 	startTimeMinNs uint64,
@@ -120,9 +126,10 @@ func listTraceIDForSpanName(
 				StartTimeMin: startTimeMinNs,
 				Names:        []string{spanName},
 			},
-			PageSize:  100,
-			PageToken: pageToken,
-			OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			PageSize:       100,
+			PageToken:      pageToken,
+			OrderBy:        tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			OrganizationId: organizationID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list spans %s: %w", spanName, err)
@@ -148,6 +155,7 @@ type traceIDSet map[string]struct{}
 func traceIDsForSpanName(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
 	threadID string,
 	messageText string,
 	startTimeMinNs uint64,
@@ -161,9 +169,10 @@ func traceIDsForSpanName(
 				StartTimeMin: startTimeMinNs,
 				Names:        []string{spanName},
 			},
-			PageSize:  200,
-			PageToken: pageToken,
-			OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			PageSize:       200,
+			PageToken:      pageToken,
+			OrderBy:        tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			OrganizationId: organizationID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list spans %s: %w", spanName, err)
@@ -198,6 +207,7 @@ func traceIDsForSpanName(
 func countSpansForThread(
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
 	threadID string,
 	messageText string,
 	startTimeMinNs uint64,
@@ -211,9 +221,10 @@ func countSpansForThread(
 				StartTimeMin: startTimeMinNs,
 				Names:        []string{spanName},
 			},
-			PageSize:  200,
-			PageToken: pageToken,
-			OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			PageSize:       200,
+			PageToken:      pageToken,
+			OrderBy:        tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			OrganizationId: organizationID,
 		})
 		if err != nil {
 			return 0, fmt.Errorf("list spans %s: %w", spanName, err)
@@ -520,6 +531,7 @@ func attributeStringValue(value *commonv1.AnyValue) (string, bool) {
 func logTraceSearchDiagnostics(
 	t *testing.T,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
 	startTimeMinNs uint64,
 	messageText string,
 ) {
@@ -530,10 +542,10 @@ func logTraceSearchDiagnostics(
 	if strings.TrimSpace(messageText) != "" {
 		t.Logf("diagnostics: trace search message=%s", truncateLogLine(messageText))
 	}
-	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"invocation.message"}, "invocation.message")
-	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"tool.execution"}, "tool.execution")
-	logSpanSamples(t, ctx, client, startTimeMinNs, []string{"llm.call"}, "llm.call")
-	logSpanSamples(t, ctx, client, startTimeMinNs, nil, "all-spans")
+	logSpanSamples(t, ctx, client, organizationID, startTimeMinNs, []string{"invocation.message"}, "invocation.message")
+	logSpanSamples(t, ctx, client, organizationID, startTimeMinNs, []string{"tool.execution"}, "tool.execution")
+	logSpanSamples(t, ctx, client, organizationID, startTimeMinNs, []string{"llm.call"}, "llm.call")
+	logSpanSamples(t, ctx, client, organizationID, startTimeMinNs, nil, "all-spans")
 	logTracingStackDiagnostics(t)
 }
 
@@ -541,6 +553,7 @@ func logSpanSamples(
 	t *testing.T,
 	ctx context.Context,
 	client tracingv1.TracingServiceClient,
+	organizationID string,
 	startTimeMinNs uint64,
 	spanNames []string,
 	label string,
@@ -551,9 +564,10 @@ func logSpanSamples(
 		filter.Names = spanNames
 	}
 	resp, err := client.ListSpans(ctx, &tracingv1.ListSpansRequest{
-		Filter:   filter,
-		PageSize: 10,
-		OrderBy:  tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+		Filter:         filter,
+		PageSize:       10,
+		OrderBy:        tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+		OrganizationId: organizationID,
 	})
 	if err != nil {
 		t.Logf("diagnostics: list spans %s error: %v", label, err)
@@ -591,7 +605,7 @@ func logSpanSamples(
 	}
 }
 
-func logShellToolExecutionDiagnostics(t *testing.T, startTimeMinNs uint64, threadID string) {
+func logShellToolExecutionDiagnostics(t *testing.T, startTimeMinNs uint64, organizationID string, threadID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -612,9 +626,10 @@ func logShellToolExecutionDiagnostics(t *testing.T, startTimeMinNs uint64, threa
 				StartTimeMin: startTimeMinNs,
 				Names:        []string{"tool.execution"},
 			},
-			PageSize:  200,
-			PageToken: pageToken,
-			OrderBy:   tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			PageSize:       200,
+			PageToken:      pageToken,
+			OrderBy:        tracingv1.ListSpansOrderBy_LIST_SPANS_ORDER_BY_START_TIME_DESC,
+			OrganizationId: organizationID,
 		})
 		if err != nil {
 			t.Logf("diagnostics: list tool.execution spans: %v", err)

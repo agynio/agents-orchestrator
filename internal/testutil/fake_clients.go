@@ -13,6 +13,7 @@ var ErrNotImplemented = errors.New("not implemented")
 
 type FakeAgentsClient struct {
 	GetAgentFunc                       func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
+	ResolveAgentIdentityFunc           func(context.Context, *agentsv1.ResolveAgentIdentityRequest, ...grpc.CallOption) (*agentsv1.ResolveAgentIdentityResponse, error)
 	ListSkillsFunc                     func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
 	ListEnvsFunc                       func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
 	ListInitScriptsFunc                func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
@@ -49,6 +50,13 @@ func (f *FakeAgentsClient) ListImagePullSecretAttachments(ctx context.Context, r
 func (f *FakeAgentsClient) GetAgent(ctx context.Context, req *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
 	if f.GetAgentFunc != nil {
 		return f.GetAgentFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) ResolveAgentIdentity(ctx context.Context, req *agentsv1.ResolveAgentIdentityRequest, opts ...grpc.CallOption) (*agentsv1.ResolveAgentIdentityResponse, error) {
+	if f.ResolveAgentIdentityFunc != nil {
+		return f.ResolveAgentIdentityFunc(ctx, req, opts...)
 	}
 	return nil, ErrNotImplemented
 }

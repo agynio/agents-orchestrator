@@ -12,6 +12,7 @@ import (
 	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/config"
@@ -169,7 +170,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 		ZitiMgmt:     zitiMgmt,
 		Assembler:    testAssembler,
 	})
-	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
 
 	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "start", "update-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
@@ -275,9 +276,169 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
 
 	if !reflect.DeepEqual(calls, []string{"dial", "create-workload", "start", "update-workload"}) {
+		t.Fatalf("unexpected call order: %v", calls)
+	}
+}
+
+func TestStartWorkloadPinsRunnerFromVolumes(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	runnerID := "runner-1"
+	volumeKey := "volume-1"
+	mainContainerID := "container-main"
+	testAssembler := newTestAssembler(agentID, false)
+
+	var calls []string
+	var workloadID string
+	runner := &fakeRunnerClient{
+		startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
+			calls = append(calls, "start")
+			workloadID = req.GetWorkloadId()
+			return &runnerv1.StartWorkloadResponse{
+				Id:     workloadID,
+				Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				Containers: &runnerv1.WorkloadContainers{
+					Main: mainContainerID,
+				},
+			}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+
+	runners := &fakeRunnersClient{
+		listVolumesByThread: func(_ context.Context, req *runnersv1.ListVolumesByThreadRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error) {
+			calls = append(calls, "list-volumes")
+			if req.GetThreadId() != threadID.String() {
+				return nil, errors.New("unexpected thread id")
+			}
+			return &runnersv1.ListVolumesByThreadResponse{Volumes: []*runnersv1.Volume{
+				{
+					Meta:     &runnersv1.EntityMeta{Id: volumeKey},
+					RunnerId: runnerID,
+					Status:   runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+					ThreadId: threadID.String(),
+					VolumeId: "volume-id",
+				},
+			}}, nil
+		},
+		getRunner: func(_ context.Context, req *runnersv1.GetRunnerRequest, _ ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
+			calls = append(calls, "get-runner")
+			if req.GetId() != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.GetRunnerResponse{Runner: buildRunner(runnerID)}, nil
+		},
+		createWorkload: func(_ context.Context, req *runnersv1.CreateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
+			calls = append(calls, "create-workload")
+			if req.GetRunnerId() != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.CreateWorkloadResponse{}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			calls = append(calls, "update-workload")
+			if req.GetInstanceId() == "" {
+				return nil, errors.New("missing instance id")
+			}
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+		listRunners: func(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return nil, errors.New("unexpected list runners")
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
+
+	if !reflect.DeepEqual(calls, []string{"list-volumes", "get-runner", "dial", "create-workload", "start", "update-workload"}) {
+		t.Fatalf("unexpected call order: %v", calls)
+	}
+}
+
+func TestStartWorkloadDegradesWhenPinnedRunnerNotEnrolled(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	runnerID := "runner-1"
+	volumeKey := "volume-1"
+	testAssembler := newTestAssembler(agentID, false)
+
+	var calls []string
+	threads := &fakeThreadsClient{
+		degradeThread: func(_ context.Context, req *threadsv1.DegradeThreadRequest, _ ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error) {
+			calls = append(calls, "degrade")
+			if req.GetThreadId() != threadID.String() {
+				return nil, errors.New("unexpected thread id")
+			}
+			if req.GetReason() != degradeReasonRunnerDeprovisioned {
+				return nil, errors.New("unexpected degrade reason")
+			}
+			return &threadsv1.DegradeThreadResponse{}, nil
+		},
+	}
+
+	runners := &fakeRunnersClient{
+		listVolumesByThread: func(_ context.Context, req *runnersv1.ListVolumesByThreadRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error) {
+			calls = append(calls, "list-volumes")
+			if req.GetThreadId() != threadID.String() {
+				return nil, errors.New("unexpected thread id")
+			}
+			return &runnersv1.ListVolumesByThreadResponse{Volumes: []*runnersv1.Volume{
+				{
+					Meta:     &runnersv1.EntityMeta{Id: volumeKey},
+					RunnerId: runnerID,
+					Status:   runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+					ThreadId: threadID.String(),
+					VolumeId: "volume-id",
+				},
+			}}, nil
+		},
+		getRunner: func(_ context.Context, req *runnersv1.GetRunnerRequest, _ ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
+			calls = append(calls, "get-runner")
+			if req.GetId() != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.GetRunnerResponse{Runner: &runnersv1.Runner{
+				Meta:   &runnersv1.EntityMeta{Id: runnerID},
+				Status: runnersv1.RunnerStatus_RUNNER_STATUS_OFFLINE,
+			}}, nil
+		},
+		createWorkload: func(context.Context, *runnersv1.CreateWorkloadRequest, ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
+			return nil, errors.New("unexpected create workload")
+		},
+	}
+
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(context.Context, string) (runnerv1.RunnerServiceClient, error) {
+			return nil, errors.New("unexpected dial")
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Threads:      threads,
+		Assembler:    testAssembler,
+	})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
+
+	if !reflect.DeepEqual(calls, []string{"list-volumes", "get-runner", "degrade"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -353,7 +514,7 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
 
 	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "start", "update-workload", "delete"}) {
 		t.Fatalf("unexpected call order: %v", calls)
@@ -466,7 +627,7 @@ func TestStartWorkloadRollsBackOnWorkloadIDMismatch(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
 
 	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "start", "stop", "update-workload", "delete"}) {
 		t.Fatalf("unexpected call order: %v", calls)
@@ -538,7 +699,7 @@ func TestStartWorkloadStopsAndDeletesIdentityOnStoreFailure(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
 
 	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "delete"}) {
 		t.Fatalf("unexpected call order: %v", calls)
@@ -603,6 +764,115 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 
 	if !reflect.DeepEqual(calls, []string{"dial", "update-workload", "stop", "update-workload", "delete"}) {
 		t.Fatalf("unexpected call order: %v", calls)
+	}
+	if !reflect.DeepEqual(updateStatuses, []runnersv1.WorkloadStatus{runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING, runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED}) {
+		t.Fatalf("unexpected update statuses: %v", updateStatuses)
+	}
+}
+
+func TestStopWorkloadMarksMissingRunnerOnNoTerminators(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	testAssembler := newTestAssembler(agentID, true)
+	runnerID := "runner-1"
+	instanceID := "workload-" + uuid.New().String()
+
+	var updateReq *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return nil, errors.New("service runner-1 has no terminators")
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{
+		Meta:       &runnersv1.EntityMeta{Id: "workload-1"},
+		RunnerId:   runnerID,
+		InstanceId: stringPtr(instanceID),
+		Status:     runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+	})
+
+	if updateReq == nil {
+		t.Fatal("expected update workload")
+	}
+	if updateReq.GetId() != "workload-1" {
+		t.Fatalf("unexpected workload id: %s", updateReq.GetId())
+	}
+	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+		t.Fatalf("unexpected workload status: %v", updateReq.GetStatus())
+	}
+	if updateReq.GetRemovedAt() == nil {
+		t.Fatal("expected removed_at")
+	}
+}
+
+func TestStopWorkloadMarksMissingRunnerOnNoTerminatorsStopError(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	testAssembler := newTestAssembler(agentID, true)
+	runnerID := "runner-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
+
+	var updateStatuses []runnersv1.WorkloadStatus
+	runners := &fakeRunnersClient{
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateStatuses = append(updateStatuses, req.GetStatus())
+			if req.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED && req.GetRemovedAt() == nil {
+				return nil, errors.New("missing removed_at")
+			}
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	stopCalled := false
+	runner := &fakeRunnerClient{
+		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			stopCalled = true
+			return nil, errors.New("service runner-1 has no terminators")
+		},
+	}
+
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{
+		Meta:       &runnersv1.EntityMeta{Id: "workload-1"},
+		RunnerId:   runnerID,
+		InstanceId: stringPtr(instanceID),
+		Status:     runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+	})
+
+	if !stopCalled {
+		t.Fatal("expected stop workload")
 	}
 	if !reflect.DeepEqual(updateStatuses, []runnersv1.WorkloadStatus{runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING, runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED}) {
 		t.Fatalf("unexpected update statuses: %v", updateStatuses)
@@ -1078,10 +1348,12 @@ type fakeRunnersClient struct {
 	createWorkload        func(context.Context, *runnersv1.CreateWorkloadRequest, ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error)
 	createVolume          func(context.Context, *runnersv1.CreateVolumeRequest, ...grpc.CallOption) (*runnersv1.CreateVolumeResponse, error)
 	deleteWorkload        func(context.Context, *runnersv1.DeleteWorkloadRequest, ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error)
+	getRunner             func(context.Context, *runnersv1.GetRunnerRequest, ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error)
 	listWorkloads         func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error)
 	listWorkloadsByThread func(context.Context, *runnersv1.ListWorkloadsByThreadRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsByThreadResponse, error)
 	batchUpdateWorkload   func(context.Context, *runnersv1.BatchUpdateWorkloadSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error)
 	listVolumes           func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error)
+	listVolumesByThread   func(context.Context, *runnersv1.ListVolumesByThreadRequest, ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error)
 	listRunners           func(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error)
 	updateWorkload        func(context.Context, *runnersv1.UpdateWorkloadRequest, ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error)
 	updateWorkloadStatus  func(context.Context, *runnersv1.UpdateWorkloadStatusRequest, ...grpc.CallOption) (*runnersv1.UpdateWorkloadStatusResponse, error)
@@ -1093,7 +1365,10 @@ func (f *fakeRunnersClient) RegisterRunner(context.Context, *runnersv1.RegisterR
 	return nil, errNotImplemented
 }
 
-func (f *fakeRunnersClient) GetRunner(context.Context, *runnersv1.GetRunnerRequest, ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
+func (f *fakeRunnersClient) GetRunner(ctx context.Context, req *runnersv1.GetRunnerRequest, opts ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
+	if f.getRunner != nil {
+		return f.getRunner(ctx, req, opts...)
+	}
 	return nil, errNotImplemented
 }
 
@@ -1191,8 +1466,11 @@ func (f *fakeRunnersClient) ListVolumes(ctx context.Context, req *runnersv1.List
 	return nil, errNotImplemented
 }
 
-func (f *fakeRunnersClient) ListVolumesByThread(context.Context, *runnersv1.ListVolumesByThreadRequest, ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error) {
-	return nil, errNotImplemented
+func (f *fakeRunnersClient) ListVolumesByThread(ctx context.Context, req *runnersv1.ListVolumesByThreadRequest, opts ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error) {
+	if f.listVolumesByThread != nil {
+		return f.listVolumesByThread(ctx, req, opts...)
+	}
+	return &runnersv1.ListVolumesByThreadResponse{}, nil
 }
 
 func (f *fakeRunnersClient) BatchUpdateVolumeSampledAt(ctx context.Context, req *runnersv1.BatchUpdateVolumeSampledAtRequest, opts ...grpc.CallOption) (*runnersv1.BatchUpdateVolumeSampledAtResponse, error) {

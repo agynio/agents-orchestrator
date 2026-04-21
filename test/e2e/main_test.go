@@ -51,7 +51,7 @@ var (
 	threadsAddr    = envOrDefault("THREADS_ADDRESS", "threads:50051")
 	llmAddr        = envOrDefault("LLM_ADDRESS", "llm:50051")
 	usersAddr      = envOrDefault("USERS_ADDRESS", "users:50051")
-	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "tenants:50051")
+	orgsAddr       = envOrDefault("ORGANIZATIONS_ADDRESS", "organizations:50051")
 	runnerAddr     = envOrDefault("RUNNER_ADDRESS", "k8s-runner:50051")
 	runnersAddr    = envOrDefault("RUNNERS_ADDRESS", "runners:50051")
 	secretsAddr    = envOrDefault("SECRETS_ADDRESS", "secrets:50051")
@@ -62,6 +62,7 @@ var (
 
 type pipelineRun struct {
 	threadID       string
+	organizationID string
 	startTimeMinNs uint64
 	agentResponse  string
 	messageText    string
@@ -307,10 +308,14 @@ func createMCPEnv(t *testing.T, ctx context.Context, client agentsv1.AgentsServi
 	return env
 }
 
-func createThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantIDs []string) *threadsv1.Thread {
+func createThread(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, organizationID string, participantIDs []string) *threadsv1.Thread {
 	t.Helper()
+	if organizationID == "" {
+		t.Fatal("create thread: missing organization id")
+	}
 	resp, err := client.CreateThread(ctx, &threadsv1.CreateThreadRequest{
 		ParticipantIds: participantIDs,
+		OrganizationId: &organizationID,
 	})
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
