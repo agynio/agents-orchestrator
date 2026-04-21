@@ -14,6 +14,7 @@ var ErrNotImplemented = errors.New("not implemented")
 type FakeAgentsClient struct {
 	GetAgentFunc                       func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
 	ResolveAgentIdentityFunc           func(context.Context, *agentsv1.ResolveAgentIdentityRequest, ...grpc.CallOption) (*agentsv1.ResolveAgentIdentityResponse, error)
+	ListAgentsFunc                     func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
 	ListSkillsFunc                     func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
 	ListEnvsFunc                       func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
 	ListInitScriptsFunc                func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
@@ -69,7 +70,10 @@ func (f *FakeAgentsClient) DeleteAgent(context.Context, *agentsv1.DeleteAgentReq
 	return nil, ErrNotImplemented
 }
 
-func (f *FakeAgentsClient) ListAgents(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+func (f *FakeAgentsClient) ListAgents(ctx context.Context, req *agentsv1.ListAgentsRequest, opts ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+	if f.ListAgentsFunc != nil {
+		return f.ListAgentsFunc(ctx, req, opts...)
+	}
 	return nil, ErrNotImplemented
 }
 

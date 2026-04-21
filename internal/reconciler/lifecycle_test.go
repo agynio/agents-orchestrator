@@ -24,7 +24,9 @@ import (
 )
 
 const (
-	testOrganizationID         = "org-1"
+	testOrganizationID         = "11111111-1111-1111-1111-111111111111"
+	testAgentID                = "22222222-2222-2222-2222-222222222222"
+	testAgentIDAlt             = "33333333-3333-3333-3333-333333333333"
 	testAllocatedCPUMillicores = int32(500)
 	testAllocatedRAMBytes      = int64(1 << 30)
 )
@@ -771,7 +773,7 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, ZitiIdentityId: zitiID, InstanceId: stringPtr(instanceID)})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, AgentId: agentID.String(), ZitiIdentityId: zitiID, InstanceId: stringPtr(instanceID)})
 
 	if !reflect.DeepEqual(calls, []string{"dial", "update-workload", "stop", "update-workload", "delete"}) {
 		t.Fatalf("unexpected call order: %v", calls)
@@ -813,6 +815,7 @@ func TestStopWorkloadMarksMissingRunnerOnNoTerminators(t *testing.T) {
 	reconciler.stopWorkload(ctx, &runnersv1.Workload{
 		Meta:       &runnersv1.EntityMeta{Id: "workload-1"},
 		RunnerId:   runnerID,
+		AgentId:    agentID.String(),
 		InstanceId: stringPtr(instanceID),
 		Status:     runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 	})
@@ -878,6 +881,7 @@ func TestStopWorkloadMarksMissingRunnerOnNoTerminatorsStopError(t *testing.T) {
 	reconciler.stopWorkload(ctx, &runnersv1.Workload{
 		Meta:       &runnersv1.EntityMeta{Id: "workload-1"},
 		RunnerId:   runnerID,
+		AgentId:    agentID.String(),
 		InstanceId: stringPtr(instanceID),
 		Status:     runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 	})
@@ -919,7 +923,7 @@ func TestStopWorkloadMarksFailedWhenInstanceMissing(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, AgentId: agentID.String()})
 
 	if dialCalled {
 		t.Fatal("expected no dial call")
@@ -985,7 +989,7 @@ func TestStopWorkloadSkipsIdentityWhenNil(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, InstanceId: stringPtr(instanceID)})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, AgentId: agentID.String(), InstanceId: stringPtr(instanceID)})
 
 	if deleteCalled {
 		t.Fatal("expected no delete identity call")
@@ -1032,7 +1036,7 @@ func TestStopWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, ZitiIdentityId: zitiID, InstanceId: stringPtr(instanceID)})
+	reconciler.stopWorkload(ctx, &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, AgentId: agentID.String(), ZitiIdentityId: zitiID, InstanceId: stringPtr(instanceID)})
 
 	if !reflect.DeepEqual(calls, []string{"dial", "update-workload", "stop", "update-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
@@ -1272,7 +1276,27 @@ func newTestReconciler(cfg Config) *Reconciler {
 	if cfg.Metering == nil {
 		cfg.Metering = &fakeMeteringClient{}
 	}
+	if cfg.Agents == nil {
+		cfg.Agents = defaultAgentsClient()
+	} else if agentsClient, ok := cfg.Agents.(*testutil.FakeAgentsClient); ok && agentsClient.ListAgentsFunc == nil {
+		agentsClient.ListAgentsFunc = defaultListAgentsFunc()
+	}
 	return New(cfg)
+}
+
+func defaultAgentsClient() *testutil.FakeAgentsClient {
+	return &testutil.FakeAgentsClient{ListAgentsFunc: defaultListAgentsFunc()}
+}
+
+func defaultListAgentsFunc() func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+	return func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+		return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
+			{
+				Meta:           &agentsv1.EntityMeta{Id: testAgentID},
+				OrganizationId: testOrganizationID,
+			},
+		}}, nil
+	}
 }
 
 func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler {
