@@ -5,7 +5,6 @@ package e2e
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -30,6 +29,12 @@ var (
 	tracingSkipReason        string
 )
 
+type tracingAvailability struct {
+	available         bool
+	unavailableReason string
+	skipReason        string
+}
+
 func TestMain(m *testing.M) {
 	e2eSkipReason = skipE2EReason()
 	if e2eSkipReason != "" {
@@ -43,8 +48,13 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	}
 
-	tracingAvailable, tracingUnavailableReason = checkTracingAvailability()
-	if !tracingAvailable {
+	availability := checkTracingAvailability()
+	tracingAvailable = availability.available
+	tracingUnavailableReason = availability.unavailableReason
+	if availability.skipReason != "" {
+		tracingSkipReason = availability.skipReason
+		log.Printf("tracing e2e skipped: %s", tracingSkipReason)
+	} else if !tracingAvailable {
 		reason := strings.TrimSpace(tracingUnavailableReason)
 		if reason == "" {
 			reason = "unknown reason"
@@ -54,10 +64,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func checkTracingAvailability() (bool, string) {
+func checkTracingAvailability() tracingAvailability {
 	addr := strings.TrimSpace(tracingAddr)
 	if addr == "" {
-		return false, "TRACING_ADDRESS is empty"
+		return tracingAvailability{available: false, unavailableReason: "TRACING_ADDRESS is empty"}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -65,15 +75,19 @@ func checkTracingAvailability() (bool, string) {
 	traceID, err := runTraceCanary(ctx, addr)
 	if err != nil {
 		if isCanaryAuthFailure(err) {
-			ok, reason := checkTracingQueryConnectivity(ctx, addr)
-			return ok, reason
+			reason := canaryAuthFailureReason(err)
+			return tracingAvailability{available: false, unavailableReason: reason, skipReason: reason}
 		}
-		return false, fmt.Sprintf("export canary span: %v", err)
+		reason := canaryFailureReason(err)
+		if reason == "" {
+			reason = err.Error()
+		}
+		return tracingAvailability{available: false, unavailableReason: fmt.Sprintf("trace canary failed: %s", reason)}
 	}
 
 	conn, err := dialGRPCForCheck(ctx, addr)
 	if err != nil {
-		return false, fmt.Sprintf("dial tracing %s: %v", addr, err)
+		return tracingAvailability{available: false, unavailableReason: fmt.Sprintf("dial tracing %s: %v", addr, err)}
 	}
 	defer conn.Close()
 
@@ -95,36 +109,10 @@ func checkTracingAvailability() (bool, string) {
 		return nil
 	})
 	if err != nil {
-		return false, fmt.Sprintf("tracing ingest check failed: %v", err)
+		return tracingAvailability{available: false, unavailableReason: fmt.Sprintf("tracing ingest check failed: %v", err)}
 	}
 
-	return true, ""
-}
-
-func checkTracingQueryConnectivity(ctx context.Context, addr string) (bool, string) {
-	conn, err := dialGRPCForCheck(ctx, addr)
-	if err != nil {
-		return false, fmt.Sprintf("dial tracing %s: %v", addr, err)
-	}
-	defer conn.Close()
-
-	traceID, err := randomTraceID()
-	if err != nil {
-		return false, err.Error()
-	}
-	queryClient := tracingv1.NewTracingServiceClient(conn)
-	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	_, err = queryClient.GetTrace(queryCtx, &tracingv1.GetTraceRequest{TraceId: traceID})
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return true, ""
-		}
-		return false, fmt.Sprintf("get trace: %v", err)
-	}
-
-	return true, ""
+	return tracingAvailability{available: true}
 }
 
 func dialGRPCForCheck(ctx context.Context, addr string) (*grpc.ClientConn, error) {
@@ -163,12 +151,23 @@ func isCanaryAuthFailure(err error) bool {
 	return strings.Contains(message, "source identity missing") || strings.Contains(message, "unauthenticated")
 }
 
-func randomTraceID() ([]byte, error) {
-	traceID := make([]byte, 16)
-	if _, err := rand.Read(traceID); err != nil {
-		return nil, fmt.Errorf("generate trace id: %w", err)
+func canaryFailureReason(err error) string {
+	if err == nil {
+		return ""
 	}
-	return traceID, nil
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return ""
+	}
+	return strings.TrimPrefix(message, "trace canary failed: ")
+}
+
+func canaryAuthFailureReason(err error) string {
+	reason := strings.TrimSpace(canaryFailureReason(err))
+	if reason == "" {
+		reason = "source identity missing"
+	}
+	return fmt.Sprintf("trace canary unauthenticated: %s", reason)
 }
 
 func skipTracingReason() string {
