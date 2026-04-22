@@ -43,18 +43,18 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 	workload1 := &runnersv1.Workload{
 		Meta:                   &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(workload1Created)},
 		ThreadId:               "thread-1",
-		AgentId:                "agent-1",
+		AgentId:                testAgentID,
 		RunnerId:               "runner-1",
-		OrganizationId:         "org-1",
+		OrganizationId:         testOrganizationID,
 		AllocatedCpuMillicores: 500,
 		AllocatedRamBytes:      2 * (1 << 30),
 	}
 	workload2 := &runnersv1.Workload{
 		Meta:                   &runnersv1.EntityMeta{Id: "workload-2", CreatedAt: timestamppb.New(workload2Created)},
 		ThreadId:               "thread-2",
-		AgentId:                "agent-2",
+		AgentId:                testAgentIDAlt,
 		RunnerId:               "runner-2",
-		OrganizationId:         "org-1",
+		OrganizationId:         testOrganizationID,
 		AllocatedCpuMillicores: 0,
 		AllocatedRamBytes:      0,
 		LastMeteringSampledAt:  timestamppb.New(workload2Sampled),
@@ -62,9 +62,9 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 	volume := &runnersv1.Volume{
 		Meta:           &runnersv1.EntityMeta{Id: "volume-1", CreatedAt: timestamppb.New(volumeCreated)},
 		ThreadId:       "thread-1",
-		AgentId:        "agent-1",
+		AgentId:        testAgentID,
 		RunnerId:       "runner-1",
-		OrganizationId: "org-1",
+		OrganizationId: testOrganizationID,
 		SizeGb:         "10",
 		RemovedAt:      timestamppb.New(volumeRemoved),
 	}
@@ -121,7 +121,7 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Runners: runners, Metering: metering, MeteringSampleInterval: time.Minute})
+	reconciler := New(Config{Runners: runners, Metering: metering, Agents: defaultAgentsClient(), MeteringSampleInterval: time.Minute})
 	if err := reconciler.sampleMetering(ctx, now); err != nil {
 		t.Fatalf("sample metering: %v", err)
 	}
@@ -184,9 +184,9 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 	assertLabelValue(t, cpuRecord.GetLabels(), labelResource, resourceWorkload)
 	assertLabelValue(t, cpuRecord.GetLabels(), labelResourceID, "workload-1")
 	assertLabelValue(t, cpuRecord.GetLabels(), labelThreadID, "thread-1")
-	assertLabelValue(t, cpuRecord.GetLabels(), labelAgentID, "agent-1")
+	assertLabelValue(t, cpuRecord.GetLabels(), labelAgentID, testAgentID)
 	assertLabelValue(t, cpuRecord.GetLabels(), labelRunnerID, "runner-1")
-	assertLabelValue(t, cpuRecord.GetLabels(), labelIdentityID, "agent-1")
+	assertLabelValue(t, cpuRecord.GetLabels(), labelIdentityID, testAgentID)
 	if _, ok := cpuRecord.GetLabels()[labelKind]; ok {
 		t.Fatalf("unexpected cpu kind label")
 	}

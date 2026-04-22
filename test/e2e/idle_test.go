@@ -45,6 +45,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
+	threadsCtx := withIdentity(ctx, identityID)
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
@@ -65,6 +66,7 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	if agentID == "" {
 		t.Fatal("create agent: missing id")
 	}
+	agentThreadsCtx := withIdentity(ctx, agentID)
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	agentInfoResp, err := agentsClient.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: agentID})
 	if err != nil {
@@ -81,14 +83,14 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 	}
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
+	thread := createThread(t, threadsCtx, threadsClient, orgID, []string{identityID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, threadsCtx, threadsClient, threadID) })
 
-	message := sendMessage(t, ctx, threadsClient, threadID, identityID, "hello")
+	message := sendMessage(t, threadsCtx, threadsClient, threadID, identityID, "hello")
 	messageID := message.GetId()
 	if messageID == "" {
 		t.Fatal("send message: missing id")
@@ -125,14 +127,14 @@ func TestWorkloadStopsAfterIdleTimeout(t *testing.T) {
 		t.Fatalf("wait for workload: %v", err)
 	}
 
-	responseCtx, responseCancel := context.WithTimeout(ctx, agentResponseTimeout)
+	responseCtx, responseCancel := context.WithTimeout(threadsCtx, agentResponseTimeout)
 	defer responseCancel()
 	if _, err := pollForAgentResponse(t, responseCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, ""); err != nil {
 		t.Fatalf("wait for agent response: %v", err)
 	}
 
-	ackAllUnackedMessages(t, ctx, threadsClient, agentID)
-	unackedCtx, unackedCancel := context.WithTimeout(ctx, unackedDrainTimeout)
+	ackAllUnackedMessages(t, agentThreadsCtx, threadsClient, agentID)
+	unackedCtx, unackedCancel := context.WithTimeout(agentThreadsCtx, unackedDrainTimeout)
 	defer unackedCancel()
 	if err := pollUntil(unackedCtx, pollInterval, func(ctx context.Context) error {
 		messageIDs, err := listUnackedMessageIDs(ctx, threadsClient, agentID)

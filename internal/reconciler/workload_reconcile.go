@@ -2,7 +2,9 @@ package reconciler
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
@@ -12,17 +14,26 @@ import (
 )
 
 func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
-	tracked, err := r.listActiveWorkloads(ctx)
+	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	if err != nil {
+		return err
+	}
+	tracked, err := r.listActiveWorkloads(ctx, orgIdentities)
 	if err != nil {
 		return err
 	}
 	runnerIDs := map[string]struct{}{}
 	workloadsByRunner := make(map[string]map[string]*runnersv1.Workload)
+	runnerIdentities := map[string]string{}
 	for _, workload := range tracked {
 		runnerID := workload.GetRunnerId()
 		if runnerID == "" {
 			log.Printf("reconciler: warn: workload %s missing runner id", workload.GetMeta().GetId())
 			continue
+		}
+		identityID := strings.TrimSpace(workload.GetAgentId())
+		if identityID == "" {
+			return fmt.Errorf("workload %s missing agent id", workload.GetMeta().GetId())
 		}
 		workloadID := workload.GetMeta().GetId()
 		if workloadID == "" {
@@ -34,8 +45,11 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			workloadsByRunner[runnerID] = map[string]*runnersv1.Workload{}
 		}
 		workloadsByRunner[runnerID][workloadID] = workload
+		if _, ok := runnerIdentities[runnerID]; !ok {
+			runnerIdentities[runnerID] = identityID
+		}
 	}
-	runners, err := r.listRunners(ctx)
+	runners, err := r.listRunnersByOrg(ctx, orgIdentities)
 	if err != nil {
 		return err
 	}
@@ -53,26 +67,54 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 		enrolledRunnerIDs[runnerID] = struct{}{}
 		runnerIDs[runnerID] = struct{}{}
+		if _, ok := runnerIdentities[runnerID]; ok {
+			continue
+		}
+		orgID := strings.TrimSpace(runner.GetOrganizationId())
+		if orgID == "" {
+			return fmt.Errorf("runner %s organization id missing", runnerID)
+		}
+		identityID, ok := orgIdentities[orgID]
+		if !ok {
+			return fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
+		}
+		runnerIdentities[runnerID] = identityID
 	}
 
 	degraded := newDegradeTracker()
 
 	for runnerID := range runnerIDs {
 		trackedWorkloads := workloadsByRunner[runnerID]
+		identityID, ok := runnerIdentities[runnerID]
+		if !ok {
+			return fmt.Errorf("runner %s missing identity", runnerID)
+		}
 		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
 			for workloadID, workload := range trackedWorkloads {
-				if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+				workloadCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
+				if err != nil {
+					return err
+				}
+				if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
 					log.Printf("reconciler: warn: handle missing workload %s on unenrolled runner: %v", workloadID, err)
 				}
-				r.degradeThread(ctx, workload.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
+				r.degradeThread(workloadCtx, workload.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
 			}
 			continue
+		}
+		runnerCtx, err := runnerIdentityContext(ctx, identityID)
+		if err != nil {
+			return err
 		}
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for workloadID, workload := range trackedWorkloads {
-					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+					workloadCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
+					if err != nil {
+						return err
+					}
+					if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
 						log.Printf("reconciler: warn: handle missing workload %s after runner dial failure: %v", workloadID, err)
 					}
 				}
@@ -81,11 +123,15 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			log.Printf("reconciler: warn: dial runner %s for workload reconciliation: %v", runnerID, err)
 			continue
 		}
-		resp, err := runnerClient.ListWorkloads(ctx, &runnerv1.ListWorkloadsRequest{})
+		resp, err := runnerClient.ListWorkloads(runnerCtx, &runnerv1.ListWorkloadsRequest{})
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for workloadID, workload := range trackedWorkloads {
-					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+					workloadCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
+					if err != nil {
+						return err
+					}
+					if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
 						log.Printf("reconciler: warn: handle missing workload %s after runner list failure: %v", workloadID, err)
 					}
 				}
@@ -112,15 +158,19 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 
 		for workloadID, workload := range trackedWorkloads {
+			workloadCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
+			if err != nil {
+				return err
+			}
 			item, ok := runnerWorkloads[workloadID]
 			if !ok {
-				if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
+				if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
 					log.Printf("reconciler: warn: handle missing workload %s: %v", workloadID, err)
 				}
 				continue
 			}
 			delete(runnerWorkloads, workloadID)
-			if err := r.handlePresentRunnerWorkload(ctx, runnerClient, workload, item); err != nil {
+			if err := r.handlePresentRunnerWorkload(workloadCtx, runnerClient, workload, item); err != nil {
 				log.Printf("reconciler: warn: handle workload %s on runner %s: %v", workloadID, runnerID, err)
 			}
 		}
@@ -131,7 +181,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 				log.Printf("reconciler: warn: runner %s orphan workload missing instance id", runnerID)
 				continue
 			}
-			if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
+			if err := r.stopRunnerWorkload(runnerCtx, runnerClient, instanceID); err != nil {
 				log.Printf("reconciler: warn: stop orphan workload %s on runner %s: %v", instanceID, runnerID, err)
 			}
 		}

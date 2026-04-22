@@ -45,6 +45,7 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
+	threadsCtx := withIdentity(ctx, identityID)
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
@@ -97,12 +98,12 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	}
 	t.Cleanup(func() { deleteMCP(t, ctx, agentsClient, filesystemMcpID) })
 
-	thread := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
+	thread := createThread(t, threadsCtx, threadsClient, orgID, []string{identityID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, threadsCtx, threadsClient, threadID) })
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -121,7 +122,7 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 	})
 
 	message := "Create an entity called test_project of type project with observation 'A test project', then list files in /test-data"
-	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, message)
+	sentMessage := sendMessage(t, threadsCtx, threadsClient, threadID, identityID, message)
 	sentMessageTime := messageCreatedAt(t, sentMessage)
 	startTimeMinNs := messageStartTimeMinNs(t, sentMessage)
 	t.Logf("test setup complete: agentID=%s threadID=%s memoryMcpID=%s filesystemMcpID=%s", agentID, threadID, memoryMcpID, filesystemMcpID)
@@ -134,7 +135,7 @@ func runMCPToolsE2E(t *testing.T, llmEndpoint, initImage string) pipelineRun {
 		t.Fatalf("wait for mcp sidecars: %v", err)
 	}
 
-	pollCtx, pollCancel := context.WithTimeout(ctx, 6*time.Minute)
+	pollCtx, pollCancel := context.WithTimeout(threadsCtx, 6*time.Minute)
 	defer pollCancel()
 	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expected)
 	if err != nil {

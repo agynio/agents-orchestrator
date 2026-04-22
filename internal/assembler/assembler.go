@@ -2,7 +2,6 @@ package assembler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -27,9 +26,12 @@ const (
 	agentWorkspaceDir                    = "/tmp"
 	agentHomeDir                         = "/tmp"
 	mcpBasePort                          = 8100
-	ZitiSidecarInitContainerName         = "ziti-sidecar"
+	ZitiSidecarContainerName             = "ziti-sidecar"
 	zitiIdentityVolumeName               = "ziti-identity"
 	zitiIdentityMountPath                = "/netfoundry"
+	ZitiIdentityBasename                 = "agent"
+	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
 	zitiDNSNameserver                    = "127.0.0.1"
 	zitiSidecarCommand                   = "tproxy"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
@@ -38,6 +40,26 @@ const (
 	zitiDNSSearchService                 = "svc.cluster.local"
 	zitiDNSSearchCluster                 = "cluster.local"
 )
+
+var reservedEnvNames = map[string]struct{}{
+	"AGENT_ID":                 {},
+	"AGENT_NAME":               {},
+	"AGENT_ROLE":               {},
+	"AGENT_MODEL":              {},
+	"AGENT_CONFIG":             {},
+	"THREAD_ID":                {},
+	"WORKLOAD_ID":              {},
+	"GATEWAY_ADDRESS":          {},
+	"AGYN_GATEWAY_URL":         {},
+	"LLM_BASE_URL":             {},
+	"TRACING_ADDRESS":          {},
+	"WORKSPACE_DIR":            {},
+	"HOME":                     {},
+	"AGENT_MCP_SERVERS":        {},
+	"MCP_PORT":                 {},
+	ZitiEnrollmentTokenEnvVar:  {},
+	ZitiIdentityBasenameEnvVar: {},
+}
 
 type Assembler struct {
 	agents  agentsv1.AgentsServiceClient
@@ -84,21 +106,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, fmt.Errorf("resolve agent envs: %w", err)
 	}
 
-	agentScripts, err := a.listInitScripts(ctx, &agentsv1.ListInitScriptsRequest{AgentId: agentID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("list agent init scripts: %w", err)
-	}
-	agentInitScript := concatInitScripts(agentScripts)
-
-	skills, err := a.listSkills(ctx, agentID)
-	if err != nil {
-		return nil, fmt.Errorf("list skills: %w", err)
-	}
-	skillsJSON, err := buildSkillsJSON(skills)
-	if err != nil {
-		return nil, fmt.Errorf("encode skills: %w", err)
-	}
-
 	agentAttachments, err := a.listVolumeAttachments(ctx, &agentsv1.ListVolumeAttachmentsRequest{AgentId: agentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list agent volume attachments: %w", err)
@@ -115,8 +122,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, fmt.Errorf("resolve agent image pull secrets: %w", err)
 	}
 
-	mainEnv := a.baseAgentEnvVars(ctx, agent, agentID, threadID, skillsJSON, agentInitScript)
-	mainEnv = append(mainEnv, agentEnvVars...)
+	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
 
 	initImage := agent.GetInitImage()
 	if initImage == "" {
@@ -141,16 +147,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		},
 	}
 	initContainers := []*runnerv1.ContainerSpec{initContainer}
-	if a.cfg.ZitiEnabled {
-		initContainers = append(initContainers, &runnerv1.ContainerSpec{
-			Image:                a.cfg.ZitiSidecarImage,
-			Name:                 ZitiSidecarInitContainerName,
-			Cmd:                  []string{zitiSidecarCommand},
-			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
-			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
-			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
-		})
-	}
 
 	mcps, err := a.listMcps(ctx, agentID)
 	if err != nil {
@@ -192,7 +188,11 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		}
 	}
 
-	sidecars := make([]*runnerv1.ContainerSpec, 0, len(mcpAssignments)+len(hookAssignments))
+	sidecarCapacity := len(mcpAssignments) + len(hookAssignments)
+	if a.cfg.ZitiEnabled {
+		sidecarCapacity++
+	}
+	sidecars := make([]*runnerv1.ContainerSpec, 0, sidecarCapacity)
 	mcpServers := make([]string, 0, len(mcpAssignments))
 	for _, assignment := range mcpAssignments {
 		sidecar, err := a.buildMcpSidecar(ctx, resolver, volumeResolver, assignment.mcp, assignment.port)
@@ -209,8 +209,19 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		}
 		sidecars = append(sidecars, sidecar)
 	}
+	if a.cfg.ZitiEnabled {
+		sidecars = append(sidecars, &runnerv1.ContainerSpec{
+			Image:                a.cfg.ZitiSidecarImage,
+			Name:                 ZitiSidecarContainerName,
+			Cmd:                  []string{zitiSidecarCommand},
+			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
+			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
+			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
+			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
+		})
+	}
 	if len(mcpServers) > 0 {
-		main.Env = append(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
+		main.Env = appendPlatformEnvVar(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
 	}
 	imagePullCredentials, err := imagePullResolver.Credentials()
 	if err != nil {
@@ -343,28 +354,6 @@ func (a *Assembler) listHooks(ctx context.Context, agentID uuid.UUID) ([]*agents
 	}
 }
 
-func (a *Assembler) listSkills(ctx context.Context, agentID uuid.UUID) ([]*agentsv1.Skill, error) {
-	resp := []*agentsv1.Skill{}
-	token := ""
-	for {
-		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-		page, err := a.agents.ListSkills(rctx, &agentsv1.ListSkillsRequest{
-			AgentId:   agentID.String(),
-			PageSize:  listPageSize,
-			PageToken: token,
-		})
-		cancel()
-		if err != nil {
-			return nil, err
-		}
-		resp = append(resp, page.GetSkills()...)
-		token = page.GetNextPageToken()
-		if token == "" {
-			return resp, nil
-		}
-	}
-}
-
 func (a *Assembler) listEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) ([]*agentsv1.Env, error) {
 	resp := []*agentsv1.Env{}
 	token := ""
@@ -382,30 +371,6 @@ func (a *Assembler) listEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest)
 			return nil, err
 		}
 		resp = append(resp, page.GetEnvs()...)
-		token = page.GetNextPageToken()
-		if token == "" {
-			return resp, nil
-		}
-	}
-}
-
-func (a *Assembler) listInitScripts(ctx context.Context, req *agentsv1.ListInitScriptsRequest) ([]*agentsv1.InitScript, error) {
-	resp := []*agentsv1.InitScript{}
-	token := ""
-	for {
-		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-		page, err := a.agents.ListInitScripts(rctx, &agentsv1.ListInitScriptsRequest{
-			AgentId:   req.GetAgentId(),
-			McpId:     req.GetMcpId(),
-			HookId:    req.GetHookId(),
-			PageSize:  listPageSize,
-			PageToken: token,
-		})
-		cancel()
-		if err != nil {
-			return nil, err
-		}
-		resp = append(resp, page.GetInitScripts()...)
 		token = page.GetNextPageToken()
 		if token == "" {
 			return resp, nil
@@ -540,16 +505,17 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		resolver,
 		volumeResolver,
 		&agentsv1.ListEnvsRequest{McpId: mcpID.String()},
-		&agentsv1.ListInitScriptsRequest{McpId: mcpID.String()},
 		&agentsv1.ListVolumeAttachmentsRequest{McpId: mcpID.String()},
 	)
 	if err != nil {
 		return nil, err
 	}
 	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
-	envVars = append(envVars, &runnerv1.EnvVar{Name: "MCP_PORT", Value: strconv.Itoa(port)})
-	envVars = append(envVars, &runnerv1.EnvVar{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress})
-	envVars = append(envVars, &runnerv1.EnvVar{Name: "AGYN_GATEWAY_URL", Value: gatewayURL})
+	envVars = mergeEnvVars([]*runnerv1.EnvVar{
+		{Name: "MCP_PORT", Value: strconv.Itoa(port)},
+		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
+		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
+	}, envVars, fmt.Sprintf("mcp %s", mcpID.String()))
 	return &runnerv1.ContainerSpec{
 		Image:  mcp.GetImage(),
 		Name:   fmt.Sprintf("mcp-%s", mcpID.String()[:8]),
@@ -565,12 +531,12 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 		resolver,
 		volumeResolver,
 		&agentsv1.ListEnvsRequest{HookId: assignment.id.String()},
-		&agentsv1.ListInitScriptsRequest{HookId: assignment.id.String()},
 		&agentsv1.ListVolumeAttachmentsRequest{HookId: assignment.id.String()},
 	)
 	if err != nil {
 		return nil, err
 	}
+	envVars = mergeEnvVars(nil, envVars, fmt.Sprintf("hook %s", assignment.id.String()))
 	return &runnerv1.ContainerSpec{
 		Image:  assignment.hook.GetImage(),
 		Name:   fmt.Sprintf("hook-%s", assignment.id.String()[:8]),
@@ -587,7 +553,45 @@ func buildGatewayURL(address string) string {
 	return "http://" + address
 }
 
-func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent, agentID, threadID uuid.UUID, skillsJSON, initScript string) []*runnerv1.EnvVar {
+func mergeEnvVars(platformEnv, userEnv []*runnerv1.EnvVar, owner string) []*runnerv1.EnvVar {
+	merged := make([]*runnerv1.EnvVar, 0, len(platformEnv)+len(userEnv))
+	seen := make(map[string]struct{}, len(platformEnv)+len(userEnv))
+	for _, env := range platformEnv {
+		name := env.Name
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		merged = append(merged, env)
+		seen[name] = struct{}{}
+	}
+	for _, env := range userEnv {
+		name := env.Name
+		if _, ok := reservedEnvNames[name]; ok {
+			log.Printf("assembler: warn: dropping reserved env %s for %s", name, owner)
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		merged = append(merged, env)
+		seen[name] = struct{}{}
+	}
+	return merged
+}
+
+func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runnerv1.EnvVar {
+	result := make([]*runnerv1.EnvVar, 0, len(envs)+1)
+	for _, existing := range envs {
+		if existing.Name == env.Name {
+			continue
+		}
+		result = append(result, existing)
+	}
+	result = append(result, env)
+	return result
+}
+
+func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uuid.UUID) []*runnerv1.EnvVar {
 	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_ID", Value: agentID.String()},
@@ -601,80 +605,11 @@ func (a *Assembler) baseAgentEnvVars(ctx context.Context, agent *agentsv1.Agent,
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
 		{Name: "WORKSPACE_DIR", Value: agentWorkspaceDir},
 		{Name: "HOME", Value: agentHomeDir},
-		{Name: "AGENT_SKILLS", Value: skillsJSON},
 	}
 	if a.cfg.AgentTracingAddress != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})
 	}
-	if initScript != "" {
-		vars = append(vars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
-	}
 	return vars
-}
-
-type skillPayload struct {
-	Name string `json:"name"`
-	Body string `json:"body"`
-}
-
-func buildSkillsJSON(skills []*agentsv1.Skill) (string, error) {
-	payload := make([]skillPayload, len(skills))
-	for i, skill := range skills {
-		payload[i] = skillPayload{Name: skill.GetName(), Body: skill.GetBody()}
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func concatInitScripts(scripts []*agentsv1.InitScript) string {
-	if len(scripts) == 0 {
-		return ""
-	}
-	sorted := append([]*agentsv1.InitScript(nil), scripts...)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		itime := initScriptTime(sorted[i])
-		jtime := initScriptTime(sorted[j])
-		if itime.Equal(jtime) {
-			return initScriptID(sorted[i]) < initScriptID(sorted[j])
-		}
-		return itime.Before(jtime)
-	})
-	var builder strings.Builder
-	for i, script := range sorted {
-		if i > 0 {
-			builder.WriteString("\n")
-		}
-		builder.WriteString(script.GetScript())
-	}
-	return builder.String()
-}
-
-func initScriptTime(script *agentsv1.InitScript) time.Time {
-	if script == nil {
-		return time.Time{}
-	}
-	meta := script.GetMeta()
-	if meta == nil {
-		return time.Time{}
-	}
-	if meta.GetCreatedAt() == nil {
-		return time.Time{}
-	}
-	return meta.GetCreatedAt().AsTime()
-}
-
-func initScriptID(script *agentsv1.InitScript) string {
-	if script == nil {
-		return ""
-	}
-	meta := script.GetMeta()
-	if meta == nil {
-		return ""
-	}
-	return meta.GetId()
 }
 
 type volumeResolver struct {
@@ -775,7 +710,7 @@ func (v *volumeResolver) getVolume(ctx context.Context, volumeID uuid.UUID) (*ag
 	return volume, nil
 }
 
-func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, envReq *agentsv1.ListEnvsRequest, initReq *agentsv1.ListInitScriptsRequest, attachmentReq *agentsv1.ListVolumeAttachmentsRequest) ([]*runnerv1.EnvVar, []*runnerv1.VolumeMount, error) {
+func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, envReq *agentsv1.ListEnvsRequest, attachmentReq *agentsv1.ListVolumeAttachmentsRequest) ([]*runnerv1.EnvVar, []*runnerv1.VolumeMount, error) {
 	vars, err := a.listEnvs(ctx, envReq)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list sidecar envs: %w", err)
@@ -783,14 +718,6 @@ func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envRe
 	envVars, err := resolver.ResolveEnvVars(ctx, vars)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve sidecar envs: %w", err)
-	}
-	scripts, err := a.listInitScripts(ctx, initReq)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list sidecar init scripts: %w", err)
-	}
-	initScript := concatInitScripts(scripts)
-	if initScript != "" {
-		envVars = append(envVars, &runnerv1.EnvVar{Name: "INIT_SCRIPT", Value: initScript})
 	}
 	attachments, err := a.listVolumeAttachments(ctx, attachmentReq)
 	if err != nil {

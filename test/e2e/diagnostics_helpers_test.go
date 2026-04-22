@@ -37,18 +37,29 @@ func logTracingDiagnostics(t *testing.T, threadID string) {
 	}
 }
 
+type logReadOptions struct {
+	TailLines int64
+	MaxLines  int
+	Previous  bool
+}
+
 func readWorkloadLogs(t *testing.T, ctx context.Context, namespace, podName, containerName string) {
 	t.Helper()
-	tail := int64(50)
-	maxLines := 5
+	options := logReadOptions{TailLines: 50, MaxLines: 5}
 	if strings.HasPrefix(containerName, "mcp-") {
-		tail = 200
-		maxLines = 20
+		options.TailLines = 200
+		options.MaxLines = 20
 	}
+	readWorkloadLogsWithOptions(t, ctx, namespace, podName, containerName, options)
+}
+
+func readWorkloadLogsWithOptions(t *testing.T, ctx context.Context, namespace, podName, containerName string, options logReadOptions) {
+	t.Helper()
 	request := kubeClientset(t).CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Container:  containerName,
-		TailLines:  &tail,
+		TailLines:  &options.TailLines,
 		Timestamps: true,
+		Previous:   options.Previous,
 	})
 	stream, err := request.Stream(ctx)
 	if err != nil {
@@ -67,7 +78,7 @@ func readWorkloadLogs(t *testing.T, ctx context.Context, namespace, podName, con
 		}
 		t.Logf("diagnostics: pod=%s container=%s log=%s", podName, containerName, truncateLogLine(line))
 		lines++
-		if lines >= maxLines {
+		if lines >= options.MaxLines {
 			break
 		}
 	}
@@ -164,6 +175,7 @@ func logWorkloadPodDiagnosticsFromPod(t *testing.T, ctx context.Context, pod cor
 		namespace = workloadNamespace(t)
 	}
 	logWorkloadPodEvents(t, ctx, namespace, pod.Name)
+	logWorkloadInitContainerLogs(t, ctx, namespace, pod)
 	logWorkloadContainerLogs(t, ctx, namespace, pod)
 }
 
@@ -310,6 +322,21 @@ func logWorkloadContainerLogs(t *testing.T, ctx context.Context, namespace strin
 	for _, container := range containers {
 		t.Logf("diagnostics: workload pod=%s container=%s", pod.Name, container)
 		readWorkloadLogs(t, ctx, namespace, pod.Name, container)
+	}
+}
+
+func logWorkloadInitContainerLogs(t *testing.T, ctx context.Context, namespace string, pod corev1.Pod) {
+	t.Helper()
+	for _, container := range pod.Spec.InitContainers {
+		if container.Name != "ziti-sidecar" {
+			continue
+		}
+		t.Logf("diagnostics: workload pod=%s init-container=%s (previous)", pod.Name, container.Name)
+		readWorkloadLogsWithOptions(t, ctx, namespace, pod.Name, container.Name, logReadOptions{
+			TailLines: 200,
+			MaxLines:  20,
+			Previous:  true,
+		})
 	}
 }
 

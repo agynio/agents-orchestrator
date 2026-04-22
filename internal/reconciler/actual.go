@@ -11,7 +11,11 @@ import (
 const activeWorkloadPageSize int32 = 100
 
 func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, error) {
-	tracked, err := r.listActiveWorkloads(ctx)
+	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tracked, err := r.listActiveWorkloads(ctx, orgIdentities)
 	if err != nil {
 		return nil, err
 	}
@@ -27,38 +31,49 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, er
 	return actual, nil
 }
 
-func (r *Reconciler) listActiveWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
+func (r *Reconciler) listActiveWorkloads(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Workload, error) {
 	active := []*runnersv1.Workload{}
-	pageToken := ""
-	for {
-		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
-			PageSize:  activeWorkloadPageSize,
-			PageToken: pageToken,
-			Statuses: []runnersv1.WorkloadStatus{
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-				runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
-			},
-		})
+	if len(orgIdentities) == 0 {
+		return active, nil
+	}
+	for orgID, identityID := range orgIdentities {
+		orgIDCopy := orgID
+		runnerCtx, err := runnerIdentityContext(ctx, identityID)
 		if err != nil {
-			return nil, fmt.Errorf("list workloads: %w", err)
+			return nil, err
 		}
-		for _, workload := range resp.GetWorkloads() {
-			if workload == nil {
-				return nil, fmt.Errorf("workload is nil")
+		pageToken := ""
+		for {
+			resp, err := r.runners.ListWorkloads(runnerCtx, &runnersv1.ListWorkloadsRequest{
+				PageSize:       activeWorkloadPageSize,
+				PageToken:      pageToken,
+				OrganizationId: &orgIDCopy,
+				Statuses: []runnersv1.WorkloadStatus{
+					runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
+					runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+					runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
+				},
+			})
+			if err != nil {
+				return nil, fmt.Errorf("list workloads: %w", err)
 			}
-			meta := workload.GetMeta()
-			if meta == nil {
-				return nil, fmt.Errorf("workload meta missing")
+			for _, workload := range resp.GetWorkloads() {
+				if workload == nil {
+					return nil, fmt.Errorf("workload is nil")
+				}
+				meta := workload.GetMeta()
+				if meta == nil {
+					return nil, fmt.Errorf("workload meta missing")
+				}
+				if meta.GetId() == "" {
+					return nil, fmt.Errorf("workload meta id missing")
+				}
+				active = append(active, workload)
 			}
-			if meta.GetId() == "" {
-				return nil, fmt.Errorf("workload meta id missing")
+			pageToken = resp.GetNextPageToken()
+			if pageToken == "" {
+				break
 			}
-			active = append(active, workload)
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
 		}
 	}
 	return active, nil
