@@ -320,6 +320,7 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	t.Setenv("RUNNER_ADDRESS", "")
 	t.Setenv("ZITI_ENABLED", "true")
 	t.Setenv("ZITI_MANAGEMENT_ADDRESS", "")
+	t.Setenv("SERVICE_IDENTITY_ID", "")
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
 	t.Setenv("CLUSTER_DNS", "")

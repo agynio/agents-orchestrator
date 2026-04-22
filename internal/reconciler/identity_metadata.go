@@ -8,17 +8,15 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
-	"google.golang.org/grpc/metadata"
 )
 
-const identityMetadataKey = "x-identity-id"
-
 func runnerIdentityContext(ctx context.Context, identityID string) (context.Context, error) {
-	identityID = strings.TrimSpace(identityID)
-	if _, err := uuidutil.ParseUUID(identityID, "identity_id"); err != nil {
+	trimmedID := strings.TrimSpace(identityID)
+	parsedID, err := uuidutil.ParseUUID(trimmedID, "identity_id")
+	if err != nil {
 		return nil, err
 	}
-	return metadata.NewOutgoingContext(ctx, metadata.Pairs(identityMetadataKey, identityID)), nil
+	return withIdentity(ctx, parsedID.String(), "", false)
 }
 
 func (r *Reconciler) runnerIdentityContextForAgent(ctx context.Context, agentID uuid.UUID) (context.Context, error) {

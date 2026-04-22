@@ -28,9 +28,13 @@ func (r *Reconciler) listRunners(ctx context.Context, organizationID string) ([]
 	}
 	orgID := organizationID
 	var runners []*runnersv1.Runner
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListRunners(ctx, &runnersv1.ListRunnersRequest{
+		resp, err := r.runners.ListRunners(callCtx, &runnersv1.ListRunnersRequest{
 			PageSize:       runnerPageSize,
 			PageToken:      pageToken,
 			OrganizationId: &orgID,

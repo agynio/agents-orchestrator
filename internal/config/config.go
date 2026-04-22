@@ -4,8 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 )
+
+const defaultServiceIdentityID = "a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10"
 
 type Config struct {
 	ThreadsAddress            string
@@ -15,6 +20,7 @@ type Config struct {
 	RunnerAddress             string
 	RunnersAddress            string
 	MeteringServiceAddress    string
+	ServiceIdentityID         string
 	MeteringSampleInterval    time.Duration
 	ZitiEnabled               bool
 	ZitiManagementAddress     string
@@ -63,6 +69,15 @@ func FromEnv() (Config, error) {
 	if cfg.MeteringServiceAddress == "" {
 		cfg.MeteringServiceAddress = "metering:50051"
 	}
+	serviceIdentityID := strings.TrimSpace(os.Getenv("SERVICE_IDENTITY_ID"))
+	if serviceIdentityID == "" {
+		serviceIdentityID = defaultServiceIdentityID
+	}
+	parsedIdentityID, err := uuidutil.ParseUUID(serviceIdentityID, "SERVICE_IDENTITY_ID")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ServiceIdentityID = parsedIdentityID.String()
 	meteringSampleInterval := os.Getenv("METERING_SAMPLE_INTERVAL")
 	if meteringSampleInterval == "" {
 		cfg.MeteringSampleInterval = time.Minute

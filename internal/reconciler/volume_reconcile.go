@@ -216,15 +216,15 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 	if len(orgIdentities) == 0 {
 		return active, nil
 	}
-	for orgID, identityID := range orgIdentities {
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for orgID := range orgIdentities {
 		orgIDCopy := orgID
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
 		pageToken := ""
 		for {
-			resp, err := r.runners.ListVolumes(runnerCtx, &runnersv1.ListVolumesRequest{
+			resp, err := r.runners.ListVolumes(callCtx, &runnersv1.ListVolumesRequest{
 				PageSize:       activeVolumePageSize,
 				PageToken:      pageToken,
 				OrganizationId: &orgIDCopy,
@@ -255,7 +255,21 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 				break
 			}
 		}
+=======
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return nil, err
 	}
+	pageToken := ""
+	for {
+		resp, err := r.runners.ListVolumes(callCtx, &runnersv1.ListVolumesRequest{
+			PageSize:  activeVolumePageSize,
+			PageToken: pageToken,
+			Statuses: []runnersv1.VolumeStatus{
+				runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
+				runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+				runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
+			},
 	return active, nil
 }
 
@@ -264,19 +278,23 @@ func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runn
 	if volumeID == "" {
 		return nil
 	}
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return err
+	}
 	switch volume.GetStatus() {
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING:
 		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(callCtx, &runnersv1.UpdateVolumeRequest{
 			Id:     volumeID,
 			Status: &status,
 		})
 		return err
 	case runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
-		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(callCtx, &runnersv1.UpdateVolumeRequest{
 			Id:        volumeID,
 			Status:    &status,
 			RemovedAt: timestamppb.New(time.Now().UTC()),
@@ -296,10 +314,14 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 	if instanceID == "" {
 		return nil
 	}
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return err
+	}
 	switch volume.GetStatus() {
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE
-		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(callCtx, &runnersv1.UpdateVolumeRequest{
 			Id:         volumeID,
 			Status:     &status,
 			InstanceId: stringPtr(instanceID),
@@ -307,7 +329,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 		return err
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
 		if volume.GetInstanceId() != instanceID {
-			if _, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+			if _, err := r.runners.UpdateVolume(callCtx, &runnersv1.UpdateVolumeRequest{
 				Id:         volumeID,
 				InstanceId: stringPtr(instanceID),
 			}); err != nil {
@@ -322,7 +344,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 			return nil
 		}
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING
-		if _, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{Id: volumeID, Status: &status}); err != nil {
+		if _, err := r.runners.UpdateVolume(callCtx, &runnersv1.UpdateVolumeRequest{Id: volumeID, Status: &status}); err != nil {
 			return err
 		}
 		return r.removeRunnerVolume(ctx, runnerClient, instanceID)
@@ -429,9 +451,13 @@ func (r *Reconciler) listWorkloadsByThread(ctx context.Context, threadID string)
 		return nil, fmt.Errorf("thread id missing")
 	}
 	workloads := []*runnersv1.Workload{}
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListWorkloadsByThread(ctx, &runnersv1.ListWorkloadsByThreadRequest{
+		resp, err := r.runners.ListWorkloadsByThread(callCtx, &runnersv1.ListWorkloadsByThreadRequest{
 			ThreadId:  threadID,
 			PageSize:  workloadHistoryPageSize,
 			PageToken: pageToken,

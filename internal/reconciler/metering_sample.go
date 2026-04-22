@@ -140,28 +140,32 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			return fmt.Errorf("record metering: %w", err)
 		}
 	}
-	for identityID, entries := range workloadUpdates {
-		if len(entries) == 0 {
-			continue
-		}
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
+	if len(workloadUpdates) > 0 {
+		callCtx, err := r.serviceContext(ctx)
 		if err != nil {
 			return err
 		}
-		if _, err := r.runners.BatchUpdateWorkloadSampledAt(runnerCtx, &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: entries}); err != nil {
-			return fmt.Errorf("update workloads sampled_at: %w", err)
+		for _, entries := range workloadUpdates {
+			if len(entries) == 0 {
+				continue
+			}
+			if _, err := r.runners.BatchUpdateWorkloadSampledAt(callCtx, &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: entries}); err != nil {
+				return fmt.Errorf("update workloads sampled_at: %w", err)
+			}
 		}
 	}
-	for identityID, entries := range volumeUpdates {
-		if len(entries) == 0 {
-			continue
-		}
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
+	if len(volumeUpdates) > 0 {
+		callCtx, err := r.serviceContext(ctx)
 		if err != nil {
 			return err
 		}
-		if _, err := r.runners.BatchUpdateVolumeSampledAt(runnerCtx, &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: entries}); err != nil {
-			return fmt.Errorf("update volumes sampled_at: %w", err)
+		for _, entries := range volumeUpdates {
+			if len(entries) == 0 {
+				continue
+			}
+			if _, err := r.runners.BatchUpdateVolumeSampledAt(callCtx, &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: entries}); err != nil {
+				return fmt.Errorf("update volumes sampled_at: %w", err)
+			}
 		}
 	}
 	return nil
@@ -172,15 +176,15 @@ func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, orgIdentiti
 	if len(orgIdentities) == 0 {
 		return workloads, nil
 	}
-	for orgID, identityID := range orgIdentities {
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for orgID := range orgIdentities {
 		orgIDCopy := orgID
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
 		pageToken := ""
 		for {
-			resp, err := r.runners.ListWorkloads(runnerCtx, &runnersv1.ListWorkloadsRequest{
+			resp, err := r.runners.ListWorkloads(callCtx, &runnersv1.ListWorkloadsRequest{
 				PageSize:       meteringSamplePageSize,
 				PageToken:      pageToken,
 				OrganizationId: &orgIDCopy,
@@ -216,15 +220,15 @@ func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities
 	if len(orgIdentities) == 0 {
 		return volumes, nil
 	}
-	for orgID, identityID := range orgIdentities {
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for orgID := range orgIdentities {
 		orgIDCopy := orgID
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
 		pageToken := ""
 		for {
-			resp, err := r.runners.ListVolumes(runnerCtx, &runnersv1.ListVolumesRequest{
+			resp, err := r.runners.ListVolumes(callCtx, &runnersv1.ListVolumesRequest{
 				PageSize:       meteringSamplePageSize,
 				PageToken:      pageToken,
 				OrganizationId: &orgIDCopy,

@@ -97,7 +97,8 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 	}
 
 	threads := &fakeThreadsClient{
-		getUnackedMessages: func(_ context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
+		getUnackedMessages: func(ctx context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
+			assertIdentityMetadata(t, ctx, agentID.String(), identityTypeAgent)
 			if req.GetParticipantId() != agentID.String() {
 				return nil, errors.New("unexpected participant id")
 			}
@@ -106,7 +107,8 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 				{Id: uuid.NewString(), ThreadId: passiveThreadID.String()},
 			}}, nil
 		},
-		getThreads: func(_ context.Context, req *threadsv1.GetThreadsRequest, _ ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
+		getThreads: func(ctx context.Context, req *threadsv1.GetThreadsRequest, _ ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
+			assertIdentityMetadata(t, ctx, agentID.String(), identityTypeAgent)
 			if req.GetParticipantId() != agentID.String() {
 				return nil, errors.New("unexpected participant id")
 			}
@@ -158,7 +160,8 @@ func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 	}
 
 	threads := &fakeThreadsClient{
-		getUnackedMessages: func(_ context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
+		getUnackedMessages: func(ctx context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
+			assertIdentityMetadata(t, ctx, agentID.String(), identityTypeAgent)
 			if req.GetParticipantId() != agentID.String() {
 				return nil, errors.New("unexpected participant id")
 			}

@@ -1270,6 +1270,9 @@ func newTestReconciler(cfg Config) *Reconciler {
 	if cfg.MeteringSampleInterval == 0 {
 		cfg.MeteringSampleInterval = time.Minute
 	}
+	if cfg.ServiceIdentityID == "" {
+		cfg.ServiceIdentityID = testServiceIdentityID
+	}
 	if cfg.RunnerDialer == nil {
 		cfg.RunnerDialer = &fakeRunnerDialer{}
 	}

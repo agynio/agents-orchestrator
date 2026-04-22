@@ -145,6 +145,7 @@ func run() error {
 		Idle:                      cfg.IdleTimeout,
 		StopSec:                   cfg.StopTimeoutSec,
 		MeteringSampleInterval:    cfg.MeteringSampleInterval,
+		ServiceIdentityID:         cfg.ServiceIdentityID,
 	})
 
 	start := func(leadCtx context.Context) {

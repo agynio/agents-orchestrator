@@ -43,6 +43,9 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.WorkloadReconcileInterval != time.Minute {
 		t.Fatalf("expected workload reconcile interval %q, got %q", time.Minute, cfg.WorkloadReconcileInterval)
 	}
+	if cfg.ServiceIdentityID != defaultServiceIdentityID {
+		t.Fatalf("expected service identity id %q, got %q", defaultServiceIdentityID, cfg.ServiceIdentityID)
+	}
 }
 
 func TestFromEnvDefaultsZiti(t *testing.T) {
@@ -68,6 +71,9 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
 		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
 	}
+	if cfg.ServiceIdentityID != defaultServiceIdentityID {
+		t.Fatalf("expected service identity id %q, got %q", defaultServiceIdentityID, cfg.ServiceIdentityID)
+	}
 }
 
 func TestFromEnvAgentTracingAddress(t *testing.T) {
@@ -83,6 +89,20 @@ func TestFromEnvAgentTracingAddress(t *testing.T) {
 	}
 }
 
+func TestFromEnvServiceIdentityOverride(t *testing.T) {
+	setBaseEnv(t)
+	customID := "7e7d8b2c-6a5c-4c3f-9f5e-8d5b9a7c2f91"
+	t.Setenv("SERVICE_IDENTITY_ID", customID)
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.ServiceIdentityID != customID {
+		t.Fatalf("expected service identity id %q, got %q", customID, cfg.ServiceIdentityID)
+	}
+}
+
 func setBaseEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
@@ -93,6 +113,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("RUNNER_ADDRESS", "")
 	t.Setenv("RUNNERS_ADDRESS", "")
 	t.Setenv("METERING_SERVICE_ADDRESS", "")
+	t.Setenv("SERVICE_IDENTITY_ID", "")
 	t.Setenv("METERING_SAMPLE_INTERVAL", "")
 	t.Setenv("ZITI_MANAGEMENT_ADDRESS", "")
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")

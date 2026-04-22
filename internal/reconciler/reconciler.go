@@ -39,6 +39,7 @@ type Reconciler struct {
 	workloadReconcileInterval time.Duration
 	idle                      time.Duration
 	stopSec                   uint32
+	serviceIdentityID         string
 }
 
 type Config struct {
@@ -55,6 +56,7 @@ type Config struct {
 	Idle                      time.Duration
 	StopSec                   uint32
 	MeteringSampleInterval    time.Duration
+	ServiceIdentityID         string
 }
 
 func New(cfg Config) *Reconciler {
@@ -72,6 +74,7 @@ func New(cfg Config) *Reconciler {
 		workloadReconcileInterval: cfg.WorkloadReconcileInterval,
 		idle:                      cfg.Idle,
 		stopSec:                   cfg.StopSec,
+		serviceIdentityID:         cfg.ServiceIdentityID,
 	}
 }
 
@@ -336,7 +339,12 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 	if containers != nil {
 		updateReq.Containers = containers
 	}
-	if _, err := r.runners.UpdateWorkload(runnerCtx, updateReq); err != nil {
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		log.Printf("reconciler: update workload record %s after start: %v", workloadIDValue, err)
+		return
+	}
+	if _, err := r.runners.UpdateWorkload(callCtx, updateReq); err != nil {
 		log.Printf("reconciler: update workload record %s after start: %v", workloadIDValue, err)
 	}
 }
@@ -375,7 +383,12 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 		return
 	}
 	stoppingStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING
-	if _, err := r.runners.UpdateWorkload(runnerCtx, &runnersv1.UpdateWorkloadRequest{
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		log.Printf("reconciler: update workload %s to stopping: %v", workloadID, err)
+		return
+	}
+	if _, err := r.runners.UpdateWorkload(callCtx, &runnersv1.UpdateWorkloadRequest{
 		Id:     workloadID,
 		Status: &stoppingStatus,
 	}); err != nil {
@@ -393,7 +406,7 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 		return
 	}
 	stoppedStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
-	if _, err := r.runners.UpdateWorkload(runnerCtx, &runnersv1.UpdateWorkloadRequest{
+	if _, err := r.runners.UpdateWorkload(callCtx, &runnersv1.UpdateWorkloadRequest{
 		Id:        workloadID,
 		Status:    &stoppedStatus,
 		RemovedAt: timestamppb.New(time.Now().UTC()),

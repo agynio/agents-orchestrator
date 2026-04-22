@@ -43,7 +43,12 @@ func (r *Reconciler) degradeThread(ctx context.Context, threadID, reason string,
 		log.Printf("reconciler: warn: threads client not configured for degrade thread %s", threadID)
 		return
 	}
-	if _, err := r.threads.DegradeThread(ctx, &threadsv1.DegradeThreadRequest{
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		log.Printf("reconciler: degrade thread %s (%s): %v", threadID, reason, err)
+		return
+	}
+	if _, err := r.threads.DegradeThread(callCtx, &threadsv1.DegradeThreadRequest{
 		ThreadId: threadID,
 		Reason:   reason,
 	}); err != nil {

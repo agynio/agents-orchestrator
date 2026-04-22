@@ -194,12 +194,16 @@ func (r *Reconciler) handleMissingRunnerWorkload(ctx context.Context, workload *
 	if workloadID == "" {
 		return nil
 	}
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return err
+	}
 	missingAt := timestamppb.New(time.Now().UTC())
 	switch workload.GetStatus() {
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED
-		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
+		_, err := r.runners.UpdateWorkload(callCtx, &runnersv1.UpdateWorkloadRequest{
 			Id:        workloadID,
 			Status:    &status,
 			RemovedAt: missingAt,
@@ -207,7 +211,7 @@ func (r *Reconciler) handleMissingRunnerWorkload(ctx context.Context, workload *
 		return err
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
-		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
+		_, err := r.runners.UpdateWorkload(callCtx, &runnersv1.UpdateWorkloadRequest{
 			Id:        workloadID,
 			Status:    &status,
 			RemovedAt: missingAt,
@@ -227,10 +231,14 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	if instanceID == "" {
 		return nil
 	}
+	callCtx, err := r.serviceContext(ctx)
+	if err != nil {
+		return err
+	}
 	switch workload.GetStatus() {
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING:
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
-		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
+		_, err := r.runners.UpdateWorkload(callCtx, &runnersv1.UpdateWorkloadRequest{
 			Id:         workloadID,
 			Status:     &status,
 			InstanceId: stringPtr(instanceID),
@@ -240,7 +248,7 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 		if workload.GetInstanceId() == instanceID {
 			return nil
 		}
-		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
+		_, err := r.runners.UpdateWorkload(callCtx, &runnersv1.UpdateWorkloadRequest{
 			Id:         workloadID,
 			InstanceId: stringPtr(instanceID),
 		})
