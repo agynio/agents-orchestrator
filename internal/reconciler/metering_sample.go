@@ -103,18 +103,17 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			return fmt.Errorf("record metering: %w", err)
 		}
 	}
-	callCtx := ctx
 	if len(workloadUpdates) > 0 || len(volumeUpdates) > 0 {
-		callCtx = r.serviceContext(ctx)
-	}
-	if len(workloadUpdates) > 0 {
-		if _, err := r.runners.BatchUpdateWorkloadSampledAt(callCtx, &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: workloadUpdates}); err != nil {
-			return fmt.Errorf("update workloads sampled_at: %w", err)
+		callCtx := r.serviceContext(ctx)
+		if len(workloadUpdates) > 0 {
+			if _, err := r.runners.BatchUpdateWorkloadSampledAt(callCtx, &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: workloadUpdates}); err != nil {
+				return fmt.Errorf("update workloads sampled_at: %w", err)
+			}
 		}
-	}
-	if len(volumeUpdates) > 0 {
-		if _, err := r.runners.BatchUpdateVolumeSampledAt(callCtx, &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: volumeUpdates}); err != nil {
-			return fmt.Errorf("update volumes sampled_at: %w", err)
+		if len(volumeUpdates) > 0 {
+			if _, err := r.runners.BatchUpdateVolumeSampledAt(callCtx, &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: volumeUpdates}); err != nil {
+				return fmt.Errorf("update volumes sampled_at: %w", err)
+			}
 		}
 	}
 	return nil

@@ -277,7 +277,8 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 		r.compensateIdentity(ctx, zitiIdentityID, "workload record failure")
 		return
 	}
-	resp, err := runnerClient.StartWorkload(ctx, request)
+	runnerCtx := r.serviceContext(ctx)
+	resp, err := runnerClient.StartWorkload(runnerCtx, request)
 	if err != nil {
 		log.Printf("reconciler: start workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		r.markWorkloadFailed(ctx, workloadIDValue, nil)
@@ -406,14 +407,15 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 }
 
 func (r *Reconciler) stopRunnerWorkload(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) error {
-	if err := r.stopRunnerWorkloadID(ctx, runnerClient, instanceID); err == nil {
+	callCtx := r.serviceContext(ctx)
+	if err := r.stopRunnerWorkloadID(callCtx, runnerClient, instanceID); err == nil {
 		return nil
 	} else if status.Code(err) != codes.NotFound {
 		return err
 	} else if _, parseErr := uuid.Parse(instanceID); parseErr != nil {
 		return err
 	}
-	return r.stopRunnerWorkloadWithPrefix(ctx, runnerClient, instanceID)
+	return r.stopRunnerWorkloadWithPrefix(callCtx, runnerClient, instanceID)
 }
 
 func (r *Reconciler) stopRunnerWorkloadID(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workloadID string) error {

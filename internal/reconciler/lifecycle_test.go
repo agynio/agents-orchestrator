@@ -60,7 +60,8 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 	}
 
 	runner := &fakeRunnerClient{
-		startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
+		startWorkload: func(ctx context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			calls = append(calls, "start")
 			if req.GetMain() == nil {
 				return nil, errors.New("missing main container")

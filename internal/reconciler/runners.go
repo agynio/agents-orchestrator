@@ -23,6 +23,7 @@ func (r *Reconciler) listRunners(ctx context.Context) ([]*runnersv1.Runner, erro
 	callCtx := r.serviceContext(ctx)
 	pageToken := ""
 	for {
+		// Service identity can list all runners without org scoping.
 		resp, err := r.runners.ListRunners(callCtx, &runnersv1.ListRunnersRequest{
 			PageSize:  runnerPageSize,
 			PageToken: pageToken,

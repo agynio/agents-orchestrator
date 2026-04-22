@@ -102,7 +102,8 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			log.Printf("reconciler: warn: dial runner %s for volume reconciliation: %v", runnerID, err)
 			continue
 		}
-		resp, err := runnerClient.ListVolumes(ctx, &runnerv1.ListVolumesRequest{})
+		runnerCtx := r.serviceContext(ctx)
+		resp, err := runnerClient.ListVolumes(runnerCtx, &runnerv1.ListVolumesRequest{})
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for volumeID, volume := range trackedVolumes {
@@ -278,7 +279,8 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 }
 
 func (r *Reconciler) removeRunnerVolume(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) error {
-	_, err := runnerClient.RemoveVolume(ctx, &runnerv1.RemoveVolumeRequest{
+	callCtx := r.serviceContext(ctx)
+	_, err := runnerClient.RemoveVolume(callCtx, &runnerv1.RemoveVolumeRequest{
 		VolumeName: instanceID,
 		Force:      true,
 	})

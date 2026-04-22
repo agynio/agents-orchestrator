@@ -40,7 +40,8 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	}
 
 	runner := &fakeRunnerClient{
-		listWorkloads: func(_ context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
+		listWorkloads: func(ctx context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			return &runnerv1.ListWorkloadsResponse{Workloads: []*runnerv1.WorkloadListItem{
 				{WorkloadKey: workloadKey, InstanceId: instanceID},
 			}}, nil
@@ -98,7 +99,8 @@ func TestReconcileWorkloadsStopsOrphan(t *testing.T) {
 				{WorkloadKey: "orphan", InstanceId: instanceID},
 			}}, nil
 		},
-		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+		stopWorkload: func(ctx context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			if req.GetWorkloadId() != rawInstanceID {
 				return nil, errors.New("unexpected workload id")
 			}
@@ -340,7 +342,8 @@ func TestReconcileVolumesActivatesProvisioning(t *testing.T) {
 	}
 
 	runner := &fakeRunnerClient{
-		listVolumes: func(_ context.Context, _ *runnerv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnerv1.ListVolumesResponse, error) {
+		listVolumes: func(ctx context.Context, _ *runnerv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnerv1.ListVolumesResponse, error) {
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			return &runnerv1.ListVolumesResponse{Volumes: []*runnerv1.VolumeListItem{
 				{VolumeKey: volumeKey, InstanceId: instanceID},
 			}}, nil
@@ -615,7 +618,8 @@ func TestReconcileVolumesTTLExpires(t *testing.T) {
 				{VolumeKey: volumeKey, InstanceId: instanceID},
 			}}, nil
 		},
-		removeVolume: func(_ context.Context, req *runnerv1.RemoveVolumeRequest, _ ...grpc.CallOption) (*runnerv1.RemoveVolumeResponse, error) {
+		removeVolume: func(ctx context.Context, req *runnerv1.RemoveVolumeRequest, _ ...grpc.CallOption) (*runnerv1.RemoveVolumeResponse, error) {
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			if req.GetVolumeName() != instanceID {
 				return nil, errors.New("unexpected volume id")
 			}
