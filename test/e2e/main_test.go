@@ -372,7 +372,8 @@ func messageStartTimeMinNs(t *testing.T, msg *threadsv1.Message) uint64 {
 
 func ackMessages(t *testing.T, ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string, messageIDs []string) {
 	t.Helper()
-	_, err := client.AckMessages(ctx, &threadsv1.AckMessagesRequest{
+	callCtx := withIdentity(ctx, participantID)
+	_, err := client.AckMessages(callCtx, &threadsv1.AckMessagesRequest{
 		ParticipantId: participantID,
 		MessageIds:    messageIDs,
 	})
@@ -399,12 +400,13 @@ func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client t
 	t.Helper()
 	drainCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	callCtx := withIdentity(drainCtx, participantID)
 
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
-		messageIDs, err := listUnackedMessageIDs(drainCtx, client, participantID)
+		messageIDs, err := listUnackedMessageIDs(callCtx, client, participantID)
 		if err != nil {
 			t.Logf("cleanup: list unacked messages for %s: %v", participantID, err)
 			return
@@ -412,7 +414,7 @@ func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client t
 		if len(messageIDs) == 0 {
 			return
 		}
-		_, err = client.AckMessages(drainCtx, &threadsv1.AckMessagesRequest{
+		_, err = client.AckMessages(callCtx, &threadsv1.AckMessagesRequest{
 			ParticipantId: participantID,
 			MessageIds:    messageIDs,
 		})
@@ -432,8 +434,9 @@ func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client t
 func listUnackedMessageIDs(ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string) ([]string, error) {
 	messageIDs := make([]string, 0, unackedPageSize)
 	token := ""
+	callCtx := withIdentity(ctx, participantID)
 	for {
-		page, err := client.GetUnackedMessages(ctx, &threadsv1.GetUnackedMessagesRequest{
+		page, err := client.GetUnackedMessages(callCtx, &threadsv1.GetUnackedMessagesRequest{
 			ParticipantId: participantID,
 			PageSize:      unackedPageSize,
 			PageToken:     token,

@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -75,8 +76,15 @@ func checkTracingAvailability() tracingAvailability {
 	traceID, err := runTraceCanary(ctx, addr)
 	if err != nil {
 		if isCanaryAuthFailure(err) {
+			availability := checkTracingQueryAvailability(ctx, addr)
+			if availability.available {
+				return availability
+			}
 			reason := canaryAuthFailureReason(err)
-			return tracingAvailability{available: false, unavailableReason: reason, skipReason: reason}
+			if availability.unavailableReason != "" {
+				reason = fmt.Sprintf("%s; %s", reason, availability.unavailableReason)
+			}
+			return tracingAvailability{available: false, unavailableReason: reason}
 		}
 		reason := canaryFailureReason(err)
 		if reason == "" {
@@ -113,6 +121,37 @@ func checkTracingAvailability() tracingAvailability {
 	}
 
 	return tracingAvailability{available: true}
+}
+
+func checkTracingQueryAvailability(ctx context.Context, addr string) tracingAvailability {
+	conn, err := dialGRPCForCheck(ctx, addr)
+	if err != nil {
+		return tracingAvailability{available: false, unavailableReason: fmt.Sprintf("dial tracing %s: %v", addr, err)}
+	}
+	defer conn.Close()
+
+	queryClient := tracingv1.NewTracingServiceClient(conn)
+	traceID, err := randomTraceID()
+	if err != nil {
+		return tracingAvailability{available: false, unavailableReason: fmt.Sprintf("generate trace id: %v", err)}
+	}
+
+	_, err = queryClient.GetTrace(ctx, &tracingv1.GetTraceRequest{TraceId: traceID})
+	if err == nil {
+		return tracingAvailability{available: false, unavailableReason: "tracing query check returned unexpected trace"}
+	}
+	if status.Code(err) == codes.NotFound {
+		return tracingAvailability{available: true}
+	}
+	return tracingAvailability{available: false, unavailableReason: fmt.Sprintf("tracing query check failed: %v", err)}
+}
+
+func randomTraceID() ([]byte, error) {
+	traceID := make([]byte, 16)
+	if _, err := rand.Read(traceID); err != nil {
+		return nil, err
+	}
+	return traceID, nil
 }
 
 func dialGRPCForCheck(ctx context.Context, addr string) (*grpc.ClientConn, error) {
