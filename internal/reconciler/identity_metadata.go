@@ -16,7 +16,7 @@ func runnerIdentityContext(ctx context.Context, identityID string) (context.Cont
 	if err != nil {
 		return nil, err
 	}
-	return withIdentity(ctx, parsedID.String(), "", false)
+	return withIdentity(ctx, parsedID.String(), "", false), nil
 }
 
 func (r *Reconciler) runnerIdentityContextForAgent(ctx context.Context, agentID uuid.UUID) (context.Context, error) {

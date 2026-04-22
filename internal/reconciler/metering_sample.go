@@ -241,12 +241,12 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time) ([]*met
 		return nil, nil, fmt.Errorf("workload %s allocated ram bytes must be non-negative", workloadID)
 	}
 	if ramBytes > 0 {
-		value, err := byteSeconds(ramBytes, duration)
+		value, err := microGBSeconds(ramBytes, duration)
 		if err != nil {
-			return nil, nil, fmt.Errorf("workload %s ram seconds: %w", workloadID, err)
+			return nil, nil, fmt.Errorf("workload %s ram gb seconds: %w", workloadID, err)
 		}
 		if value > 0 {
-			labels := copyLabelMap(baseLabels)
+			labels := copyLabels(baseLabels)
 			labels[labelKind] = kindRAM
 			records = append(records, &meteringv1.UsageRecord{
 				OrgId:          orgID,
@@ -284,27 +284,16 @@ func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time) (*meteringv1.
 	if orgID == "" {
 		return nil, nil, fmt.Errorf("volume %s organization id missing", volumeID)
 	}
-	volumeSize := strings.TrimSpace(volume.GetSizeGb())
-	if volumeSize == "" {
-		return nil, nil, fmt.Errorf("volume %s size_gb missing", volumeID)
-	}
-	parsedSize, err := strconv.ParseFloat(volumeSize, 64)
-	if err != nil {
-		return nil, nil, fmt.Errorf("volume %s parse size_gb: %w", volumeID, err)
-	}
-	if parsedSize <= 0 {
-		return nil, nil, nil
-	}
-	baseLabels, err := volumeLabels(volume, volumeID)
+	labels, err := volumeLabels(volume, volumeID)
 	if err != nil {
 		return nil, nil, err
 	}
-	baseLabels[labelKind] = kindStorage
-	value, err := gigabyteSeconds(parsedSize, duration)
+	labels[labelKind] = kindStorage
+	value, err := microGBSecondsFromSize(volume.GetSizeGb(), duration)
 	if err != nil {
-		return nil, nil, fmt.Errorf("volume %s storage seconds: %w", volumeID, err)
+		return nil, nil, fmt.Errorf("volume %s storage gb seconds: %w", volumeID, err)
 	}
-	if value == 0 {
+	if value <= 0 {
 		return nil, update, nil
 	}
 	return &meteringv1.UsageRecord{
@@ -312,123 +301,142 @@ func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time) (*meteringv1.
 		IdempotencyKey: meteringKey(resourceVolume, volumeID, unitGBSecondsLabel, kindStorage, intervalEnd),
 		Producer:       meteringProducer,
 		Timestamp:      timestamppb.New(intervalEnd),
-		Labels:         baseLabels,
+		Labels:         labels,
 		Unit:           meteringv1.Unit_UNIT_GB_SECONDS,
 		Value:          value,
 	}, update, nil
 }
 
-func sampleWindow(resource, resourceID string, createdAt, lastSampledAt, removedAt *timestamppb.Timestamp, now time.Time) (time.Time, time.Time, error) {
-	if createdAt == nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("%s %s created_at missing", resource, resourceID)
+func sampleWindow(kind, id string, createdAt, lastSampledAt, removedAt *timestamppb.Timestamp, now time.Time) (time.Time, time.Time, error) {
+	start := lastSampledAt
+	if start == nil {
+		start = createdAt
 	}
-	createdTime := createdAt.AsTime().UTC()
-	intervalStart := createdTime
-	if lastSampledAt != nil {
-		intervalStart = lastSampledAt.AsTime().UTC()
+	if start == nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("%s %s missing created_at", kind, id)
 	}
-	intervalEnd := now
+	end := now
 	if removedAt != nil {
-		intervalEnd = removedAt.AsTime().UTC()
+		end = removedAt.AsTime().UTC()
 	}
-	if intervalEnd.Before(createdTime) {
-		return time.Time{}, time.Time{}, fmt.Errorf("%s %s interval_end before created_at", resource, resourceID)
-	}
-	if intervalStart.Before(createdTime) {
-		intervalStart = createdTime
-	}
-	if intervalStart.After(intervalEnd) {
-		return time.Time{}, time.Time{}, fmt.Errorf("%s %s interval_start after interval_end", resource, resourceID)
-	}
-	return intervalStart, intervalEnd, nil
+	return start.AsTime().UTC(), end, nil
 }
 
 func workloadLabels(workload *runnersv1.Workload, workloadID string) (map[string]string, error) {
-	labels := map[string]string{}
-	labels[labelResource] = resourceWorkload
-	labels[labelResourceID] = workloadID
-	labels[labelThreadID] = workload.GetThreadId()
-	labels[labelAgentID] = workload.GetAgentId()
-	labels[labelRunnerID] = workload.GetRunnerId()
-	labels[labelIdentityID] = workload.GetAgentId()
-	return labels, nil
+	threadID := strings.TrimSpace(workload.GetThreadId())
+	if threadID == "" {
+		return nil, fmt.Errorf("workload %s thread id missing", workloadID)
+	}
+	agentID := strings.TrimSpace(workload.GetAgentId())
+	if agentID == "" {
+		return nil, fmt.Errorf("workload %s agent id missing", workloadID)
+	}
+	runnerID := strings.TrimSpace(workload.GetRunnerId())
+	if runnerID == "" {
+		return nil, fmt.Errorf("workload %s runner id missing", workloadID)
+	}
+	return map[string]string{
+		labelResource:   resourceWorkload,
+		labelResourceID: workloadID,
+		labelThreadID:   threadID,
+		labelAgentID:    agentID,
+		labelRunnerID:   runnerID,
+		labelIdentityID: agentID,
+	}, nil
 }
 
 func volumeLabels(volume *runnersv1.Volume, volumeID string) (map[string]string, error) {
-	labels := map[string]string{}
-	labels[labelResource] = resourceVolume
-	labels[labelResourceID] = volumeID
-	labels[labelThreadID] = volume.GetThreadId()
-	labels[labelAgentID] = volume.GetAgentId()
-	labels[labelRunnerID] = volume.GetRunnerId()
-	labels[labelIdentityID] = volume.GetAgentId()
-	return labels, nil
+	threadID := strings.TrimSpace(volume.GetThreadId())
+	if threadID == "" {
+		return nil, fmt.Errorf("volume %s thread id missing", volumeID)
+	}
+	agentID := strings.TrimSpace(volume.GetAgentId())
+	if agentID == "" {
+		return nil, fmt.Errorf("volume %s agent id missing", volumeID)
+	}
+	runnerID := strings.TrimSpace(volume.GetRunnerId())
+	if runnerID == "" {
+		return nil, fmt.Errorf("volume %s runner id missing", volumeID)
+	}
+	return map[string]string{
+		labelResource:   resourceVolume,
+		labelResourceID: volumeID,
+		labelThreadID:   threadID,
+		labelAgentID:    agentID,
+		labelRunnerID:   runnerID,
+		labelIdentityID: agentID,
+	}, nil
 }
 
-func copyLabelMap(labels map[string]string) map[string]string {
-	if len(labels) == 0 {
-		return map[string]string{}
+func microCoreSeconds(cpuMillicores int64, duration time.Duration) (int64, error) {
+	nanos := duration.Nanoseconds()
+	if nanos < 0 {
+		return 0, fmt.Errorf("duration must be positive")
 	}
-	copyLabels := make(map[string]string, len(labels))
+	if cpuMillicores != 0 && nanos > math.MaxInt64/cpuMillicores {
+		return 0, fmt.Errorf("core seconds overflow")
+	}
+	return cpuMillicores * nanos / microUnitValue, nil
+}
+
+func microGBSeconds(bytes int64, duration time.Duration) (int64, error) {
+	nanos := duration.Nanoseconds()
+	if nanos < 0 {
+		return 0, fmt.Errorf("duration must be positive")
+	}
+	denominator := bytesPerGB * 1000
+	if denominator <= 0 {
+		return 0, fmt.Errorf("gb seconds denominator invalid")
+	}
+	if bytes == 0 || nanos == 0 {
+		return 0, nil
+	}
+	numerator := big.NewInt(bytes)
+	numerator.Mul(numerator, big.NewInt(nanos))
+	numerator.Div(numerator, big.NewInt(denominator))
+	if !numerator.IsInt64() {
+		return 0, fmt.Errorf("gb seconds overflow")
+	}
+	return numerator.Int64(), nil
+}
+
+func microGBSecondsFromSize(sizeGB string, duration time.Duration) (int64, error) {
+	trimmed := strings.TrimSpace(sizeGB)
+	if trimmed == "" {
+		return 0, fmt.Errorf("size_gb missing")
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse size_gb %q: %w", trimmed, err)
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("size_gb must be non-negative")
+	}
+	if value == 0 {
+		return 0, nil
+	}
+	seconds := duration.Seconds()
+	if seconds <= 0 {
+		return 0, nil
+	}
+	if value > math.MaxInt64/seconds/float64(microUnitValue) {
+		return 0, fmt.Errorf("gb seconds overflow")
+	}
+	return int64(math.Round(value * seconds * float64(microUnitValue))), nil
+}
+
+func meteringKey(resource, resourceID, unitLabel, kind string, intervalEnd time.Time) string {
+	parts := []string{resource, resourceID, unitLabel, strconv.FormatInt(intervalEnd.UTC().UnixNano(), 10)}
+	if kind != "" {
+		parts = append(parts, kind)
+	}
+	return strings.Join(parts, ":")
+}
+
+func copyLabels(labels map[string]string) map[string]string {
+	clone := make(map[string]string, len(labels))
 	for key, value := range labels {
-		copyLabels[key] = value
+		clone[key] = value
 	}
-	return copyLabels
-}
-
-func microCoreSeconds(millicores int64, duration time.Duration) (int64, error) {
-	if millicores < 0 {
-		return 0, fmt.Errorf("millicores must be non-negative")
-	}
-	if duration <= 0 {
-		return 0, nil
-	}
-	micros := big.NewInt(millicores)
-	micros.Mul(micros, big.NewInt(int64(duration.Seconds())))
-	if !micros.IsInt64() {
-		return 0, fmt.Errorf("millicores duration overflows int64")
-	}
-	return micros.Int64(), nil
-}
-
-func byteSeconds(bytes int64, duration time.Duration) (int64, error) {
-	if bytes < 0 {
-		return 0, fmt.Errorf("bytes must be non-negative")
-	}
-	if duration <= 0 {
-		return 0, nil
-	}
-	seconds := duration.Seconds()
-	if seconds <= 0 {
-		return 0, nil
-	}
-	value := float64(bytes) * seconds / float64(bytesPerGB)
-	if value < 0 {
-		return 0, fmt.Errorf("bytes seconds underflow")
-	}
-	if value > math.MaxInt64 {
-		return 0, fmt.Errorf("bytes seconds overflow")
-	}
-	return int64(value * microUnitValue), nil
-}
-
-func gigabyteSeconds(sizeGB float64, duration time.Duration) (int64, error) {
-	if sizeGB < 0 {
-		return 0, fmt.Errorf("sizeGB must be non-negative")
-	}
-	if duration <= 0 {
-		return 0, nil
-	}
-	seconds := duration.Seconds()
-	if seconds <= 0 {
-		return 0, nil
-	}
-	value := sizeGB * seconds
-	if value < 0 {
-		return 0, fmt.Errorf("sizeGB seconds underflow")
-	}
-	if value > math.MaxInt64 {
-		return 0, fmt.Errorf("sizeGB seconds overflow")
-	}
-	return int64(value * microUnitValue), nil
+	return clone
 }
