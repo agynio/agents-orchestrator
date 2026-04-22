@@ -117,7 +117,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 				if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s on unenrolled runner: %v", volumeID, err)
 				}
-				r.degradeThread(ctx, volume.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
+				r.degradeThread(volumeCtx, volume.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
 			}
 			continue
 		}
@@ -187,7 +187,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 					log.Printf("reconciler: warn: handle missing volume %s: %v", volumeID, err)
 				}
 				if volume.GetStatus() == runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
-					r.degradeThread(ctx, volume.GetThreadId(), degradeReasonVolumeLost, degraded)
+					r.degradeThread(volumeCtx, volume.GetThreadId(), degradeReasonVolumeLost, degraded)
 				}
 				continue
 			}

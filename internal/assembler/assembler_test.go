@@ -45,6 +45,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 			if req.GetAgentId() == agentID.String() {
 				return &agentsv1.ListEnvsResponse{Envs: []*agentsv1.Env{
 					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "CUSTOM_ENV", Source: &agentsv1.Env_Value{Value: "custom"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "AGENT_NAME", Source: &agentsv1.Env_Value{Value: "override"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "WORKSPACE_DIR", Source: &agentsv1.Env_Value{Value: "/override"}},
 				}}, nil
 			}
 			return &agentsv1.ListEnvsResponse{}, nil
@@ -164,6 +166,12 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "WORKSPACE_DIR", agentWorkspaceDir)
 	assertEnv(t, envs, "HOME", agentHomeDir)
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
+	if _, ok := envs["INIT_SCRIPT"]; ok {
+		t.Fatal("expected INIT_SCRIPT to be absent")
+	}
+	if _, ok := envs["AGENT_SKILLS"]; ok {
+		t.Fatal("expected AGENT_SKILLS to be absent")
+	}
 }
 
 func TestAssemblerAddsZitiSidecar(t *testing.T) {
@@ -551,6 +559,9 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 			if req.GetMcpId() == mcpID.String() {
 				return &agentsv1.ListEnvsResponse{Envs: []*agentsv1.Env{
 					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "MCP_ENV", Source: &agentsv1.Env_Value{Value: "enabled"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "MCP_PORT", Source: &agentsv1.Env_Value{Value: "9090"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "GATEWAY_ADDRESS", Source: &agentsv1.Env_Value{Value: "user-gateway"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "AGYN_GATEWAY_URL", Source: &agentsv1.Env_Value{Value: "http://user-gateway"}},
 				}}, nil
 			}
 			return &agentsv1.ListEnvsResponse{}, nil

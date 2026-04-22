@@ -215,7 +215,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 			return
 		}
 		if !enrolled {
-			r.degradeThread(ctx, target.ThreadID.String(), degradeReasonRunnerDeprovisioned, degraded)
+			r.degradeThread(runnerCtx, target.ThreadID.String(), degradeReasonRunnerDeprovisioned, degraded)
 			return
 		}
 		selectedRunner = runner

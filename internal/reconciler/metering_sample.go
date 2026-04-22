@@ -12,6 +12,7 @@ import (
 
 	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -93,7 +94,11 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			if orgID == "" {
 				return fmt.Errorf("workload %s organization id missing", meta.GetId())
 			}
-			identityID, ok := orgIdentities[orgID]
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "workload.organization_id")
+			if err != nil {
+				return err
+			}
+			identityID, ok := orgIdentities[parsedOrgID.String()]
 			if !ok {
 				return fmt.Errorf("workload %s missing identity for org %s", meta.GetId(), orgID)
 			}
@@ -115,7 +120,11 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			if orgID == "" {
 				return fmt.Errorf("volume %s organization id missing", meta.GetId())
 			}
-			identityID, ok := orgIdentities[orgID]
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "volume.organization_id")
+			if err != nil {
+				return err
+			}
+			identityID, ok := orgIdentities[parsedOrgID.String()]
 			if !ok {
 				return fmt.Errorf("volume %s missing identity for org %s", meta.GetId(), orgID)
 			}

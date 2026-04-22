@@ -98,7 +98,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 				if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
 					log.Printf("reconciler: warn: handle missing workload %s on unenrolled runner: %v", workloadID, err)
 				}
-				r.degradeThread(ctx, workload.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
+				r.degradeThread(workloadCtx, workload.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
 			}
 			continue
 		}

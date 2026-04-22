@@ -41,6 +41,26 @@ const (
 	zitiDNSSearchCluster                 = "cluster.local"
 )
 
+var reservedEnvNames = map[string]struct{}{
+	"AGENT_ID":                 {},
+	"AGENT_NAME":               {},
+	"AGENT_ROLE":               {},
+	"AGENT_MODEL":              {},
+	"AGENT_CONFIG":             {},
+	"THREAD_ID":                {},
+	"WORKLOAD_ID":              {},
+	"GATEWAY_ADDRESS":          {},
+	"AGYN_GATEWAY_URL":         {},
+	"LLM_BASE_URL":             {},
+	"TRACING_ADDRESS":          {},
+	"WORKSPACE_DIR":            {},
+	"HOME":                     {},
+	"AGENT_MCP_SERVERS":        {},
+	"MCP_PORT":                 {},
+	ZitiEnrollmentTokenEnvVar:  {},
+	ZitiIdentityBasenameEnvVar: {},
+}
+
 type Assembler struct {
 	agents  agentsv1.AgentsServiceClient
 	secrets secretsv1.SecretsServiceClient
@@ -102,8 +122,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, fmt.Errorf("resolve agent image pull secrets: %w", err)
 	}
 
-	mainEnv := a.baseAgentEnvVars(agent, agentID, threadID)
-	mainEnv = append(mainEnv, agentEnvVars...)
+	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
 
 	initImage := agent.GetInitImage()
 	if initImage == "" {
@@ -202,7 +221,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		})
 	}
 	if len(mcpServers) > 0 {
-		main.Env = append(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
+		main.Env = appendPlatformEnvVar(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
 	}
 	imagePullCredentials, err := imagePullResolver.Credentials()
 	if err != nil {
@@ -492,9 +511,11 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		return nil, err
 	}
 	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
-	envVars = append(envVars, &runnerv1.EnvVar{Name: "MCP_PORT", Value: strconv.Itoa(port)})
-	envVars = append(envVars, &runnerv1.EnvVar{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress})
-	envVars = append(envVars, &runnerv1.EnvVar{Name: "AGYN_GATEWAY_URL", Value: gatewayURL})
+	envVars = mergeEnvVars([]*runnerv1.EnvVar{
+		{Name: "MCP_PORT", Value: strconv.Itoa(port)},
+		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
+		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
+	}, envVars, fmt.Sprintf("mcp %s", mcpID.String()))
 	return &runnerv1.ContainerSpec{
 		Image:  mcp.GetImage(),
 		Name:   fmt.Sprintf("mcp-%s", mcpID.String()[:8]),
@@ -515,6 +536,7 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 	if err != nil {
 		return nil, err
 	}
+	envVars = mergeEnvVars(nil, envVars, fmt.Sprintf("hook %s", assignment.id.String()))
 	return &runnerv1.ContainerSpec{
 		Image:  assignment.hook.GetImage(),
 		Name:   fmt.Sprintf("hook-%s", assignment.id.String()[:8]),
@@ -529,6 +551,44 @@ func buildGatewayURL(address string) string {
 		return address
 	}
 	return "http://" + address
+}
+
+func mergeEnvVars(platformEnv, userEnv []*runnerv1.EnvVar, owner string) []*runnerv1.EnvVar {
+	merged := make([]*runnerv1.EnvVar, 0, len(platformEnv)+len(userEnv))
+	seen := make(map[string]struct{}, len(platformEnv)+len(userEnv))
+	for _, env := range platformEnv {
+		name := env.Name
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		merged = append(merged, env)
+		seen[name] = struct{}{}
+	}
+	for _, env := range userEnv {
+		name := env.Name
+		if _, ok := reservedEnvNames[name]; ok {
+			log.Printf("assembler: warn: dropping reserved env %s for %s", name, owner)
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		merged = append(merged, env)
+		seen[name] = struct{}{}
+	}
+	return merged
+}
+
+func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runnerv1.EnvVar {
+	result := make([]*runnerv1.EnvVar, 0, len(envs)+1)
+	for _, existing := range envs {
+		if existing.Name == env.Name {
+			continue
+		}
+		result = append(result, existing)
+	}
+	result = append(result, env)
+	return result
 }
 
 func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uuid.UUID) []*runnerv1.EnvVar {
