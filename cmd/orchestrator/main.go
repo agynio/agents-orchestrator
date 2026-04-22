@@ -27,7 +27,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 )
 
 func main() {
@@ -80,15 +79,7 @@ func run() error {
 	}
 	defer closeConn(secretsConn)
 
-	runnersConn, err := grpc.NewClient(
-		cfg.RunnersAddress,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-			md, _ := metadata.FromOutgoingContext(ctx)
-			log.Printf("runners: %s x-identity-id=%v", method, md.Get("x-identity-id"))
-			return invoker(ctx, method, req, reply, cc, opts...)
-		}),
-	)
+	runnersConn, err := grpc.NewClient(cfg.RunnersAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial runners: %w", err)
 	}

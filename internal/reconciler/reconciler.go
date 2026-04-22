@@ -257,7 +257,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 	}
 	zitiIdentityID := identity.idPtr()
 	if identity != nil {
-		if err := attachZitiEnrollmentJWT(request, identity.enrollmentJWT); err != nil {
+		if err := attachZitiEnrollmentToken(request, identity.enrollmentJWT); err != nil {
 			log.Printf("reconciler: set ziti enrollment jwt for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 			r.compensateIdentity(ctx, zitiIdentityID, "missing ziti sidecar container")
 			return
@@ -508,10 +508,10 @@ func failureSummary(failure *runnerv1.WorkloadFailure) string {
 	return failure.GetCode()
 }
 
-func attachZitiEnrollmentJWT(request *runnerv1.StartWorkloadRequest, jwt string) error {
+func attachZitiEnrollmentToken(request *runnerv1.StartWorkloadRequest, jwt string) error {
 	for _, container := range request.Sidecars {
 		if container.Name == assembler.ZitiSidecarContainerName {
-			container.Env = append(container.Env, &runnerv1.EnvVar{Name: "ZITI_ENROLLMENT_JWT", Value: jwt})
+			container.Env = append(container.Env, &runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt})
 			return nil
 		}
 	}

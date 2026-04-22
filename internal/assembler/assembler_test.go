@@ -263,6 +263,13 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(zitiSidecar.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
 		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiSidecar.RequiredCapabilities)
 	}
+	if len(zitiSidecar.Env) != 1 {
+		t.Fatalf("expected 1 ziti sidecar env, got %d", len(zitiSidecar.Env))
+	}
+	zitiEnv := envMap(zitiSidecar.Env)
+	if zitiEnv[ZitiIdentityBasenameEnvVar] != ZitiIdentityBasename {
+		t.Fatalf("expected ziti sidecar basename %q, got %q", ZitiIdentityBasename, zitiEnv[ZitiIdentityBasenameEnvVar])
+	}
 	expectedProperties := map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways}
 	if !equalStringMap(zitiSidecar.AdditionalProperties, expectedProperties) {
 		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiSidecar.AdditionalProperties)

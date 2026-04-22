@@ -195,6 +195,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
 			Cmd:                  []string{zitiSidecarCommand},
+			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
