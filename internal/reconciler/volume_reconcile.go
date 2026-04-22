@@ -165,38 +165,49 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 }
 
 func (r *Reconciler) listActiveVolumes(ctx context.Context) ([]*runnersv1.Volume, error) {
+	orgIDs, err := r.listOrganizationIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
 	active := []*runnersv1.Volume{}
+	if len(orgIDs) == 0 {
+		return active, nil
+	}
 	callCtx := r.serviceContext(ctx)
-	pageToken := ""
-	for {
-		resp, err := r.runners.ListVolumes(callCtx, &runnersv1.ListVolumesRequest{
-			PageSize:  activeVolumePageSize,
-			PageToken: pageToken,
-			Statuses: []runnersv1.VolumeStatus{
-				runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
-				runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
-				runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
-			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list volumes: %w", err)
-		}
-		for _, volume := range resp.GetVolumes() {
-			if volume == nil {
-				return nil, fmt.Errorf("volume is nil")
+	for _, orgID := range orgIDs {
+		orgIDCopy := orgID
+		pageToken := ""
+		for {
+			resp, err := r.runners.ListVolumes(callCtx, &runnersv1.ListVolumesRequest{
+				PageSize:       activeVolumePageSize,
+				PageToken:      pageToken,
+				OrganizationId: &orgIDCopy,
+				Statuses: []runnersv1.VolumeStatus{
+					runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
+					runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+					runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
+				},
+			})
+			if err != nil {
+				return nil, fmt.Errorf("list volumes: %w", err)
 			}
-			meta := volume.GetMeta()
-			if meta == nil {
-				return nil, fmt.Errorf("volume meta missing")
+			for _, volume := range resp.GetVolumes() {
+				if volume == nil {
+					return nil, fmt.Errorf("volume is nil")
+				}
+				meta := volume.GetMeta()
+				if meta == nil {
+					return nil, fmt.Errorf("volume meta missing")
+				}
+				if meta.GetId() == "" {
+					return nil, fmt.Errorf("volume meta id missing")
+				}
+				active = append(active, volume)
 			}
-			if meta.GetId() == "" {
-				return nil, fmt.Errorf("volume meta id missing")
+			pageToken = resp.GetNextPageToken()
+			if pageToken == "" {
+				break
 			}
-			active = append(active, volume)
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
 		}
 	}
 	return active, nil

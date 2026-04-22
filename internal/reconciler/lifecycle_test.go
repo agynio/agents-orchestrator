@@ -1212,7 +1212,11 @@ func TestFetchActualReturnsTrackedWorkloads(t *testing.T) {
 	runnerID := "runner-1"
 
 	runners := &fakeRunnersClient{
-		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+		listWorkloads: func(ctx context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
+			if req.GetOrganizationId() != testOrganizationID {
+				return nil, errors.New("unexpected organization id")
+			}
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
 				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID},
 			}}, nil
@@ -1238,7 +1242,11 @@ func TestFetchActualSkipsMissingRunnerID(t *testing.T) {
 	testAssembler := newTestAssembler(agentID, false)
 
 	runners := &fakeRunnersClient{
-		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+		listWorkloads: func(ctx context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
+			if req.GetOrganizationId() != testOrganizationID {
+				return nil, errors.New("unexpected organization id")
+			}
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
 				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}},
 			}}, nil
