@@ -49,7 +49,7 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
-	threadsCtx := withIdentity(ctx, identityID)
+	ctx = withIdentity(ctx, identityID)
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
@@ -95,14 +95,14 @@ func TestImagePullSecretAttachedToPod(t *testing.T) {
 	}
 	t.Cleanup(func() { deleteImagePullSecretAttachment(t, ctx, agentsClient, attachmentID) })
 
-	thread := createThread(t, threadsCtx, threadsClient, orgID, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, threadsCtx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	sendMessage(t, threadsCtx, threadsClient, threadID, identityID, "e2e image pull secret")
+	sendMessage(t, ctx, threadsClient, threadID, identityID, "e2e image pull secret")
 
 	labelsMap := map[string]string{
 		labelManagedBy: managedByValue,

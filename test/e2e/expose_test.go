@@ -39,7 +39,7 @@ func TestAgentExposeListExec(t *testing.T) {
 	exposeInitImage := envOrDefault("AGN_EXPOSE_INIT_IMAGE", "ghcr.io/agynio/agent-init-agn:0.4.4")
 
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
-	threadsCtx := withIdentity(ctx, identityID)
+	ctx = withIdentity(ctx, identityID)
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
@@ -62,12 +62,12 @@ func TestAgentExposeListExec(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, threadsCtx, threadsClient, orgID, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, threadsCtx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
 	labels := map[string]string{
 		labelManagedBy: managedByValue,
@@ -86,10 +86,10 @@ func TestAgentExposeListExec(t *testing.T) {
 	})
 
 	expectedResponse := "Hi! How are you?"
-	sentMessage := sendMessage(t, threadsCtx, threadsClient, threadID, identityID, "hi")
+	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, "hi")
 	sentMessageTime := messageCreatedAt(t, sentMessage)
 
-	pollCtx, pollCancel := context.WithTimeout(threadsCtx, 5*time.Minute)
+	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer pollCancel()
 	agentBody, err := pollForAgentResponse(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expectedResponse)
 	if err != nil {

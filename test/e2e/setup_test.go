@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,21 @@ const (
 func withIdentity(ctx context.Context, identityID string) context.Context {
 	md := metadata.New(map[string]string{"x-identity-id": identityID})
 	return metadata.NewOutgoingContext(ctx, md)
+}
+
+func envIdentityID() string {
+	if value := strings.TrimSpace(os.Getenv("E2E_IDENTITY_ID")); value != "" {
+		return value
+	}
+	return strings.TrimSpace(os.Getenv("SERVICE_IDENTITY_ID"))
+}
+
+func withEnvIdentity(ctx context.Context) context.Context {
+	identityID := envIdentityID()
+	if identityID == "" {
+		return ctx
+	}
+	return withIdentity(ctx, identityID)
 }
 
 func resolveOrCreateUser(t *testing.T, ctx context.Context, client usersv1.UsersServiceClient) string {

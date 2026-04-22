@@ -63,6 +63,7 @@ var (
 type pipelineRun struct {
 	threadID       string
 	organizationID string
+	identityID     string
 	startTimeMinNs uint64
 	agentResponse  string
 	messageText    string
@@ -400,13 +401,12 @@ func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client t
 	t.Helper()
 	drainCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	callCtx := withIdentity(drainCtx, participantID)
 
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
-		messageIDs, err := listUnackedMessageIDs(callCtx, client, participantID)
+		messageIDs, err := listUnackedMessageIDs(drainCtx, client, participantID)
 		if err != nil {
 			t.Logf("cleanup: list unacked messages for %s: %v", participantID, err)
 			return
@@ -414,6 +414,7 @@ func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client t
 		if len(messageIDs) == 0 {
 			return
 		}
+		callCtx := withIdentity(drainCtx, participantID)
 		_, err = client.AckMessages(callCtx, &threadsv1.AckMessagesRequest{
 			ParticipantId: participantID,
 			MessageIds:    messageIDs,
@@ -434,8 +435,8 @@ func ackAllUnackedMessagesBestEffort(t *testing.T, ctx context.Context, client t
 func listUnackedMessageIDs(ctx context.Context, client threadsv1.ThreadsServiceClient, participantID string) ([]string, error) {
 	messageIDs := make([]string, 0, unackedPageSize)
 	token := ""
-	callCtx := withIdentity(ctx, participantID)
 	for {
+		callCtx := withIdentity(ctx, participantID)
 		page, err := client.GetUnackedMessages(callCtx, &threadsv1.GetUnackedMessagesRequest{
 			ParticipantId: participantID,
 			PageSize:      unackedPageSize,

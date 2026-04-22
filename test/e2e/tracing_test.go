@@ -13,7 +13,7 @@ func TestAgentSimpleHelloProducesTrace(t *testing.T) {
 	expectedResponse := "Hi! How are you?"
 	result := runFullPipelineMessageResponse(t, testLLMEndpointAgn, agnInitImage, "hi", expectedResponse)
 
-	ctx := context.Background()
+	ctx := withIdentity(context.Background(), result.identityID)
 	tracingClient := newTracingClient(t)
 	traceID := discoverTraceID(t, ctx, tracingClient, result.organizationID, result.threadID, result.startTimeMinNs, result.messageText)
 	assertTraceSummary(t, ctx, tracingClient, traceID, map[string]int64{
@@ -40,7 +40,7 @@ func TestAgentMCPToolsProducesTrace(t *testing.T) {
 	requireTracingAvailable(t)
 	result := runMCPToolsE2E(t, testLLMEndpointAgn, agnInitImage)
 
-	ctx := context.Background()
+	ctx := withIdentity(context.Background(), result.identityID)
 	tracingClient := newTracingClient(t)
 	traceID := discoverTraceID(t, ctx, tracingClient, result.organizationID, result.threadID, result.startTimeMinNs, result.messageText)
 	expectedCounts := map[string]int64{

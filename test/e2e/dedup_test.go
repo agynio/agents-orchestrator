@@ -36,7 +36,7 @@ func TestNoDuplicateWorkloads(t *testing.T) {
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
-	threadsCtx := withIdentity(ctx, identityID)
+	ctx = withIdentity(ctx, identityID)
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
@@ -59,15 +59,15 @@ func TestNoDuplicateWorkloads(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, threadsCtx, threadsClient, orgID, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, threadsCtx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
 	for i := 1; i <= 3; i++ {
-		sendMessage(t, threadsCtx, threadsClient, threadID, identityID, fmt.Sprintf("msg %d", i))
+		sendMessage(t, ctx, threadsClient, threadID, identityID, fmt.Sprintf("msg %d", i))
 	}
 
 	labels := map[string]string{
@@ -79,8 +79,7 @@ func TestNoDuplicateWorkloads(t *testing.T) {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		agentCleanupCtx := withIdentity(cleanupCtx, agentID)
-		ackAllUnackedMessagesBestEffort(t, agentCleanupCtx, threadsClient, agentID)
+		ackAllUnackedMessagesBestEffort(t, cleanupCtx, threadsClient, agentID)
 		ids, err := findWorkloadsByLabels(cleanupCtx, runnerClient, labels)
 		if err != nil {
 			t.Logf("cleanup: find workloads: %v", err)

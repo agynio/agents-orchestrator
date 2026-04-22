@@ -72,8 +72,9 @@ func checkTracingAvailability() tracingAvailability {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	callCtx := withEnvIdentity(ctx)
 
-	traceID, err := runTraceCanary(ctx, addr)
+	traceID, err := runTraceCanary(callCtx, addr)
 	if err != nil {
 		if isCanaryAuthFailure(err) {
 			availability := checkTracingQueryAvailability(ctx, addr)
@@ -100,7 +101,7 @@ func checkTracingAvailability() tracingAvailability {
 	defer conn.Close()
 
 	queryClient := tracingv1.NewTracingServiceClient(conn)
-	pollCtx, cancelPoll := context.WithTimeout(ctx, 20*time.Second)
+	pollCtx, cancelPoll := context.WithTimeout(callCtx, 20*time.Second)
 	defer cancelPoll()
 
 	err = pollUntil(pollCtx, pollInterval, func(ctx context.Context) error {
@@ -160,7 +161,11 @@ func dialGRPCForCheck(ctx context.Context, addr string) (*grpc.ClientConn, error
 
 func runTraceCanary(ctx context.Context, addr string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "go", "run", "./tracecanary")
-	cmd.Env = append(os.Environ(), fmt.Sprintf("TRACING_ADDRESS=%s", addr))
+	env := append(os.Environ(), fmt.Sprintf("TRACING_ADDRESS=%s", addr))
+	if identityID := envIdentityID(); identityID != "" {
+		env = append(env, fmt.Sprintf("TRACING_IDENTITY_ID=%s", identityID))
+	}
+	cmd.Env = env
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	output, err := cmd.Output()

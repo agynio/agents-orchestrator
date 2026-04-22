@@ -15,6 +15,7 @@ import (
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -89,8 +90,16 @@ func run() error {
 		},
 	}
 
+	identityID := strings.TrimSpace(os.Getenv("TRACING_IDENTITY_ID"))
+	if identityID == "" {
+		identityID = strings.TrimSpace(os.Getenv("SERVICE_IDENTITY_ID"))
+	}
+
 	exportCtx, cancelExport := context.WithTimeout(context.Background(), exportTimeout)
 	defer cancelExport()
+	if identityID != "" {
+		exportCtx = metadata.NewOutgoingContext(exportCtx, metadata.Pairs("x-identity-id", identityID))
+	}
 	resp, err := collectortracev1.NewTraceServiceClient(conn).Export(exportCtx, exportReq)
 	if err != nil {
 		return fmt.Errorf("export canary span: %w", err)

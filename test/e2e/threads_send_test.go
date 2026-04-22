@@ -37,7 +37,7 @@ func TestThreadsSendShell(t *testing.T) {
 	runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 
 	identityID := resolveOrCreateUser(t, ctx, usersClient)
-	threadsCtx := withIdentity(ctx, identityID)
+	ctx = withIdentity(ctx, identityID)
 	token := createAPIToken(t, ctx, usersClient, identityID)
 	orgID := createTestOrganization(t, ctx, orgsClient, identityID)
 
@@ -60,14 +60,14 @@ func TestThreadsSendShell(t *testing.T) {
 	t.Cleanup(func() { deleteAgent(t, ctx, agentsClient, agentID) })
 	createAgentEnv(t, ctx, agentsClient, agentID, "LLM_API_TOKEN", token)
 
-	thread := createThread(t, threadsCtx, threadsClient, orgID, []string{identityID, agentID})
+	thread := createThread(t, ctx, threadsClient, orgID, []string{identityID, agentID})
 	threadID := thread.GetId()
 	if threadID == "" {
 		t.Fatal("create thread: missing id")
 	}
-	t.Cleanup(func() { archiveThread(t, threadsCtx, threadsClient, threadID) })
+	t.Cleanup(func() { archiveThread(t, ctx, threadsClient, threadID) })
 
-	sentMessage := sendMessage(t, threadsCtx, threadsClient, threadID, identityID, "Send me an intermediate update then reply")
+	sentMessage := sendMessage(t, ctx, threadsClient, threadID, identityID, "Send me an intermediate update then reply")
 	sentMessageTime := messageCreatedAt(t, sentMessage)
 	startTimeMinNs := messageStartTimeMinNs(t, sentMessage)
 
@@ -87,7 +87,7 @@ func TestThreadsSendShell(t *testing.T) {
 		}
 	})
 
-	pollCtx, pollCancel := context.WithTimeout(threadsCtx, 5*time.Minute)
+	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer pollCancel()
 	expectedBodies := []string{"Thinking", "Done thinking. Here is my reply."}
 	agentMessages, err := pollForAgentMessages(t, pollCtx, threadsClient, runnerClient, threadID, agentID, labels, sentMessageTime, expectedBodies)
