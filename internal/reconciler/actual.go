@@ -9,6 +9,7 @@ import (
 
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
+	"github.com/google/uuid"
 )
 
 const activeWorkloadPageSize int32 = 100
@@ -31,17 +32,17 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, er
 }
 
 func (r *Reconciler) listActiveWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
-	orgIDs, err := r.listOrganizationIDs(ctx)
+	orgAgents, err := r.listOrganizationAgents(ctx)
 	if err != nil {
 		return nil, err
 	}
 	active := []*runnersv1.Workload{}
-	if len(orgIDs) == 0 {
+	if len(orgAgents) == 0 {
 		return active, nil
 	}
-	callCtx := r.serviceContext(ctx)
-	for _, orgID := range orgIDs {
-		orgIDCopy := orgID
+	for _, orgAgent := range orgAgents {
+		callCtx := r.agentContext(ctx, orgAgent.agentID)
+		orgIDCopy := orgAgent.orgID
 		pageToken := ""
 		for {
 			resp, err := r.runners.ListWorkloads(callCtx, &runnersv1.ListWorkloadsRequest{
@@ -79,15 +80,28 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context) ([]*runnersv1.Work
 	return active, nil
 }
 
-func (r *Reconciler) listOrganizationIDs(ctx context.Context) ([]string, error) {
+type organizationAgent struct {
+	orgID   string
+	agentID uuid.UUID
+}
+
+func (r *Reconciler) listOrganizationAgents(ctx context.Context) ([]organizationAgent, error) {
 	agents, err := r.listAgents(ctx)
 	if err != nil {
 		return nil, err
 	}
-	orgIDs := make(map[string]struct{})
+	orgAgents := make(map[string]uuid.UUID)
 	for _, agent := range agents {
 		if agent == nil {
 			return nil, fmt.Errorf("agent is nil")
+		}
+		agentID := strings.TrimSpace(agent.GetMeta().GetId())
+		if agentID == "" {
+			return nil, fmt.Errorf("agent meta id missing")
+		}
+		parsedAgentID, err := uuidutil.ParseUUID(agentID, "agent.meta.id")
+		if err != nil {
+			return nil, err
 		}
 		orgID := strings.TrimSpace(agent.GetOrganizationId())
 		if orgID == "" {
@@ -97,12 +111,23 @@ func (r *Reconciler) listOrganizationIDs(ctx context.Context) ([]string, error) 
 		if err != nil {
 			return nil, err
 		}
-		orgIDs[parsedOrgID.String()] = struct{}{}
+		orgIDValue := parsedOrgID.String()
+		if _, ok := orgAgents[orgIDValue]; ok {
+			continue
+		}
+		orgAgents[orgIDValue] = parsedAgentID
 	}
-	result := make([]string, 0, len(orgIDs))
-	for orgID := range orgIDs {
-		result = append(result, orgID)
+	orgIDs := make([]string, 0, len(orgAgents))
+	for orgID := range orgAgents {
+		orgIDs = append(orgIDs, orgID)
 	}
-	sort.Strings(result)
+	sort.Strings(orgIDs)
+	result := make([]organizationAgent, 0, len(orgIDs))
+	for _, orgID := range orgIDs {
+		result = append(result, organizationAgent{
+			orgID:   orgID,
+			agentID: orgAgents[orgID],
+		})
+	}
 	return result, nil
 }

@@ -1213,7 +1213,7 @@ func TestFetchActualReturnsTrackedWorkloads(t *testing.T) {
 
 	runners := &fakeRunnersClient{
 		listWorkloads: func(ctx context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
-			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
+			assertIdentityMetadata(t, ctx, testAgentID, identityTypeAgent)
 			if req.GetOrganizationId() != testOrganizationID {
 				return nil, errors.New("unexpected organization id")
 			}
@@ -1243,7 +1243,7 @@ func TestFetchActualSkipsMissingRunnerID(t *testing.T) {
 
 	runners := &fakeRunnersClient{
 		listWorkloads: func(ctx context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
-			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
+			assertIdentityMetadata(t, ctx, testAgentID, identityTypeAgent)
 			if req.GetOrganizationId() != testOrganizationID {
 				return nil, errors.New("unexpected organization id")
 			}

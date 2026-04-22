@@ -165,17 +165,17 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 }
 
 func (r *Reconciler) listActiveVolumes(ctx context.Context) ([]*runnersv1.Volume, error) {
-	orgIDs, err := r.listOrganizationIDs(ctx)
+	orgAgents, err := r.listOrganizationAgents(ctx)
 	if err != nil {
 		return nil, err
 	}
 	active := []*runnersv1.Volume{}
-	if len(orgIDs) == 0 {
+	if len(orgAgents) == 0 {
 		return active, nil
 	}
-	callCtx := r.serviceContext(ctx)
-	for _, orgID := range orgIDs {
-		orgIDCopy := orgID
+	for _, orgAgent := range orgAgents {
+		callCtx := r.agentContext(ctx, orgAgent.agentID)
+		orgIDCopy := orgAgent.orgID
 		pageToken := ""
 		for {
 			resp, err := r.runners.ListVolumes(callCtx, &runnersv1.ListVolumesRequest{
