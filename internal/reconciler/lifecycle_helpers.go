@@ -38,11 +38,7 @@ func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, 
 	if instanceID != nil && *instanceID != "" {
 		req.InstanceId = instanceID
 	}
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		log.Printf("reconciler: update workload %s to failed: %v", workloadID, err)
-		return
-	}
+	callCtx := r.serviceContext(ctx)
 	if _, err := r.runners.UpdateWorkload(callCtx, req); err != nil {
 		log.Printf("reconciler: update workload %s to failed: %v", workloadID, err)
 	}
@@ -54,11 +50,8 @@ func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runne
 	if zitiIdentityID != nil {
 		zitiIdentityValue = *zitiIdentityID
 	}
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = r.runners.CreateWorkload(callCtx, &runnersv1.CreateWorkloadRequest{
+	callCtx := r.serviceContext(ctx)
+	_, err := r.runners.CreateWorkload(callCtx, &runnersv1.CreateWorkloadRequest{
 		Id:                     workloadID,
 		RunnerId:               runnerID,
 		ThreadId:               target.ThreadID.String(),
@@ -76,10 +69,7 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 	if len(records) == 0 {
 		return nil, nil
 	}
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		return nil, err
-	}
+	callCtx := r.serviceContext(ctx)
 	created := make([]volumeRecord, 0, len(records))
 	for _, record := range records {
 		if record.id == "" {
@@ -115,11 +105,7 @@ func (r *Reconciler) markVolumeRecordsFailed(ctx context.Context, records []volu
 	}
 	status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
 	removedAt := timestamppb.New(time.Now().UTC())
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		log.Printf("reconciler: update volume records to failed: %v", err)
-		return
-	}
+	callCtx := r.serviceContext(ctx)
 	for _, record := range records {
 		if record.id == "" {
 			log.Printf("reconciler: volume record missing id")

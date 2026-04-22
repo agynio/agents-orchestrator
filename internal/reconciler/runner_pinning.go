@@ -15,10 +15,7 @@ func (r *Reconciler) pinnedRunnerForThread(ctx context.Context, threadID string)
 	if threadID == "" {
 		return "", fmt.Errorf("thread id missing")
 	}
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		return "", err
-	}
+	callCtx := r.serviceContext(ctx)
 	pageToken := ""
 	runnerID := ""
 	for {
@@ -76,10 +73,7 @@ func (r *Reconciler) getRunnerIfEnrolled(ctx context.Context, runnerID string) (
 	if runnerID == "" {
 		return nil, false, fmt.Errorf("runner id missing")
 	}
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		return nil, false, err
-	}
+	callCtx := r.serviceContext(ctx)
 	resp, err := r.runners.GetRunner(callCtx, &runnersv1.GetRunnerRequest{Id: runnerID})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {

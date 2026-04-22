@@ -131,7 +131,7 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Agents: agents, Threads: threads})
+	reconciler := New(Config{Agents: agents, Threads: threads, ServiceIdentityID: testServiceIdentityID})
 	result, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
@@ -173,7 +173,7 @@ func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Agents: agents, Threads: threads})
+	reconciler := New(Config{Agents: agents, Threads: threads, ServiceIdentityID: testServiceIdentityID})
 	result, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)

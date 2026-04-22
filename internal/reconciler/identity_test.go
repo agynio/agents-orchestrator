@@ -8,23 +8,17 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-const testServiceIdentityID = "7e7d8b2c-6a5c-4c3f-9f5e-8d5b9a7c2f91"
+var testServiceIdentityID = uuid.MustParse("7e7d8b2c-6a5c-4c3f-9f5e-8d5b9a7c2f91")
 
 func TestAgentAndServiceIdentityContexts(t *testing.T) {
 	agentID := uuid.New()
 	reconciler := New(Config{ServiceIdentityID: testServiceIdentityID})
 
-	agentCtx, err := reconciler.agentContext(context.Background(), agentID)
-	if err != nil {
-		t.Fatalf("agent context: %v", err)
-	}
+	agentCtx := reconciler.agentContext(context.Background(), agentID)
 	assertIdentityMetadata(t, agentCtx, agentID.String(), identityTypeAgent)
 
-	serviceCtx, err := reconciler.serviceContext(agentCtx)
-	if err != nil {
-		t.Fatalf("service context: %v", err)
-	}
-	assertIdentityMetadata(t, serviceCtx, testServiceIdentityID, "")
+	serviceCtx := reconciler.serviceContext(agentCtx)
+	assertIdentityMetadata(t, serviceCtx, testServiceIdentityID.String(), "")
 }
 
 func TestWithIdentityOverridesExisting(t *testing.T) {
@@ -34,11 +28,8 @@ func TestWithIdentityOverridesExisting(t *testing.T) {
 		identityTypeMetadataKey, identityTypeAgent,
 	))
 
-	ctx, err := withIdentity(base, testServiceIdentityID, "", false)
-	if err != nil {
-		t.Fatalf("with identity: %v", err)
-	}
-	assertIdentityMetadata(t, ctx, testServiceIdentityID, "")
+	ctx := withIdentity(base, testServiceIdentityID.String(), "", false)
+	assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 }
 
 func assertIdentityMetadata(t *testing.T, ctx context.Context, expectedID, expectedType string) {

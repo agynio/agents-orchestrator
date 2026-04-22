@@ -10,34 +10,22 @@ import (
 
 const runnerPageSize int32 = 100
 
-func (r *Reconciler) selectRunner(ctx context.Context, identityID, organizationID string, runnerLabels map[string]string, requiredCapabilities []string) (*runnersv1.Runner, error) {
-	runnerCtx, err := runnerIdentityContext(ctx, identityID)
-	if err != nil {
-		return nil, err
-	}
-	runners, err := r.listRunners(runnerCtx, organizationID)
+func (r *Reconciler) selectRunner(ctx context.Context, organizationID string, runnerLabels map[string]string, requiredCapabilities []string) (*runnersv1.Runner, error) {
+	runners, err := r.listRunners(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return runnerselect.Select(runners, organizationID, runnerLabels, requiredCapabilities)
 }
 
-func (r *Reconciler) listRunners(ctx context.Context, organizationID string) ([]*runnersv1.Runner, error) {
-	if organizationID == "" {
-		return nil, fmt.Errorf("organization id missing")
-	}
-	orgID := organizationID
+func (r *Reconciler) listRunners(ctx context.Context) ([]*runnersv1.Runner, error) {
 	var runners []*runnersv1.Runner
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		return nil, err
-	}
+	callCtx := r.serviceContext(ctx)
 	pageToken := ""
 	for {
 		resp, err := r.runners.ListRunners(callCtx, &runnersv1.ListRunnersRequest{
-			PageSize:       runnerPageSize,
-			PageToken:      pageToken,
-			OrganizationId: &orgID,
+			PageSize:  runnerPageSize,
+			PageToken: pageToken,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list runners: %w", err)
@@ -47,25 +35,6 @@ func (r *Reconciler) listRunners(ctx context.Context, organizationID string) ([]
 		if pageToken == "" {
 			break
 		}
-	}
-	return runners, nil
-}
-
-func (r *Reconciler) listRunnersByOrg(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Runner, error) {
-	if len(orgIdentities) == 0 {
-		return nil, nil
-	}
-	var runners []*runnersv1.Runner
-	for orgID, identityID := range orgIdentities {
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
-		orgRunners, err := r.listRunners(runnerCtx, orgID)
-		if err != nil {
-			return nil, err
-		}
-		runners = append(runners, orgRunners...)
 	}
 	return runners, nil
 }

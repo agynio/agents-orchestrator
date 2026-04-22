@@ -13,11 +13,7 @@ import (
 const managedIdentityPageSize int32 = 100
 
 func (r *Reconciler) reconcileOrphanIdentities(ctx context.Context) error {
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
-	if err != nil {
-		return err
-	}
-	tracked, err := r.listActiveWorkloads(ctx, orgIdentities)
+	tracked, err := r.listActiveWorkloads(ctx)
 	if err != nil {
 		return err
 	}

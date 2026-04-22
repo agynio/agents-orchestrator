@@ -12,7 +12,6 @@ import (
 
 	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
-	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -60,15 +59,11 @@ func (r *Reconciler) runMeteringSampleCycle(ctx context.Context) {
 }
 
 func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	workloads, err := r.listPendingSampleWorkloads(ctx)
 	if err != nil {
 		return err
 	}
-	workloads, err := r.listPendingSampleWorkloads(ctx, orgIdentities)
-	if err != nil {
-		return err
-	}
-	volumes, err := r.listPendingSampleVolumes(ctx, orgIdentities)
+	volumes, err := r.listPendingSampleVolumes(ctx)
 	if err != nil {
 		return err
 	}
@@ -77,8 +72,8 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 	}
 
 	records := make([]*meteringv1.UsageRecord, 0, len(workloads)*2+len(volumes))
-	workloadUpdates := make(map[string][]*runnersv1.SampledAtEntry)
-	volumeUpdates := make(map[string][]*runnersv1.SampledAtEntry)
+	workloadUpdates := make([]*runnersv1.SampledAtEntry, 0, len(workloads))
+	volumeUpdates := make([]*runnersv1.SampledAtEntry, 0, len(volumes))
 
 	for _, workload := range workloads {
 		workloadRecords, update, err := sampleWorkloadMetering(workload, now)
@@ -86,23 +81,7 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			return err
 		}
 		if update != nil {
-			meta := workload.GetMeta()
-			if meta == nil {
-				return fmt.Errorf("workload meta missing")
-			}
-			orgID := strings.TrimSpace(workload.GetOrganizationId())
-			if orgID == "" {
-				return fmt.Errorf("workload %s organization id missing", meta.GetId())
-			}
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "workload.organization_id")
-			if err != nil {
-				return err
-			}
-			identityID, ok := orgIdentities[parsedOrgID.String()]
-			if !ok {
-				return fmt.Errorf("workload %s missing identity for org %s", meta.GetId(), orgID)
-			}
-			workloadUpdates[identityID] = append(workloadUpdates[identityID], update)
+			workloadUpdates = append(workloadUpdates, update)
 		}
 		records = append(records, workloadRecords...)
 	}
@@ -112,23 +91,7 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			return err
 		}
 		if update != nil {
-			meta := volume.GetMeta()
-			if meta == nil {
-				return fmt.Errorf("volume meta missing")
-			}
-			orgID := strings.TrimSpace(volume.GetOrganizationId())
-			if orgID == "" {
-				return fmt.Errorf("volume %s organization id missing", meta.GetId())
-			}
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "volume.organization_id")
-			if err != nil {
-				return err
-			}
-			identityID, ok := orgIdentities[parsedOrgID.String()]
-			if !ok {
-				return fmt.Errorf("volume %s missing identity for org %s", meta.GetId(), orgID)
-			}
-			volumeUpdates[identityID] = append(volumeUpdates[identityID], update)
+			volumeUpdates = append(volumeUpdates, update)
 		}
 		if volumeRecord != nil {
 			records = append(records, volumeRecord)
@@ -140,120 +103,86 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			return fmt.Errorf("record metering: %w", err)
 		}
 	}
+	callCtx := ctx
+	if len(workloadUpdates) > 0 || len(volumeUpdates) > 0 {
+		callCtx = r.serviceContext(ctx)
+	}
 	if len(workloadUpdates) > 0 {
-		callCtx, err := r.serviceContext(ctx)
-		if err != nil {
-			return err
-		}
-		for _, entries := range workloadUpdates {
-			if len(entries) == 0 {
-				continue
-			}
-			if _, err := r.runners.BatchUpdateWorkloadSampledAt(callCtx, &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: entries}); err != nil {
-				return fmt.Errorf("update workloads sampled_at: %w", err)
-			}
+		if _, err := r.runners.BatchUpdateWorkloadSampledAt(callCtx, &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: workloadUpdates}); err != nil {
+			return fmt.Errorf("update workloads sampled_at: %w", err)
 		}
 	}
 	if len(volumeUpdates) > 0 {
-		callCtx, err := r.serviceContext(ctx)
-		if err != nil {
-			return err
-		}
-		for _, entries := range volumeUpdates {
-			if len(entries) == 0 {
-				continue
-			}
-			if _, err := r.runners.BatchUpdateVolumeSampledAt(callCtx, &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: entries}); err != nil {
-				return fmt.Errorf("update volumes sampled_at: %w", err)
-			}
+		if _, err := r.runners.BatchUpdateVolumeSampledAt(callCtx, &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: volumeUpdates}); err != nil {
+			return fmt.Errorf("update volumes sampled_at: %w", err)
 		}
 	}
 	return nil
 }
 
-func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Workload, error) {
+func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
 	workloads := []*runnersv1.Workload{}
-	if len(orgIdentities) == 0 {
-		return workloads, nil
-	}
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for orgID := range orgIdentities {
-		orgIDCopy := orgID
-		pageToken := ""
-		for {
-			resp, err := r.runners.ListWorkloads(callCtx, &runnersv1.ListWorkloadsRequest{
-				PageSize:       meteringSamplePageSize,
-				PageToken:      pageToken,
-				OrganizationId: &orgIDCopy,
-				PendingSample:  boolPtr(true),
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list workloads for metering: %w", err)
+	callCtx := r.serviceContext(ctx)
+	pageToken := ""
+	for {
+		resp, err := r.runners.ListWorkloads(callCtx, &runnersv1.ListWorkloadsRequest{
+			PageSize:      meteringSamplePageSize,
+			PageToken:     pageToken,
+			PendingSample: boolPtr(true),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list workloads for metering: %w", err)
+		}
+		for _, workload := range resp.GetWorkloads() {
+			if workload == nil {
+				return nil, fmt.Errorf("workload is nil")
 			}
-			for _, workload := range resp.GetWorkloads() {
-				if workload == nil {
-					return nil, fmt.Errorf("workload is nil")
-				}
-				meta := workload.GetMeta()
-				if meta == nil {
-					return nil, fmt.Errorf("workload meta missing")
-				}
-				if meta.GetId() == "" {
-					return nil, fmt.Errorf("workload meta id missing")
-				}
-				workloads = append(workloads, workload)
+			meta := workload.GetMeta()
+			if meta == nil {
+				return nil, fmt.Errorf("workload meta missing")
 			}
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
+			if meta.GetId() == "" {
+				return nil, fmt.Errorf("workload meta id missing")
 			}
+			workloads = append(workloads, workload)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
 		}
 	}
 	return workloads, nil
 }
 
-func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Volume, error) {
+func (r *Reconciler) listPendingSampleVolumes(ctx context.Context) ([]*runnersv1.Volume, error) {
 	volumes := []*runnersv1.Volume{}
-	if len(orgIdentities) == 0 {
-		return volumes, nil
-	}
-	callCtx, err := r.serviceContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for orgID := range orgIdentities {
-		orgIDCopy := orgID
-		pageToken := ""
-		for {
-			resp, err := r.runners.ListVolumes(callCtx, &runnersv1.ListVolumesRequest{
-				PageSize:       meteringSamplePageSize,
-				PageToken:      pageToken,
-				OrganizationId: &orgIDCopy,
-				PendingSample:  boolPtr(true),
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list volumes for metering: %w", err)
+	callCtx := r.serviceContext(ctx)
+	pageToken := ""
+	for {
+		resp, err := r.runners.ListVolumes(callCtx, &runnersv1.ListVolumesRequest{
+			PageSize:      meteringSamplePageSize,
+			PageToken:     pageToken,
+			PendingSample: boolPtr(true),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list volumes for metering: %w", err)
+		}
+		for _, volume := range resp.GetVolumes() {
+			if volume == nil {
+				return nil, fmt.Errorf("volume is nil")
 			}
-			for _, volume := range resp.GetVolumes() {
-				if volume == nil {
-					return nil, fmt.Errorf("volume is nil")
-				}
-				meta := volume.GetMeta()
-				if meta == nil {
-					return nil, fmt.Errorf("volume meta missing")
-				}
-				if meta.GetId() == "" {
-					return nil, fmt.Errorf("volume meta id missing")
-				}
-				volumes = append(volumes, volume)
+			meta := volume.GetMeta()
+			if meta == nil {
+				return nil, fmt.Errorf("volume meta missing")
 			}
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
+			if meta.GetId() == "" {
+				return nil, fmt.Errorf("volume meta id missing")
 			}
+			volumes = append(volumes, volume)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
 		}
 	}
 	return volumes, nil
@@ -312,12 +241,12 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time) ([]*met
 		return nil, nil, fmt.Errorf("workload %s allocated ram bytes must be non-negative", workloadID)
 	}
 	if ramBytes > 0 {
-		value, err := microGBSeconds(ramBytes, duration)
+		value, err := byteSeconds(ramBytes, duration)
 		if err != nil {
-			return nil, nil, fmt.Errorf("workload %s ram gb seconds: %w", workloadID, err)
+			return nil, nil, fmt.Errorf("workload %s ram seconds: %w", workloadID, err)
 		}
 		if value > 0 {
-			labels := copyLabels(baseLabels)
+			labels := copyLabelMap(baseLabels)
 			labels[labelKind] = kindRAM
 			records = append(records, &meteringv1.UsageRecord{
 				OrgId:          orgID,
@@ -330,6 +259,7 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time) ([]*met
 			})
 		}
 	}
+
 	return records, update, nil
 }
 
@@ -354,16 +284,27 @@ func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time) (*meteringv1.
 	if orgID == "" {
 		return nil, nil, fmt.Errorf("volume %s organization id missing", volumeID)
 	}
-	labels, err := volumeLabels(volume, volumeID)
+	volumeSize := strings.TrimSpace(volume.GetSizeGb())
+	if volumeSize == "" {
+		return nil, nil, fmt.Errorf("volume %s size_gb missing", volumeID)
+	}
+	parsedSize, err := strconv.ParseFloat(volumeSize, 64)
+	if err != nil {
+		return nil, nil, fmt.Errorf("volume %s parse size_gb: %w", volumeID, err)
+	}
+	if parsedSize <= 0 {
+		return nil, nil, nil
+	}
+	baseLabels, err := volumeLabels(volume, volumeID)
 	if err != nil {
 		return nil, nil, err
 	}
-	labels[labelKind] = kindStorage
-	value, err := microGBSecondsFromSize(volume.GetSizeGb(), duration)
+	baseLabels[labelKind] = kindStorage
+	value, err := gigabyteSeconds(parsedSize, duration)
 	if err != nil {
-		return nil, nil, fmt.Errorf("volume %s storage gb seconds: %w", volumeID, err)
+		return nil, nil, fmt.Errorf("volume %s storage seconds: %w", volumeID, err)
 	}
-	if value <= 0 {
+	if value == 0 {
 		return nil, update, nil
 	}
 	return &meteringv1.UsageRecord{
@@ -371,142 +312,123 @@ func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time) (*meteringv1.
 		IdempotencyKey: meteringKey(resourceVolume, volumeID, unitGBSecondsLabel, kindStorage, intervalEnd),
 		Producer:       meteringProducer,
 		Timestamp:      timestamppb.New(intervalEnd),
-		Labels:         labels,
+		Labels:         baseLabels,
 		Unit:           meteringv1.Unit_UNIT_GB_SECONDS,
 		Value:          value,
 	}, update, nil
 }
 
-func sampleWindow(kind, id string, createdAt, lastSampledAt, removedAt *timestamppb.Timestamp, now time.Time) (time.Time, time.Time, error) {
-	start := lastSampledAt
-	if start == nil {
-		start = createdAt
+func sampleWindow(resource, resourceID string, createdAt, lastSampledAt, removedAt *timestamppb.Timestamp, now time.Time) (time.Time, time.Time, error) {
+	if createdAt == nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("%s %s created_at missing", resource, resourceID)
 	}
-	if start == nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("%s %s missing created_at", kind, id)
+	createdTime := createdAt.AsTime().UTC()
+	intervalStart := createdTime
+	if lastSampledAt != nil {
+		intervalStart = lastSampledAt.AsTime().UTC()
 	}
-	end := now
+	intervalEnd := now
 	if removedAt != nil {
-		end = removedAt.AsTime().UTC()
+		intervalEnd = removedAt.AsTime().UTC()
 	}
-	return start.AsTime().UTC(), end, nil
+	if intervalEnd.Before(createdTime) {
+		return time.Time{}, time.Time{}, fmt.Errorf("%s %s interval_end before created_at", resource, resourceID)
+	}
+	if intervalStart.Before(createdTime) {
+		intervalStart = createdTime
+	}
+	if intervalStart.After(intervalEnd) {
+		return time.Time{}, time.Time{}, fmt.Errorf("%s %s interval_start after interval_end", resource, resourceID)
+	}
+	return intervalStart, intervalEnd, nil
 }
 
 func workloadLabels(workload *runnersv1.Workload, workloadID string) (map[string]string, error) {
-	threadID := strings.TrimSpace(workload.GetThreadId())
-	if threadID == "" {
-		return nil, fmt.Errorf("workload %s thread id missing", workloadID)
-	}
-	agentID := strings.TrimSpace(workload.GetAgentId())
-	if agentID == "" {
-		return nil, fmt.Errorf("workload %s agent id missing", workloadID)
-	}
-	runnerID := strings.TrimSpace(workload.GetRunnerId())
-	if runnerID == "" {
-		return nil, fmt.Errorf("workload %s runner id missing", workloadID)
-	}
-	return map[string]string{
-		labelResource:   resourceWorkload,
-		labelResourceID: workloadID,
-		labelThreadID:   threadID,
-		labelAgentID:    agentID,
-		labelRunnerID:   runnerID,
-		labelIdentityID: agentID,
-	}, nil
+	labels := map[string]string{}
+	labels[labelResource] = resourceWorkload
+	labels[labelResourceID] = workloadID
+	labels[labelThreadID] = workload.GetThreadId()
+	labels[labelAgentID] = workload.GetAgentId()
+	labels[labelRunnerID] = workload.GetRunnerId()
+	labels[labelIdentityID] = workload.GetAgentId()
+	return labels, nil
 }
 
 func volumeLabels(volume *runnersv1.Volume, volumeID string) (map[string]string, error) {
-	threadID := strings.TrimSpace(volume.GetThreadId())
-	if threadID == "" {
-		return nil, fmt.Errorf("volume %s thread id missing", volumeID)
-	}
-	agentID := strings.TrimSpace(volume.GetAgentId())
-	if agentID == "" {
-		return nil, fmt.Errorf("volume %s agent id missing", volumeID)
-	}
-	runnerID := strings.TrimSpace(volume.GetRunnerId())
-	if runnerID == "" {
-		return nil, fmt.Errorf("volume %s runner id missing", volumeID)
-	}
-	return map[string]string{
-		labelResource:   resourceVolume,
-		labelResourceID: volumeID,
-		labelThreadID:   threadID,
-		labelAgentID:    agentID,
-		labelRunnerID:   runnerID,
-		labelIdentityID: agentID,
-	}, nil
+	labels := map[string]string{}
+	labels[labelResource] = resourceVolume
+	labels[labelResourceID] = volumeID
+	labels[labelThreadID] = volume.GetThreadId()
+	labels[labelAgentID] = volume.GetAgentId()
+	labels[labelRunnerID] = volume.GetRunnerId()
+	labels[labelIdentityID] = volume.GetAgentId()
+	return labels, nil
 }
 
-func microCoreSeconds(cpuMillicores int64, duration time.Duration) (int64, error) {
-	nanos := duration.Nanoseconds()
-	if nanos < 0 {
-		return 0, fmt.Errorf("duration must be positive")
+func copyLabelMap(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return map[string]string{}
 	}
-	if cpuMillicores != 0 && nanos > math.MaxInt64/cpuMillicores {
-		return 0, fmt.Errorf("core seconds overflow")
+	copyLabels := make(map[string]string, len(labels))
+	for key, value := range labels {
+		copyLabels[key] = value
 	}
-	return cpuMillicores * nanos / microUnitValue, nil
+	return copyLabels
 }
 
-func microGBSeconds(bytes int64, duration time.Duration) (int64, error) {
-	nanos := duration.Nanoseconds()
-	if nanos < 0 {
-		return 0, fmt.Errorf("duration must be positive")
+func microCoreSeconds(millicores int64, duration time.Duration) (int64, error) {
+	if millicores < 0 {
+		return 0, fmt.Errorf("millicores must be non-negative")
 	}
-	denominator := bytesPerGB * 1000
-	if denominator <= 0 {
-		return 0, fmt.Errorf("gb seconds denominator invalid")
-	}
-	if bytes == 0 || nanos == 0 {
+	if duration <= 0 {
 		return 0, nil
 	}
-	numerator := big.NewInt(bytes)
-	numerator.Mul(numerator, big.NewInt(nanos))
-	numerator.Div(numerator, big.NewInt(denominator))
-	if !numerator.IsInt64() {
-		return 0, fmt.Errorf("gb seconds overflow")
+	micros := big.NewInt(millicores)
+	micros.Mul(micros, big.NewInt(int64(duration.Seconds())))
+	if !micros.IsInt64() {
+		return 0, fmt.Errorf("millicores duration overflows int64")
 	}
-	return numerator.Int64(), nil
+	return micros.Int64(), nil
 }
 
-func microGBSecondsFromSize(sizeGB string, duration time.Duration) (int64, error) {
-	trimmed := strings.TrimSpace(sizeGB)
-	if trimmed == "" {
-		return 0, fmt.Errorf("size_gb missing")
+func byteSeconds(bytes int64, duration time.Duration) (int64, error) {
+	if bytes < 0 {
+		return 0, fmt.Errorf("bytes must be non-negative")
 	}
-	value, err := strconv.ParseFloat(trimmed, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parse size_gb %q: %w", trimmed, err)
-	}
-	if value < 0 {
-		return 0, fmt.Errorf("size_gb must be non-negative")
-	}
-	if value == 0 {
+	if duration <= 0 {
 		return 0, nil
 	}
 	seconds := duration.Seconds()
 	if seconds <= 0 {
 		return 0, nil
 	}
-	if value > math.MaxInt64/seconds/float64(microUnitValue) {
-		return 0, fmt.Errorf("gb seconds overflow")
+	value := float64(bytes) * seconds / float64(bytesPerGB)
+	if value < 0 {
+		return 0, fmt.Errorf("bytes seconds underflow")
 	}
-	return int64(math.Round(value * seconds * float64(microUnitValue))), nil
+	if value > math.MaxInt64 {
+		return 0, fmt.Errorf("bytes seconds overflow")
+	}
+	return int64(value * microUnitValue), nil
 }
 
-func meteringKey(resource, resourceID, unitLabel, kind string, intervalEnd time.Time) string {
-	parts := []string{resource, resourceID, unitLabel, strconv.FormatInt(intervalEnd.UTC().UnixNano(), 10)}
-	if kind != "" {
-		parts = append(parts, kind)
+func gigabyteSeconds(sizeGB float64, duration time.Duration) (int64, error) {
+	if sizeGB < 0 {
+		return 0, fmt.Errorf("sizeGB must be non-negative")
 	}
-	return strings.Join(parts, ":")
-}
-
-func copyLabels(labels map[string]string) map[string]string {
-	clone := make(map[string]string, len(labels))
-	for key, value := range labels {
-		clone[key] = value
+	if duration <= 0 {
+		return 0, nil
 	}
-	return clone
+	seconds := duration.Seconds()
+	if seconds <= 0 {
+		return 0, nil
+	}
+	value := sizeGB * seconds
+	if value < 0 {
+		return 0, fmt.Errorf("sizeGB seconds underflow")
+	}
+	if value > math.MaxInt64 {
+		return 0, fmt.Errorf("sizeGB seconds overflow")
+	}
+	return int64(value * microUnitValue), nil
 }

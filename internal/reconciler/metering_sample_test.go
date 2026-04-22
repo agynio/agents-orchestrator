@@ -86,7 +86,7 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 
 	runners := &fakeRunnersClient{
 		listWorkloads: func(ctx context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
-			assertIdentityMetadata(t, ctx, testServiceIdentityID, "")
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			if !req.GetPendingSample() {
 				return nil, errors.New("expected pending sample workload request")
 			}
@@ -99,14 +99,14 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 			return nil, errors.New("unexpected workload page token")
 		},
 		listVolumes: func(ctx context.Context, req *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
-			assertIdentityMetadata(t, ctx, testServiceIdentityID, "")
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			if !req.GetPendingSample() {
 				return nil, errors.New("expected pending sample volume request")
 			}
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{volume}}, nil
 		},
 		batchUpdateWorkload: func(ctx context.Context, req *runnersv1.BatchUpdateWorkloadSampledAtRequest, _ ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error) {
-			assertIdentityMetadata(t, ctx, testServiceIdentityID, "")
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			workloadCalls++
 			if !recordCalled {
 				return nil, errors.New("record not called before workload update")
@@ -115,7 +115,7 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 			return &runnersv1.BatchUpdateWorkloadSampledAtResponse{}, nil
 		},
 		batchUpdateVolume: func(ctx context.Context, req *runnersv1.BatchUpdateVolumeSampledAtRequest, _ ...grpc.CallOption) (*runnersv1.BatchUpdateVolumeSampledAtResponse, error) {
-			assertIdentityMetadata(t, ctx, testServiceIdentityID, "")
+			assertIdentityMetadata(t, ctx, testServiceIdentityID.String(), "")
 			volumeCalls++
 			if !recordCalled {
 				return nil, errors.New("record not called before volume update")
@@ -124,7 +124,7 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 			return &runnersv1.BatchUpdateVolumeSampledAtResponse{}, nil
 		},
 	}
-	reconciler := New(Config{Runners: runners, Metering: metering, Agents: defaultAgentsClient(), MeteringSampleInterval: time.Minute, ServiceIdentityID: testServiceIdentityID})
+	reconciler := New(Config{Runners: runners, Metering: metering, MeteringSampleInterval: time.Minute, ServiceIdentityID: testServiceIdentityID})
 	if err := reconciler.sampleMetering(ctx, now); err != nil {
 		t.Fatalf("sample metering: %v", err)
 	}

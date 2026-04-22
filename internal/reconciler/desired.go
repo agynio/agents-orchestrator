@@ -103,10 +103,7 @@ func (r *Reconciler) listAgents(ctx context.Context) ([]*agentsv1.Agent, error) 
 
 func (r *Reconciler) listUnackedThreads(ctx context.Context, agentID uuid.UUID) ([]uuid.UUID, error) {
 	threadIDs := make([]uuid.UUID, 0)
-	callCtx, err := r.agentContext(ctx, agentID)
-	if err != nil {
-		return nil, err
-	}
+	callCtx := r.agentContext(ctx, agentID)
 	token := ""
 	for {
 		page, err := r.threads.GetUnackedMessages(callCtx, &threadsv1.GetUnackedMessagesRequest{
@@ -133,12 +130,9 @@ func (r *Reconciler) listUnackedThreads(ctx context.Context, agentID uuid.UUID) 
 
 func (r *Reconciler) fetchPassiveThreads(ctx context.Context, agentID uuid.UUID) (map[uuid.UUID]struct{}, error) {
 	passiveThreads := make(map[uuid.UUID]struct{})
-	agentIDString := agentID.String()
-	callCtx, err := r.agentContext(ctx, agentID)
-	if err != nil {
-		return nil, err
-	}
 	token := ""
+	agentIDString := agentID.String()
+	callCtx := r.agentContext(ctx, agentID)
 	for {
 		page, err := r.threads.GetThreads(callCtx, &threadsv1.GetThreadsRequest{
 			ParticipantId: agentIDString,

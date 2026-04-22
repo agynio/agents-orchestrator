@@ -78,6 +78,7 @@ env:
     value: ""
   - name: METERING_SERVICE_ADDRESS
     value: ""
+  # Required: UUID for the orchestrator service identity.
   - name: SERVICE_IDENTITY_ID
     value: ""
   - name: METERING_SAMPLE_INTERVAL

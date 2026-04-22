@@ -3,7 +3,11 @@ package config
 import (
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+const testServiceIdentityID = "7e7d8b2c-6a5c-4c3f-9f5e-8d5b9a7c2f91"
 
 func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	setBaseEnv(t)
@@ -43,8 +47,8 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.WorkloadReconcileInterval != time.Minute {
 		t.Fatalf("expected workload reconcile interval %q, got %q", time.Minute, cfg.WorkloadReconcileInterval)
 	}
-	if cfg.ServiceIdentityID != defaultServiceIdentityID {
-		t.Fatalf("expected service identity id %q, got %q", defaultServiceIdentityID, cfg.ServiceIdentityID)
+	if cfg.ServiceIdentityID != uuid.MustParse(testServiceIdentityID) {
+		t.Fatalf("expected service identity id %q, got %q", testServiceIdentityID, cfg.ServiceIdentityID.String())
 	}
 }
 
@@ -71,8 +75,8 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
 		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
 	}
-	if cfg.ServiceIdentityID != defaultServiceIdentityID {
-		t.Fatalf("expected service identity id %q, got %q", defaultServiceIdentityID, cfg.ServiceIdentityID)
+	if cfg.ServiceIdentityID != uuid.MustParse(testServiceIdentityID) {
+		t.Fatalf("expected service identity id %q, got %q", testServiceIdentityID, cfg.ServiceIdentityID.String())
 	}
 }
 
@@ -91,15 +95,25 @@ func TestFromEnvAgentTracingAddress(t *testing.T) {
 
 func TestFromEnvServiceIdentityOverride(t *testing.T) {
 	setBaseEnv(t)
-	customID := "7e7d8b2c-6a5c-4c3f-9f5e-8d5b9a7c2f91"
+	customID := "f86d62bf-8b6b-47af-b1f3-3dd4d9e2db1d"
 	t.Setenv("SERVICE_IDENTITY_ID", customID)
 
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatalf("FromEnv: %v", err)
 	}
-	if cfg.ServiceIdentityID != customID {
-		t.Fatalf("expected service identity id %q, got %q", customID, cfg.ServiceIdentityID)
+	if cfg.ServiceIdentityID != uuid.MustParse(customID) {
+		t.Fatalf("expected service identity id %q, got %q", customID, cfg.ServiceIdentityID.String())
+	}
+}
+
+func TestFromEnvServiceIdentityMissing(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("SERVICE_IDENTITY_ID", "")
+
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatalf("expected error when SERVICE_IDENTITY_ID is empty")
 	}
 }
 
@@ -113,7 +127,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("RUNNER_ADDRESS", "")
 	t.Setenv("RUNNERS_ADDRESS", "")
 	t.Setenv("METERING_SERVICE_ADDRESS", "")
-	t.Setenv("SERVICE_IDENTITY_ID", "")
+	t.Setenv("SERVICE_IDENTITY_ID", testServiceIdentityID)
 	t.Setenv("METERING_SAMPLE_INTERVAL", "")
 	t.Setenv("ZITI_MANAGEMENT_ADDRESS", "")
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
