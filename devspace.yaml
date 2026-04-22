@@ -28,6 +28,13 @@ functions:
     fi
   patch_deployment: |-
     echo "Patching agents-orchestrator deployment for DevSpace..."
+    if [ -z "${SERVICE_IDENTITY_ID:-}" ]; then
+      echo "ERROR: SERVICE_IDENTITY_ID is required" >&2
+      exit 1
+    fi
+    kubectl set env deployment agents-orchestrator \
+      -n ${ORCHESTRATOR_NAMESPACE} \
+      SERVICE_IDENTITY_ID="${SERVICE_IDENTITY_ID}"
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
     spec:
       template:
