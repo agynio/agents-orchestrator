@@ -227,27 +227,37 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	if instanceID == "" {
 		return nil
 	}
+	inspectResp, err := r.inspectRunnerWorkload(ctx, runnerClient, instanceID)
+	if err != nil {
+		return err
+	}
+	containers, err := mapRunnerContainers(inspectResp.GetContainers())
+	if err != nil {
+		return err
+	}
+	updateReq := &runnersv1.UpdateWorkloadRequest{
+		Id:         workloadID,
+		Containers: containers,
+	}
 	switch workload.GetStatus() {
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING:
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
-		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
-			Id:         workloadID,
-			Status:     &status,
-			InstanceId: stringPtr(instanceID),
-		})
-		return err
+		updateReq.Status = &status
+		updateReq.InstanceId = stringPtr(instanceID)
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
-		if workload.GetInstanceId() == instanceID {
-			return nil
+		if workload.GetInstanceId() != instanceID {
+			updateReq.InstanceId = stringPtr(instanceID)
 		}
-		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
-			Id:         workloadID,
-			InstanceId: stringPtr(instanceID),
-		})
-		return err
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
-		return r.stopRunnerWorkload(ctx, runnerClient, instanceID)
-	default:
-		return nil
+		if workload.GetInstanceId() != instanceID {
+			updateReq.InstanceId = stringPtr(instanceID)
+		}
 	}
+	if _, err := r.runners.UpdateWorkload(ctx, updateReq); err != nil {
+		return err
+	}
+	if workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING {
+		return r.stopRunnerWorkload(ctx, runnerClient, instanceID)
+	}
+	return nil
 }
