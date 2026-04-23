@@ -3,7 +3,6 @@ version: v2beta1
 vars:
   ORCHESTRATOR_NAMESPACE: platform
   DEV_IMAGE: ghcr.io/agynio/devcontainer-go:1
-  E2E_IMAGE: ghcr.io/agynio/devcontainer-go:1
 
 functions:
   disable_argocd_sync: |-
@@ -120,58 +119,7 @@ functions:
     done
     echo "Orchestrator is running from source."
 
-deployments:
-  e2e-runner:
-    namespace: ${ORCHESTRATOR_NAMESPACE}
-    helm:
-      chart:
-        name: component-chart
-        repo: https://charts.devspace.sh
-      values:
-        securityContext:
-          runAsUser: 1000
-          fsGroup: 1000
-        containers:
-          - image: ${E2E_IMAGE}
-            env:
-              - name: AGENTS_ADDRESS
-                value: "agents:50051"
-              - name: THREADS_ADDRESS
-                value: "threads:50051"
-              - name: LLM_ADDRESS
-                value: "llm:50051"
-              - name: USERS_ADDRESS
-                value: "users:50051"
-              - name: ORGANIZATIONS_ADDRESS
-                value: "organizations:50051"
-              - name: RUNNER_ADDRESS
-                value: "k8s-runner:50051"
-              - name: RUNNERS_ADDRESS
-                value: "runners:50051"
-              - name: SECRETS_ADDRESS
-                value: "secrets:50051"
-              - name: TRACING_ADDRESS
-                value: "tracing:50051"
-            volumeMounts:
-              - containerPath: /opt/app/data
-                volume:
-                  name: data
-        volumes:
-          - name: data
-            emptyDir: {}
-        serviceAccountName: "agents-orchestrator-e2e"
-        labels:
-          app.kubernetes.io/name: agents-orchestrator-e2e
-
-  e2e-rbac:
-    namespace: ${ORCHESTRATOR_NAMESPACE}
-    kubectl:
-      manifests:
-        - test/e2e/rbac/
-
 commands:
-  test-e2e: |-
-    devspace run-pipeline test-e2e -n ${DEVSPACE_NAMESPACE} $@
   deploy: |-
     devspace run-pipeline deploy -n ${DEVSPACE_NAMESPACE} $@
   restore-argocd: |-
@@ -203,20 +151,6 @@ pipelines:
       start_dev --disable-pod-replace agents-orchestrator-deploy
       wait_for_orchestrator
       echo "Deploy complete. Orchestrator is running from source."
-
-  test-e2e:
-    run: |-
-      create_deployments e2e-rbac
-      create_deployments e2e-runner
-      start_dev e2e-runner-test
-      echo "Sync complete. Running e2e tests..."
-      exec_container \
-        --label-selector "app.kubernetes.io/name=agents-orchestrator-e2e" \
-        -n ${ORCHESTRATOR_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --include-imports --path agynio/api/runner/v1 --path agynio/api/runners/v1 --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/metering/v1 --path agynio/api/agents/v1 --path agynio/api/secrets/v1 --path agynio/api/ziti_management/v1 --path agynio/api/identity/v1 --path agynio/api/llm/v1 --path agynio/api/users/v1 --path agynio/api/organizations/v1 --path agynio/api/tracing/v1 && go test -v -count=1 -timeout=20m -tags e2e ./test/e2e/'
-      EXIT_CODE=$?
-      purge_deployments e2e-runner e2e-rbac
-      exit $EXIT_CODE
 
   restore-argocd:
     run: |-
@@ -253,21 +187,6 @@ dev:
           enabled: true
           lastLines: 200
 
-  # CI counterpart: e2e-runner-test (one-shot sync)
-  e2e-runner:
-    namespace: ${ORCHESTRATOR_NAMESPACE}
-    labelSelector:
-      app.kubernetes.io/name: agents-orchestrator-e2e
-    command: ["sleep", "infinity"]
-    workingDir: /opt/app/data
-    sync:
-      - path: ./:/opt/app/data
-        excludePaths:
-          - .git/
-          - .devspace/
-          - /.gen/
-          - /tmp/
-
   # One-shot variant of agents-orchestrator for CI deploy pipeline. Keep sync excludePaths in sync.
   agents-orchestrator-deploy:
     namespace: ${ORCHESTRATOR_NAMESPACE}
@@ -295,19 +214,3 @@ dev:
               - .devspace/
               - /.gen/
               - /tmp/
-
-  # One-shot variant of e2e-runner for CI test pipeline. Keep sync excludePaths in sync.
-  e2e-runner-test:
-    namespace: ${ORCHESTRATOR_NAMESPACE}
-    labelSelector:
-      app.kubernetes.io/name: agents-orchestrator-e2e
-    command: ["sleep", "infinity"]
-    workingDir: /opt/app/data
-    sync:
-      - path: ./:/opt/app/data
-        noWatch: true
-        excludePaths:
-          - .git/
-          - .devspace/
-          - /.gen/
-          - /tmp/
