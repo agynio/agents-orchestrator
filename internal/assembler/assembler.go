@@ -18,27 +18,31 @@ import (
 )
 
 const (
-	listPageSize                   int32 = 100
-	rpcTimeout                           = 10 * time.Second
-	agynBinVolumeName                    = "agyn-bin"
-	agynBinMountPath                     = "/agyn-bin"
-	agynBinBinaryPath                    = "/agyn-bin/agynd"
-	agentWorkspaceDir                    = "/tmp"
-	agentHomeDir                         = "/tmp"
-	mcpBasePort                          = 8100
-	ZitiSidecarContainerName             = "ziti-sidecar"
-	zitiIdentityVolumeName               = "ziti-identity"
-	zitiIdentityMountPath                = "/netfoundry"
-	ZitiIdentityBasename                 = "agent"
-	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
-	zitiDNSNameserver                    = "127.0.0.1"
-	zitiSidecarCommand                   = "tproxy"
-	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
-	zitiRestartPolicyKey                 = "restart_policy"
-	zitiRestartPolicyAlways              = "Always"
-	zitiDNSSearchService                 = "svc.cluster.local"
-	zitiDNSSearchCluster                 = "cluster.local"
+	listPageSize                      int32 = 100
+	rpcTimeout                              = 10 * time.Second
+	agynBinVolumeName                       = "agyn-bin"
+	agynBinMountPath                        = "/agyn-bin"
+	agynBinBinaryPath                       = "/agyn-bin/agynd"
+	agentWorkspaceDir                       = "/workspace"
+	agentHomeDir                            = "/agyn"
+	agentWorkspaceVolumeName                = "agyn-workspace"
+	agentHomeVolumeName                     = "agyn-home"
+	agentPermissionsInitContainerName       = "agent-permissions"
+	agentPermissionsInitImage               = "busybox:1.37.0"
+	mcpBasePort                             = 8100
+	ZitiSidecarContainerName                = "ziti-sidecar"
+	zitiIdentityVolumeName                  = "ziti-identity"
+	zitiIdentityMountPath                   = "/netfoundry"
+	ZitiIdentityBasename                    = "agent"
+	ZitiEnrollmentTokenEnvVar               = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar              = "ZITI_IDENTITY_BASENAME"
+	zitiDNSNameserver                       = "127.0.0.1"
+	zitiSidecarCommand                      = "tproxy"
+	zitiRequiredCapabilityNetAdmin          = "NET_ADMIN"
+	zitiRestartPolicyKey                    = "restart_policy"
+	zitiRestartPolicyAlways                 = "Always"
+	zitiDNSSearchService                    = "svc.cluster.local"
+	zitiDNSSearchCluster                    = "cluster.local"
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -114,6 +118,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err != nil {
 		return nil, fmt.Errorf("resolve agent mounts: %w", err)
 	}
+	agentMounts, workspaceMount, homeMount, platformVolumes := ensureAgentDirMounts(agentMounts)
 	agentImagePullAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{AgentId: agentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list agent image pull secret attachments: %w", err)
@@ -139,6 +144,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Mounts: mainMounts,
 	}
 
+	permissionsInitContainer := buildAgentPermissionsInitContainer(workspaceMount, homeMount)
 	initContainer := &runnerv1.ContainerSpec{
 		Image: initImage,
 		Name:  "agent-init",
@@ -146,7 +152,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
 		},
 	}
-	initContainers := []*runnerv1.ContainerSpec{initContainer}
+	initContainers := []*runnerv1.ContainerSpec{permissionsInitContainer, initContainer}
 
 	mcps, err := a.listMcps(ctx, agentID)
 	if err != nil {
@@ -233,6 +239,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL,
 	}
 	volumes := append(volumeResolver.Specs(), agynBinVolume)
+	volumes = append(volumes, platformVolumes...)
 	if a.cfg.ZitiEnabled {
 		volumes = append(volumes, &runnerv1.VolumeSpec{
 			Name: zitiIdentityVolumeName,
@@ -589,6 +596,51 @@ func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runn
 	}
 	result = append(result, env)
 	return result
+}
+
+func ensureAgentDirMounts(mounts []*runnerv1.VolumeMount) ([]*runnerv1.VolumeMount, *runnerv1.VolumeMount, *runnerv1.VolumeMount, []*runnerv1.VolumeSpec) {
+	workspaceMount := findMountByPath(mounts, agentWorkspaceDir)
+	homeMount := findMountByPath(mounts, agentHomeDir)
+	platformVolumes := []*runnerv1.VolumeSpec{}
+	if workspaceMount == nil {
+		workspaceMount = &runnerv1.VolumeMount{Volume: agentWorkspaceVolumeName, MountPath: agentWorkspaceDir}
+		mounts = append(mounts, workspaceMount)
+		platformVolumes = append(platformVolumes, &runnerv1.VolumeSpec{Name: agentWorkspaceVolumeName, Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL})
+	}
+	if homeMount == nil {
+		homeMount = &runnerv1.VolumeMount{Volume: agentHomeVolumeName, MountPath: agentHomeDir}
+		mounts = append(mounts, homeMount)
+		platformVolumes = append(platformVolumes, &runnerv1.VolumeSpec{Name: agentHomeVolumeName, Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL})
+	}
+	return mounts, workspaceMount, homeMount, platformVolumes
+}
+
+func findMountByPath(mounts []*runnerv1.VolumeMount, path string) *runnerv1.VolumeMount {
+	for _, mount := range mounts {
+		if mount == nil {
+			panic("assembler: nil volume mount")
+		}
+		if mount.MountPath == path {
+			return mount
+		}
+	}
+	return nil
+}
+
+func buildAgentPermissionsInitContainer(workspaceMount, homeMount *runnerv1.VolumeMount) *runnerv1.ContainerSpec {
+	return &runnerv1.ContainerSpec{
+		Image: agentPermissionsInitImage,
+		Name:  agentPermissionsInitContainerName,
+		Cmd:   []string{"/bin/sh", "-c", agentPermissionsInitCommand()},
+		Mounts: []*runnerv1.VolumeMount{
+			{Volume: workspaceMount.Volume, MountPath: workspaceMount.MountPath},
+			{Volume: homeMount.Volume, MountPath: homeMount.MountPath},
+		},
+	}
+}
+
+func agentPermissionsInitCommand() string {
+	return fmt.Sprintf("mkdir -p %s %s && chmod 1777 %s && chmod 0777 %s", agentWorkspaceDir, agentHomeDir, agentWorkspaceDir, agentHomeDir)
 }
 
 func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uuid.UUID) []*runnerv1.EnvVar {
