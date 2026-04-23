@@ -158,7 +158,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if permissionsContainer.Image != agentPermissionsInitImage {
 		t.Fatalf("expected permissions init image %q, got %q", agentPermissionsInitImage, permissionsContainer.Image)
 	}
-	expectedPermissionsCmd := []string{"/bin/sh", "-c", agentPermissionsInitCommand()}
+	expectedPermissionsCmd := []string{"/bin/sh", "-c", fmt.Sprintf("mkdir -p %s %s && chmod 1777 %s && chmod 0777 %s", agentWorkspaceDir, agentHomeDir, agentWorkspaceDir, agentHomeDir)}
 	if !equalStringSlice(permissionsContainer.Cmd, expectedPermissionsCmd) {
 		t.Fatalf("expected permissions init cmd %+v, got %+v", expectedPermissionsCmd, permissionsContainer.Cmd)
 	}

@@ -617,7 +617,10 @@ func ensureAgentDirMounts(mounts []*runnerv1.VolumeMount) ([]*runnerv1.VolumeMou
 
 func findMountByPath(mounts []*runnerv1.VolumeMount, path string) *runnerv1.VolumeMount {
 	for _, mount := range mounts {
-		if mount != nil && mount.GetMountPath() == path {
+		if mount == nil {
+			panic("assembler: nil volume mount")
+		}
+		if mount.MountPath == path {
 			return mount
 		}
 	}
