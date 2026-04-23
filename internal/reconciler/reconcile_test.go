@@ -22,6 +22,11 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	workloadKey := "workload-1"
 	rawInstanceID := uuid.New().String()
 	instanceID := "workload-" + rawInstanceID
+	startTime := timestamppb.New(time.Date(2024, time.January, 1, 2, 3, 4, 0, time.UTC))
+	finishTime := timestamppb.New(time.Date(2024, time.January, 1, 3, 4, 5, 0, time.UTC))
+	reason := "Completed"
+	message := "done"
+	exitCode := int32(0)
 
 	var updateReq *runnersv1.UpdateWorkloadRequest
 	runners := &fakeRunnersClient{
@@ -39,10 +44,48 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 		},
 	}
 
+	inspectCalled := false
 	runner := &fakeRunnerClient{
 		listWorkloads: func(_ context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
 			return &runnerv1.ListWorkloadsResponse{Workloads: []*runnerv1.WorkloadListItem{
 				{WorkloadKey: workloadKey, InstanceId: instanceID},
+			}}, nil
+		},
+		inspectWorkload: func(_ context.Context, req *runnerv1.InspectWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+			inspectCalled = true
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return &runnerv1.InspectWorkloadResponse{Containers: []*runnerv1.WorkloadContainer{
+				{
+					ContainerId:  "init-id",
+					Name:         "init",
+					Role:         runnerv1.ContainerRole_CONTAINER_ROLE_INIT,
+					Image:        "init-image",
+					Status:       runnerv1.ContainerStatus_CONTAINER_STATUS_TERMINATED,
+					Reason:       &reason,
+					Message:      &message,
+					ExitCode:     &exitCode,
+					RestartCount: 2,
+					StartedAt:    startTime,
+					FinishedAt:   finishTime,
+				},
+				{
+					ContainerId:  "main-id",
+					Name:         "main",
+					Role:         runnerv1.ContainerRole_CONTAINER_ROLE_MAIN,
+					Image:        "main-image",
+					Status:       runnerv1.ContainerStatus_CONTAINER_STATUS_RUNNING,
+					RestartCount: 1,
+					StartedAt:    startTime,
+				},
+				{
+					ContainerId: "sidecar-id",
+					Name:        "sidecar",
+					Role:        runnerv1.ContainerRole_CONTAINER_ROLE_SIDECAR,
+					Image:       "sidecar-image",
+					Status:      runnerv1.ContainerStatus_CONTAINER_STATUS_WAITING,
+				},
 			}}, nil
 		},
 	}
@@ -73,6 +116,296 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	}
 	if updateReq.GetInstanceId() != rawInstanceID {
 		t.Fatalf("unexpected instance id: %v", updateReq.GetInstanceId())
+	}
+	if !inspectCalled {
+		t.Fatal("expected inspect workload")
+	}
+	if len(updateReq.GetContainers()) != 3 {
+		t.Fatalf("expected 3 containers, got %d", len(updateReq.GetContainers()))
+	}
+	initContainer := updateReq.GetContainers()[0]
+	if initContainer.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_INIT {
+		t.Fatalf("unexpected init role: %v", initContainer.GetRole())
+	}
+	if initContainer.GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED {
+		t.Fatalf("unexpected init status: %v", initContainer.GetStatus())
+	}
+	if initContainer.GetReason() != reason || initContainer.Reason == nil {
+		t.Fatalf("unexpected init reason: %v", initContainer.GetReason())
+	}
+	if initContainer.GetMessage() != message || initContainer.Message == nil {
+		t.Fatalf("unexpected init message: %v", initContainer.GetMessage())
+	}
+	if initContainer.GetExitCode() != exitCode || initContainer.ExitCode == nil {
+		t.Fatalf("unexpected init exit code: %v", initContainer.GetExitCode())
+	}
+	if initContainer.GetStartedAt().AsTime() != startTime.AsTime() {
+		t.Fatalf("unexpected init started_at")
+	}
+	if initContainer.GetFinishedAt().AsTime() != finishTime.AsTime() {
+		t.Fatalf("unexpected init finished_at")
+	}
+	mainContainer := updateReq.GetContainers()[1]
+	if mainContainer.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_MAIN {
+		t.Fatalf("unexpected main role: %v", mainContainer.GetRole())
+	}
+	if mainContainer.GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING {
+		t.Fatalf("unexpected main status: %v", mainContainer.GetStatus())
+	}
+	sidecarContainer := updateReq.GetContainers()[2]
+	if sidecarContainer.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_SIDECAR {
+		t.Fatalf("unexpected sidecar role: %v", sidecarContainer.GetRole())
+	}
+}
+
+func TestReconcileWorkloadsRefreshesContainersOnRunning(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	workloadKey := "workload-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
+	startTime := timestamppb.New(time.Date(2024, time.February, 1, 2, 3, 4, 0, time.UTC))
+
+	var updateReq *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, InstanceId: stringPtr(rawInstanceID)},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	inspectCalled := false
+	runner := &fakeRunnerClient{
+		listWorkloads: func(_ context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
+			return &runnerv1.ListWorkloadsResponse{Workloads: []*runnerv1.WorkloadListItem{
+				{WorkloadKey: workloadKey, InstanceId: instanceID},
+			}}, nil
+		},
+		inspectWorkload: func(_ context.Context, req *runnerv1.InspectWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+			inspectCalled = true
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return &runnerv1.InspectWorkloadResponse{Containers: []*runnerv1.WorkloadContainer{
+				{
+					ContainerId:  "main-id",
+					Name:         "main",
+					Role:         runnerv1.ContainerRole_CONTAINER_ROLE_MAIN,
+					Image:        "main-image",
+					Status:       runnerv1.ContainerStatus_CONTAINER_STATUS_RUNNING,
+					RestartCount: 3,
+					StartedAt:    startTime,
+				},
+			}}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileWorkloads(ctx); err != nil {
+		t.Fatalf("reconcile workloads: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected update workload")
+	}
+	if updateReq.InstanceId != nil {
+		t.Fatalf("unexpected instance id update: %v", updateReq.GetInstanceId())
+	}
+	if updateReq.Status != nil {
+		t.Fatalf("unexpected status update: %v", updateReq.GetStatus())
+	}
+	if !inspectCalled {
+		t.Fatal("expected inspect workload")
+	}
+	if len(updateReq.GetContainers()) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(updateReq.GetContainers()))
+	}
+	mainContainer := updateReq.GetContainers()[0]
+	if mainContainer.GetContainerId() != "main-id" {
+		t.Fatalf("unexpected main container id: %s", mainContainer.GetContainerId())
+	}
+	if mainContainer.GetRestartCount() != 3 {
+		t.Fatalf("unexpected main restart count: %v", mainContainer.GetRestartCount())
+	}
+	if mainContainer.GetStartedAt().AsTime() != startTime.AsTime() {
+		t.Fatalf("unexpected main started_at")
+	}
+}
+
+func TestReconcileWorkloadsTransitionsStartingToRunningOnInspectError(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	workloadKey := "workload-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
+
+	var updateReq *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	inspectCalled := false
+	runner := &fakeRunnerClient{
+		listWorkloads: func(_ context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
+			return &runnerv1.ListWorkloadsResponse{Workloads: []*runnerv1.WorkloadListItem{
+				{WorkloadKey: workloadKey, InstanceId: instanceID},
+			}}, nil
+		},
+		inspectWorkload: func(_ context.Context, req *runnerv1.InspectWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+			inspectCalled = true
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return nil, errors.New("inspect failed")
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileWorkloads(ctx); err != nil {
+		t.Fatalf("reconcile workloads: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected update workload")
+	}
+	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	}
+	if updateReq.GetInstanceId() != rawInstanceID {
+		t.Fatalf("unexpected instance id: %v", updateReq.GetInstanceId())
+	}
+	if len(updateReq.GetContainers()) != 0 {
+		t.Fatalf("expected no containers, got %d", len(updateReq.GetContainers()))
+	}
+	if !inspectCalled {
+		t.Fatal("expected inspect workload")
+	}
+}
+
+func TestReconcileWorkloadsStopsStoppingOnInspectError(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	workloadKey := "workload-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
+
+	var updateReq *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	inspectCalled := false
+	stopCalled := false
+	runner := &fakeRunnerClient{
+		listWorkloads: func(_ context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
+			return &runnerv1.ListWorkloadsResponse{Workloads: []*runnerv1.WorkloadListItem{
+				{WorkloadKey: workloadKey, InstanceId: instanceID},
+			}}, nil
+		},
+		inspectWorkload: func(_ context.Context, req *runnerv1.InspectWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+			inspectCalled = true
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return nil, errors.New("inspect failed")
+		},
+		stopWorkload: func(_ context.Context, req *runnerv1.StopWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StopWorkloadResponse, error) {
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			stopCalled = true
+			return &runnerv1.StopWorkloadResponse{}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileWorkloads(ctx); err != nil {
+		t.Fatalf("reconcile workloads: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected update workload")
+	}
+	if updateReq.GetInstanceId() != rawInstanceID {
+		t.Fatalf("unexpected instance id: %v", updateReq.GetInstanceId())
+	}
+	if updateReq.Status != nil {
+		t.Fatalf("unexpected status update: %v", updateReq.GetStatus())
+	}
+	if !inspectCalled {
+		t.Fatal("expected inspect workload")
+	}
+	if !stopCalled {
+		t.Fatal("expected stop workload")
 	}
 }
 

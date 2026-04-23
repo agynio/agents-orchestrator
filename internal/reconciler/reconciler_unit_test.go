@@ -2,9 +2,11 @@ package reconciler
 
 import (
 	"testing"
+	"time"
 
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestRunnerStatus(t *testing.T) {
@@ -156,4 +158,101 @@ func TestBuildContainers(t *testing.T) {
 			t.Fatalf("unexpected sidecar-b container status: %v", sidecarB.GetStatus())
 		}
 	})
+}
+
+func TestMapRunnerContainers(t *testing.T) {
+	start := timestamppb.New(time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC))
+	finish := timestamppb.New(time.Date(2024, time.January, 2, 4, 5, 6, 0, time.UTC))
+	reason := "Completed"
+	message := "done"
+	exitCode := int32(0)
+
+	containers, err := mapRunnerContainers([]*runnerv1.WorkloadContainer{
+		{
+			ContainerId:  "init-id",
+			Name:         "init",
+			Role:         runnerv1.ContainerRole_CONTAINER_ROLE_INIT,
+			Image:        "init-image",
+			Status:       runnerv1.ContainerStatus_CONTAINER_STATUS_TERMINATED,
+			Reason:       &reason,
+			Message:      &message,
+			ExitCode:     &exitCode,
+			RestartCount: 2,
+			StartedAt:    start,
+			FinishedAt:   finish,
+		},
+		{
+			ContainerId:  "main-id",
+			Name:         "main",
+			Role:         runnerv1.ContainerRole_CONTAINER_ROLE_MAIN,
+			Image:        "main-image",
+			Status:       runnerv1.ContainerStatus_CONTAINER_STATUS_RUNNING,
+			RestartCount: 1,
+			StartedAt:    start,
+		},
+		{
+			ContainerId: "sidecar-id",
+			Name:        "sidecar",
+			Role:        runnerv1.ContainerRole_CONTAINER_ROLE_SIDECAR,
+			Image:       "sidecar-image",
+			Status:      runnerv1.ContainerStatus_CONTAINER_STATUS_WAITING,
+		},
+	})
+	if err != nil {
+		t.Fatalf("map containers: %v", err)
+	}
+	if len(containers) != 3 {
+		t.Fatalf("expected 3 containers, got %d", len(containers))
+	}
+
+	initContainer := containers[0]
+	if initContainer.GetContainerId() != "init-id" {
+		t.Fatalf("unexpected init container id: %s", initContainer.GetContainerId())
+	}
+	if initContainer.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_INIT {
+		t.Fatalf("unexpected init container role: %v", initContainer.GetRole())
+	}
+	if initContainer.GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED {
+		t.Fatalf("unexpected init container status: %v", initContainer.GetStatus())
+	}
+	if initContainer.GetReason() != reason || initContainer.Reason == nil {
+		t.Fatalf("unexpected init container reason: %v", initContainer.GetReason())
+	}
+	if initContainer.GetMessage() != message || initContainer.Message == nil {
+		t.Fatalf("unexpected init container message: %v", initContainer.GetMessage())
+	}
+	if initContainer.GetExitCode() != exitCode || initContainer.ExitCode == nil {
+		t.Fatalf("unexpected init container exit code: %v", initContainer.GetExitCode())
+	}
+	if initContainer.GetRestartCount() != 2 {
+		t.Fatalf("unexpected init restart count: %v", initContainer.GetRestartCount())
+	}
+	if initContainer.GetStartedAt().AsTime() != start.AsTime() {
+		t.Fatalf("unexpected init started_at")
+	}
+	if initContainer.GetFinishedAt().AsTime() != finish.AsTime() {
+		t.Fatalf("unexpected init finished_at")
+	}
+
+	mainContainer := containers[1]
+	if mainContainer.GetName() != "main" {
+		t.Fatalf("unexpected main container name: %s", mainContainer.GetName())
+	}
+	if mainContainer.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_MAIN {
+		t.Fatalf("unexpected main container role: %v", mainContainer.GetRole())
+	}
+	if mainContainer.GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING {
+		t.Fatalf("unexpected main container status: %v", mainContainer.GetStatus())
+	}
+	if mainContainer.GetRestartCount() != 1 {
+		t.Fatalf("unexpected main restart count: %v", mainContainer.GetRestartCount())
+	}
+
+	sidecarContainer := containers[2]
+	if sidecarContainer.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_SIDECAR {
+		t.Fatalf("unexpected sidecar container role: %v", sidecarContainer.GetRole())
+	}
+	if sidecarContainer.GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING {
+		t.Fatalf("unexpected sidecar container status: %v", sidecarContainer.GetStatus())
+	}
 }

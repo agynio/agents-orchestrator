@@ -436,6 +436,36 @@ func (r *Reconciler) stopRunnerWorkloadWithPrefix(ctx context.Context, runnerCli
 	return nil
 }
 
+func (r *Reconciler) inspectRunnerWorkload(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) (*runnerv1.InspectWorkloadResponse, error) {
+	resp, err := r.inspectRunnerWorkloadID(ctx, runnerClient, instanceID)
+	if err == nil {
+		return resp, nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return nil, err
+	}
+	if _, parseErr := uuid.Parse(instanceID); parseErr != nil {
+		return nil, err
+	}
+	return r.inspectRunnerWorkloadWithPrefix(ctx, runnerClient, instanceID)
+}
+
+func (r *Reconciler) inspectRunnerWorkloadID(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workloadID string) (*runnerv1.InspectWorkloadResponse, error) {
+	return runnerClient.InspectWorkload(ctx, &runnerv1.InspectWorkloadRequest{WorkloadId: workloadID})
+}
+
+func (r *Reconciler) inspectRunnerWorkloadWithPrefix(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) (*runnerv1.InspectWorkloadResponse, error) {
+	prefixedID := runnerWorkloadPrefix + instanceID
+	resp, err := r.inspectRunnerWorkloadID(ctx, runnerClient, prefixedID)
+	if err == nil {
+		return resp, nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return nil, err
+	}
+	return nil, err
+}
+
 func (r *Reconciler) deleteIdentity(ctx context.Context, identityID string) error {
 	_, err := r.zitiMgmt.DeleteIdentity(ctx, &zitimgmtv1.DeleteIdentityRequest{ZitiIdentityId: identityID})
 	return err
@@ -456,6 +486,70 @@ func runnerStatus(status runnerv1.WorkloadStatus) (runnersv1.WorkloadStatus, err
 	default:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED, fmt.Errorf("unknown runner workload status: %v", status)
 	}
+}
+
+func runnerContainerRole(role runnerv1.ContainerRole) (runnersv1.ContainerRole, error) {
+	switch role {
+	case runnerv1.ContainerRole_CONTAINER_ROLE_UNSPECIFIED:
+		return runnersv1.ContainerRole_CONTAINER_ROLE_UNSPECIFIED, fmt.Errorf("runner returned unspecified container role")
+	case runnerv1.ContainerRole_CONTAINER_ROLE_MAIN:
+		return runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, nil
+	case runnerv1.ContainerRole_CONTAINER_ROLE_SIDECAR:
+		return runnersv1.ContainerRole_CONTAINER_ROLE_SIDECAR, nil
+	case runnerv1.ContainerRole_CONTAINER_ROLE_INIT:
+		return runnersv1.ContainerRole_CONTAINER_ROLE_INIT, nil
+	default:
+		return runnersv1.ContainerRole_CONTAINER_ROLE_UNSPECIFIED, fmt.Errorf("unknown runner container role: %v", role)
+	}
+}
+
+func runnerContainerStatus(status runnerv1.ContainerStatus) (runnersv1.ContainerStatus, error) {
+	switch status {
+	case runnerv1.ContainerStatus_CONTAINER_STATUS_UNSPECIFIED:
+		return runnersv1.ContainerStatus_CONTAINER_STATUS_UNSPECIFIED, fmt.Errorf("runner returned unspecified container status")
+	case runnerv1.ContainerStatus_CONTAINER_STATUS_RUNNING:
+		return runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, nil
+	case runnerv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:
+		return runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED, nil
+	case runnerv1.ContainerStatus_CONTAINER_STATUS_WAITING:
+		return runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING, nil
+	default:
+		return runnersv1.ContainerStatus_CONTAINER_STATUS_UNSPECIFIED, fmt.Errorf("unknown runner container status: %v", status)
+	}
+}
+
+func mapRunnerContainers(containers []*runnerv1.WorkloadContainer) ([]*runnersv1.Container, error) {
+	if len(containers) == 0 {
+		return nil, nil
+	}
+	result := make([]*runnersv1.Container, 0, len(containers))
+	for _, container := range containers {
+		if container == nil {
+			return nil, fmt.Errorf("runner returned nil workload container")
+		}
+		role, err := runnerContainerRole(container.GetRole())
+		if err != nil {
+			return nil, err
+		}
+		status, err := runnerContainerStatus(container.GetStatus())
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &runnersv1.Container{
+			ContainerId:  container.GetContainerId(),
+			Name:         container.GetName(),
+			Role:         role,
+			Image:        container.GetImage(),
+			Status:       status,
+			Reason:       container.Reason,
+			Message:      container.Message,
+			ExitCode:     container.ExitCode,
+			RestartCount: container.GetRestartCount(),
+			StartedAt:    container.StartedAt,
+			FinishedAt:   container.FinishedAt,
+		})
+	}
+	return result, nil
 }
 
 func buildContainers(request *runnerv1.StartWorkloadRequest, resp *runnerv1.StartWorkloadResponse) []*runnersv1.Container {
