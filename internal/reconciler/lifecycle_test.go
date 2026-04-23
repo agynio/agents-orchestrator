@@ -1394,6 +1394,7 @@ type fakeRunnersClient struct {
 	updateWorkloadStatus  func(context.Context, *runnersv1.UpdateWorkloadStatusRequest, ...grpc.CallOption) (*runnersv1.UpdateWorkloadStatusResponse, error)
 	updateVolume          func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error)
 	batchUpdateVolume     func(context.Context, *runnersv1.BatchUpdateVolumeSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateVolumeSampledAtResponse, error)
+	streamWorkloadLogs    func(context.Context, *runnerv1.StreamWorkloadLogsRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[runnerv1.StreamWorkloadLogsResponse], error)
 }
 
 func (f *fakeRunnersClient) RegisterRunner(context.Context, *runnersv1.RegisterRunnerRequest, ...grpc.CallOption) (*runnersv1.RegisterRunnerResponse, error) {
@@ -1523,6 +1524,13 @@ func (f *fakeRunnersClient) UpdateVolume(ctx context.Context, req *runnersv1.Upd
 }
 
 func (f *fakeRunnersClient) TouchWorkload(context.Context, *runnersv1.TouchWorkloadRequest, ...grpc.CallOption) (*runnersv1.TouchWorkloadResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) StreamWorkloadLogs(ctx context.Context, req *runnerv1.StreamWorkloadLogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[runnerv1.StreamWorkloadLogsResponse], error) {
+	if f.streamWorkloadLogs != nil {
+		return f.streamWorkloadLogs(ctx, req, opts...)
+	}
 	return nil, errNotImplemented
 }
 
