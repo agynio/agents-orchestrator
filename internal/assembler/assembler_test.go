@@ -97,36 +97,91 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if !equalStringSlice(request.Main.Cmd, expectedCmd) {
 		t.Fatalf("unexpected main cmd: %+v", request.Main.Cmd)
 	}
-	if len(request.Main.Mounts) != 1 {
-		t.Fatalf("expected 1 mount, got %d", len(request.Main.Mounts))
+	if len(request.Main.Mounts) != 3 {
+		t.Fatalf("expected 3 mounts, got %d", len(request.Main.Mounts))
 	}
-	if request.Main.Mounts[0].Volume != agynBinVolumeName {
-		t.Fatalf("expected agyn-bin mount volume, got %q", request.Main.Mounts[0].Volume)
+	agynBinMount := findVolumeMount(request.Main, agynBinVolumeName)
+	if agynBinMount == nil {
+		t.Fatalf("expected agyn-bin mount")
 	}
-	if request.Main.Mounts[0].MountPath != agynBinMountPath {
-		t.Fatalf("expected agyn-bin mount path %q, got %q", agynBinMountPath, request.Main.Mounts[0].MountPath)
+	if agynBinMount.MountPath != agynBinMountPath {
+		t.Fatalf("expected agyn-bin mount path %q, got %q", agynBinMountPath, agynBinMount.MountPath)
 	}
-	if len(request.Volumes) != 1 {
-		t.Fatalf("expected 1 volume, got %d", len(request.Volumes))
+	workspaceMount := findVolumeMount(request.Main, agentWorkspaceVolumeName)
+	if workspaceMount == nil {
+		t.Fatalf("expected %s mount", agentWorkspaceVolumeName)
 	}
-	if request.Volumes[0].Name != agynBinVolumeName {
-		t.Fatalf("expected agyn-bin volume name, got %q", request.Volumes[0].Name)
+	if workspaceMount.MountPath != agentWorkspaceDir {
+		t.Fatalf("expected workspace mount path %q, got %q", agentWorkspaceDir, workspaceMount.MountPath)
 	}
-	if request.Volumes[0].Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
-		t.Fatalf("expected agyn-bin volume kind ephemeral, got %v", request.Volumes[0].Kind)
+	homeMount := findVolumeMount(request.Main, agentHomeVolumeName)
+	if homeMount == nil {
+		t.Fatalf("expected %s mount", agentHomeVolumeName)
+	}
+	if homeMount.MountPath != agentHomeDir {
+		t.Fatalf("expected home mount path %q, got %q", agentHomeDir, homeMount.MountPath)
+	}
+	if len(request.Volumes) != 3 {
+		t.Fatalf("expected 3 volumes, got %d", len(request.Volumes))
+	}
+	agynBinVolume := findVolumeSpec(request.Volumes, agynBinVolumeName)
+	if agynBinVolume == nil {
+		t.Fatalf("expected %s volume", agynBinVolumeName)
+	}
+	if agynBinVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected agyn-bin volume kind ephemeral, got %v", agynBinVolume.Kind)
+	}
+	workspaceVolume := findVolumeSpec(request.Volumes, agentWorkspaceVolumeName)
+	if workspaceVolume == nil {
+		t.Fatalf("expected %s volume", agentWorkspaceVolumeName)
+	}
+	if workspaceVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected workspace volume kind ephemeral, got %v", workspaceVolume.Kind)
+	}
+	homeVolume := findVolumeSpec(request.Volumes, agentHomeVolumeName)
+	if homeVolume == nil {
+		t.Fatalf("expected %s volume", agentHomeVolumeName)
+	}
+	if homeVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected home volume kind ephemeral, got %v", homeVolume.Kind)
 	}
 	if request.ImagePullCredentials != nil {
 		t.Fatalf("expected no image pull credentials, got %+v", request.ImagePullCredentials)
 	}
-	if len(request.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
 	}
-	initContainer := request.InitContainers[0]
+	permissionsContainer := testutil.FindInitContainer(request.InitContainers, agentPermissionsInitContainerName)
+	if permissionsContainer == nil {
+		t.Fatalf("expected %s init container", agentPermissionsInitContainerName)
+	}
+	if permissionsContainer.Image != agentPermissionsInitImage {
+		t.Fatalf("expected permissions init image %q, got %q", agentPermissionsInitImage, permissionsContainer.Image)
+	}
+	expectedPermissionsCmd := []string{"/bin/sh", "-c", agentPermissionsInitCommand()}
+	if !equalStringSlice(permissionsContainer.Cmd, expectedPermissionsCmd) {
+		t.Fatalf("expected permissions init cmd %+v, got %+v", expectedPermissionsCmd, permissionsContainer.Cmd)
+	}
+	workspacePermissionMount := findVolumeMount(permissionsContainer, agentWorkspaceVolumeName)
+	if workspacePermissionMount == nil {
+		t.Fatalf("expected permissions workspace mount")
+	}
+	if workspacePermissionMount.MountPath != agentWorkspaceDir {
+		t.Fatalf("expected permissions workspace mount path %q, got %q", agentWorkspaceDir, workspacePermissionMount.MountPath)
+	}
+	homePermissionMount := findVolumeMount(permissionsContainer, agentHomeVolumeName)
+	if homePermissionMount == nil {
+		t.Fatalf("expected permissions home mount")
+	}
+	if homePermissionMount.MountPath != agentHomeDir {
+		t.Fatalf("expected permissions home mount path %q, got %q", agentHomeDir, homePermissionMount.MountPath)
+	}
+	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
+	if initContainer == nil {
+		t.Fatal("expected agent-init init container")
+	}
 	if initContainer.Image != agent.GetInitImage() {
 		t.Fatalf("expected init container image %q, got %q", agent.GetInitImage(), initContainer.Image)
-	}
-	if initContainer.Name != "agent-init" {
-		t.Fatalf("expected init container name agent-init, got %q", initContainer.Name)
 	}
 	if len(initContainer.Mounts) != 1 {
 		t.Fatalf("expected 1 init container mount, got %d", len(initContainer.Mounts))
@@ -171,6 +226,101 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 	if _, ok := envs["AGENT_SKILLS"]; ok {
 		t.Fatal("expected AGENT_SKILLS to be absent")
+	}
+}
+
+func TestAssemblerReusesWorkspaceMount(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	volumeID := uuid.New()
+
+	agent := &agentsv1.Agent{
+		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+		OrganizationId: "org-1",
+		Image:          "agent-image",
+		InitImage:      "agent-init-image",
+	}
+
+	agentsClient := &testutil.FakeAgentsClient{
+		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				return nil, errors.New("unexpected agent id")
+			}
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
+		},
+		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		ListVolumeAttachmentsFunc: func(_ context.Context, req *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			if req.GetAgentId() == agentID.String() {
+				return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: []*agentsv1.VolumeAttachment{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, VolumeId: volumeID.String()},
+				}}, nil
+			}
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		ListImagePullSecretAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		ListHooksFunc: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+		GetVolumeFunc: func(_ context.Context, req *agentsv1.GetVolumeRequest, _ ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
+			if req.GetId() != volumeID.String() {
+				return nil, errors.New("unexpected volume id")
+			}
+			return &agentsv1.GetVolumeResponse{Volume: &agentsv1.Volume{
+				Meta:      &agentsv1.EntityMeta{Id: volumeID.String()},
+				MountPath: agentWorkspaceDir,
+			}}, nil
+		},
+	}
+
+	cfg := config.Config{
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	}
+
+	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	request := result.Request
+	workspaceVolumeName := "vol-" + volumeID.String()[:8]
+	if findVolumeSpec(request.Volumes, agentWorkspaceVolumeName) != nil {
+		t.Fatalf("expected no %s volume", agentWorkspaceVolumeName)
+	}
+	if findVolumeSpec(request.Volumes, workspaceVolumeName) == nil {
+		t.Fatalf("expected %s volume", workspaceVolumeName)
+	}
+	if findVolumeSpec(request.Volumes, agentHomeVolumeName) == nil {
+		t.Fatalf("expected %s volume", agentHomeVolumeName)
+	}
+	workspaceMount := findMountByPath(request.Main.Mounts, agentWorkspaceDir)
+	if workspaceMount == nil {
+		t.Fatalf("expected main workspace mount")
+	}
+	if workspaceMount.Volume != workspaceVolumeName {
+		t.Fatalf("expected workspace volume %q, got %q", workspaceVolumeName, workspaceMount.Volume)
+	}
+	if countMountsByPath(request.Main.Mounts, agentWorkspaceDir) != 1 {
+		t.Fatalf("expected one workspace mount, got %d", countMountsByPath(request.Main.Mounts, agentWorkspaceDir))
+	}
+	permissionsContainer := testutil.FindInitContainer(request.InitContainers, agentPermissionsInitContainerName)
+	if permissionsContainer == nil {
+		t.Fatalf("expected %s init container", agentPermissionsInitContainerName)
+	}
+	permissionsMount := findMountByPath(permissionsContainer.Mounts, agentWorkspaceDir)
+	if permissionsMount == nil {
+		t.Fatalf("expected permissions workspace mount")
+	}
+	if permissionsMount.Volume != workspaceVolumeName {
+		t.Fatalf("expected permissions workspace volume %q, got %q", workspaceVolumeName, permissionsMount.Volume)
 	}
 }
 
@@ -247,12 +397,16 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
 		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
 	}
-	if len(request.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
 		t.Fatal("expected agent-init container")
+	}
+	permissionsContainer := testutil.FindInitContainer(request.InitContainers, agentPermissionsInitContainerName)
+	if permissionsContainer == nil {
+		t.Fatalf("expected %s init container", agentPermissionsInitContainerName)
 	}
 	if len(request.Sidecars) != 1 {
 		t.Fatalf("expected 1 sidecar, got %d", len(request.Sidecars))
@@ -292,8 +446,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiMount.MountPath != zitiIdentityMountPath {
 		t.Fatalf("expected ziti mount path %q, got %q", zitiIdentityMountPath, zitiMount.MountPath)
 	}
-	if len(request.Volumes) != 2 {
-		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
+	if len(request.Volumes) != 4 {
+		t.Fatalf("expected 4 volumes, got %d", len(request.Volumes))
 	}
 	agynBinVolume := findVolumeSpec(request.Volumes, agynBinVolumeName)
 	if agynBinVolume == nil {
@@ -301,6 +455,20 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 	if agynBinVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
 		t.Fatalf("expected agyn-bin volume kind ephemeral, got %v", agynBinVolume.Kind)
+	}
+	workspaceVolume := findVolumeSpec(request.Volumes, agentWorkspaceVolumeName)
+	if workspaceVolume == nil {
+		t.Fatalf("expected %s volume", agentWorkspaceVolumeName)
+	}
+	if workspaceVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected workspace volume kind ephemeral, got %v", workspaceVolume.Kind)
+	}
+	homeVolume := findVolumeSpec(request.Volumes, agentHomeVolumeName)
+	if homeVolume == nil {
+		t.Fatalf("expected %s volume", agentHomeVolumeName)
+	}
+	if homeVolume.Kind != runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL {
+		t.Fatalf("expected home volume kind ephemeral, got %v", homeVolume.Kind)
 	}
 	zitiIdentityVolume := findVolumeSpec(request.Volumes, zitiIdentityVolumeName)
 	if zitiIdentityVolume == nil {
@@ -405,12 +573,19 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 		t.Fatalf("assemble: %v", err)
 	}
 	request := result.Request
-	if len(request.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
 	}
-	initContainer := request.InitContainers[0]
+	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
+	if initContainer == nil {
+		t.Fatal("expected agent-init container")
+	}
 	if initContainer.Image != agent.GetInitImage() {
 		t.Fatalf("expected init image %q, got %q", agent.GetInitImage(), initContainer.Image)
+	}
+	permissionsContainer := testutil.FindInitContainer(request.InitContainers, agentPermissionsInitContainerName)
+	if permissionsContainer == nil {
+		t.Fatalf("expected %s init container", agentPermissionsInitContainerName)
 	}
 }
 
@@ -619,8 +794,8 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	if len(sidecar.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(sidecar.Mounts))
 	}
-	if len(request.Volumes) != 2 {
-		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
+	if len(request.Volumes) != 4 {
+		t.Fatalf("expected 4 volumes, got %d", len(request.Volumes))
 	}
 	expectedName := "vol-" + volumeID.String()[:8]
 	volumeSpec := findVolumeSpec(request.Volumes, expectedName)
@@ -718,8 +893,8 @@ func TestAssemblerSharesPersistentVolumeAcrossContainers(t *testing.T) {
 		t.Fatalf("assemble thread A: %v", err)
 	}
 	volumeName := "vol-" + volumeID.String()[:8]
-	if len(resultA.Request.Volumes) != 2 {
-		t.Fatalf("expected 2 volumes, got %d", len(resultA.Request.Volumes))
+	if len(resultA.Request.Volumes) != 4 {
+		t.Fatalf("expected 4 volumes, got %d", len(resultA.Request.Volumes))
 	}
 	volumeSpecA := findVolumeSpec(resultA.Request.Volumes, volumeName)
 	if volumeSpecA == nil {
@@ -1240,6 +1415,16 @@ func findVolumeMount(container *runnerv1.ContainerSpec, volumeName string) *runn
 		}
 	}
 	return nil
+}
+
+func countMountsByPath(mounts []*runnerv1.VolumeMount, path string) int {
+	count := 0
+	for _, mount := range mounts {
+		if mount != nil && mount.GetMountPath() == path {
+			count++
+		}
+	}
+	return count
 }
 
 func findVolumeSpec(volumes []*runnerv1.VolumeSpec, name string) *runnerv1.VolumeSpec {
