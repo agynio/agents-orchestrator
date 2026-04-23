@@ -47,6 +47,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "CUSTOM_ENV", Source: &agentsv1.Env_Value{Value: "custom"}},
 					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "AGENT_NAME", Source: &agentsv1.Env_Value{Value: "override"}},
 					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "WORKSPACE_DIR", Source: &agentsv1.Env_Value{Value: "/override"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "HOME", Source: &agentsv1.Env_Value{Value: "/override-home"}},
 				}}, nil
 			}
 			return &agentsv1.ListEnvsResponse{}, nil
@@ -166,10 +167,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
 	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
 	assertEnv(t, envs, "WORKSPACE_DIR", "/override")
+	assertEnv(t, envs, "HOME", "/override-home")
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
-	if _, ok := envs["HOME"]; ok {
-		t.Fatal("expected HOME to be absent")
-	}
 	if _, ok := envs["INIT_SCRIPT"]; ok {
 		t.Fatal("expected INIT_SCRIPT to be absent")
 	}
