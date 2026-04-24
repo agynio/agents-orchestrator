@@ -20,31 +20,31 @@ import (
 )
 
 const (
-	listPageSize             int32 = 100
-	rpcTimeout                     = 10 * time.Second
-	agynBinVolumeName              = "agyn-bin"
-	agynBinMountPath               = "/agyn-bin"
-	agynBinBinaryPath              = "/agyn-bin/agynd"
-	mcpBasePort                    = 8100
-	ZitiSidecarContainerName       = "ziti-sidecar"
-	zitiIdentityVolumeName         = "ziti-identity"
-	zitiIdentityMountPath          = "/netfoundry"
-	ZitiIdentityBasename           = "agent"
-	ZitiEnrollmentTokenEnvVar      = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar     = "ZITI_IDENTITY_BASENAME"
-	TokenCountingEnvVar            = "AGN_TOKEN_COUNTING_ADDRESS"
-	namespacePathEnvVar            = "AGENTS_ORCHESTRATOR_NAMESPACE_PATH"
-	tokenCountingAddressFormat     = "token-counting.%s.svc.cluster.local:50051"
-	zitiDNSNameserver              = "127.0.0.1"
-	zitiSidecarCommand             = "tproxy"
-	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
-	zitiRestartPolicyKey           = "restart_policy"
-	zitiRestartPolicyAlways        = "Always"
-	zitiDNSSearchService           = "svc.cluster.local"
-	zitiDNSSearchCluster           = "cluster.local"
-	zitiGatewayWaitContainerName   = "ziti-gateway-wait"
-	zitiGatewayWaitImage           = "busybox:1.37.0"
-	zitiGatewayWaitTimeoutSeconds  = 60
+	listPageSize                   int32 = 100
+	rpcTimeout                           = 10 * time.Second
+	agynBinVolumeName                    = "agyn-bin"
+	agynBinMountPath                     = "/agyn-bin"
+	agynBinBinaryPath                    = "/agyn-bin/agynd"
+	mcpBasePort                          = 8100
+	ZitiSidecarContainerName             = "ziti-sidecar"
+	zitiIdentityVolumeName               = "ziti-identity"
+	zitiIdentityMountPath                = "/netfoundry"
+	ZitiIdentityBasename                 = "agent"
+	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
+	TokenCountingEnvVar                  = "AGN_TOKEN_COUNTING_ADDRESS"
+	namespacePathEnvVar                  = "AGENTS_ORCHESTRATOR_NAMESPACE_PATH"
+	tokenCountingAddressFormat           = "token-counting.%s.svc.cluster.local:50051"
+	zitiDNSNameserver                    = "127.0.0.1"
+	zitiSidecarCommand                   = "tproxy"
+	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
+	zitiRestartPolicyKey                 = "restart_policy"
+	zitiRestartPolicyAlways              = "Always"
+	zitiDNSSearchService                 = "svc.cluster.local"
+	zitiDNSSearchCluster                 = "cluster.local"
+	zitiGatewayWaitContainerName         = "ziti-gateway-wait"
+	zitiGatewayWaitImage                 = "busybox:1.37.0"
+	zitiGatewayWaitTimeoutSeconds        = 60
 )
 
 var serviceAccountNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
