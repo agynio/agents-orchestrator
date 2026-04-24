@@ -355,7 +355,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiSidecar.Image)
 	}
-	expectedCmd := []string{zitiSidecarCommand}
+	expectedCmd := []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", cfg.ClusterDNS)}
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
 	}

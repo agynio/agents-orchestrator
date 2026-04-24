@@ -208,7 +208,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		sidecars = append(sidecars, &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
-			Cmd:                  []string{zitiSidecarCommand},
+			Cmd:                  []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", a.cfg.ClusterDNS)},
 			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
