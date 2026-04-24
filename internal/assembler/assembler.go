@@ -142,6 +142,18 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		},
 	}
 	initContainers := []*runnerv1.ContainerSpec{initContainer}
+	if a.cfg.ZitiEnabled {
+		zitiSidecar := &runnerv1.ContainerSpec{
+			Image:                a.cfg.ZitiSidecarImage,
+			Name:                 ZitiSidecarContainerName,
+			Cmd:                  []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", a.cfg.ClusterDNS)},
+			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
+			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
+			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
+			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
+		}
+		initContainers = append([]*runnerv1.ContainerSpec{zitiSidecar}, initContainers...)
+	}
 
 	mcps, err := a.listMcps(ctx, agentID)
 	if err != nil {
@@ -184,9 +196,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 
 	sidecarCapacity := len(mcpAssignments) + len(hookAssignments)
-	if a.cfg.ZitiEnabled {
-		sidecarCapacity++
-	}
 	sidecars := make([]*runnerv1.ContainerSpec, 0, sidecarCapacity)
 	mcpServers := make([]string, 0, len(mcpAssignments))
 	for _, assignment := range mcpAssignments {
@@ -203,17 +212,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			return nil, err
 		}
 		sidecars = append(sidecars, sidecar)
-	}
-	if a.cfg.ZitiEnabled {
-		sidecars = append(sidecars, &runnerv1.ContainerSpec{
-			Image:                a.cfg.ZitiSidecarImage,
-			Name:                 ZitiSidecarContainerName,
-			Cmd:                  []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", a.cfg.ClusterDNS)},
-			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
-			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
-			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
-			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
-		})
 	}
 	if len(mcpServers) > 0 {
 		main.Env = appendPlatformEnvVar(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})

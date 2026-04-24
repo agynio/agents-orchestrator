@@ -338,19 +338,22 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
 		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
 	}
-	if len(request.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
+	}
+	if request.InitContainers[0].GetName() != ZitiSidecarContainerName {
+		t.Fatalf("expected %s to be first init container", ZitiSidecarContainerName)
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
 		t.Fatal("expected agent-init container")
 	}
-	if len(request.Sidecars) != 1 {
-		t.Fatalf("expected 1 sidecar, got %d", len(request.Sidecars))
+	if len(request.Sidecars) != 0 {
+		t.Fatalf("expected 0 sidecars, got %d", len(request.Sidecars))
 	}
-	zitiSidecar := testutil.FindContainer(request.Sidecars, ZitiSidecarContainerName)
+	zitiSidecar := testutil.FindInitContainer(request.InitContainers, ZitiSidecarContainerName)
 	if zitiSidecar == nil {
-		t.Fatal("expected ziti-sidecar container")
+		t.Fatal("expected ziti-sidecar init container")
 	}
 	if zitiSidecar.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiSidecar.Image)
