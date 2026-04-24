@@ -9,6 +9,10 @@ concurrency:
   group: e2e-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
+env:
+  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.14
+  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.14
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
