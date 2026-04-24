@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,6 +38,9 @@ const (
 	zitiRestartPolicyAlways              = "Always"
 	zitiDNSSearchService                 = "svc.cluster.local"
 	zitiDNSSearchCluster                 = "cluster.local"
+	zitiGatewayWaitContainerName         = "ziti-gateway-wait"
+	zitiGatewayWaitImage                 = "busybox:1.37.0"
+	zitiGatewayWaitTimeoutSeconds        = 60
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -143,6 +147,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 	initContainers := []*runnerv1.ContainerSpec{initContainer}
 	if a.cfg.ZitiEnabled {
+		gatewayHostname, err := gatewayHost(a.cfg.AgentGatewayAddress)
+		if err != nil {
+			return nil, err
+		}
 		zitiSidecar := &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
@@ -152,7 +160,12 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		}
-		initContainers = append([]*runnerv1.ContainerSpec{zitiSidecar}, initContainers...)
+		zitiGatewayWait := &runnerv1.ContainerSpec{
+			Image: zitiGatewayWaitImage,
+			Name:  zitiGatewayWaitContainerName,
+			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
+		}
+		initContainers = []*runnerv1.ContainerSpec{zitiSidecar, zitiGatewayWait, initContainer}
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -544,6 +557,28 @@ func buildGatewayURL(address string) string {
 		return address
 	}
 	return "http://" + address
+}
+
+func gatewayHost(address string) (string, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", fmt.Errorf("parse gateway host from %q: %w", address, err)
+	}
+	if host == "" {
+		return "", fmt.Errorf("gateway host missing from %q", address)
+	}
+	return host, nil
+}
+
+func buildZitiGatewayWaitCommand(host string) []string {
+	script := fmt.Sprintf(
+		"i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s\" >&2; exit 1",
+		zitiGatewayWaitTimeoutSeconds,
+		host,
+		zitiDNSNameserver,
+		host,
+	)
+	return []string{"/bin/sh", "-c", script}
 }
 
 func mergeEnvVars(platformEnv, userEnv []*runnerv1.EnvVar, owner string) []*runnerv1.EnvVar {

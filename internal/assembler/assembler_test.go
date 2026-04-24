@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 
@@ -338,11 +339,17 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
 		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
 	}
-	if len(request.InitContainers) != 2 {
-		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 3 {
+		t.Fatalf("expected 3 init containers, got %d", len(request.InitContainers))
 	}
 	if request.InitContainers[0].GetName() != ZitiSidecarContainerName {
 		t.Fatalf("expected %s to be first init container", ZitiSidecarContainerName)
+	}
+	if request.InitContainers[1].GetName() != zitiGatewayWaitContainerName {
+		t.Fatalf("expected %s to be second init container", zitiGatewayWaitContainerName)
+	}
+	if request.InitContainers[2].GetName() != "agent-init" {
+		t.Fatalf("expected agent-init to be third init container")
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
@@ -385,6 +392,21 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 	if zitiMount.MountPath != zitiIdentityMountPath {
 		t.Fatalf("expected ziti mount path %q, got %q", zitiIdentityMountPath, zitiMount.MountPath)
+	}
+	zitiGatewayWait := testutil.FindInitContainer(request.InitContainers, zitiGatewayWaitContainerName)
+	if zitiGatewayWait == nil {
+		t.Fatal("expected ziti-gateway-wait init container")
+	}
+	if zitiGatewayWait.Image != zitiGatewayWaitImage {
+		t.Fatalf("expected ziti gateway wait image %q, got %q", zitiGatewayWaitImage, zitiGatewayWait.Image)
+	}
+	gatewayHost, _, err := net.SplitHostPort(cfg.AgentGatewayAddress)
+	if err != nil {
+		t.Fatalf("parse gateway host: %v", err)
+	}
+	expectedWaitCmd := buildZitiGatewayWaitCommand(gatewayHost)
+	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
+		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
 	}
 	if len(request.Volumes) != 2 {
 		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
