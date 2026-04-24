@@ -166,6 +166,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
+	assertEnv(t, envs, agnTokenCountingEnvVar, fmt.Sprintf("token-counting.%s.svc.cluster.local:50051", platformNamespaceFallback))
 	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
 	assertEnv(t, envs, "WORKSPACE_DIR", "/override")
 	assertEnv(t, envs, "HOME", "/override-home")
@@ -466,6 +467,7 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
+	assertEnv(t, envs, agnTokenCountingEnvVar, fmt.Sprintf("token-counting.%s.svc.cluster.local:50051", platformNamespaceFallback))
 }
 
 func TestAssemblerInitImageOverride(t *testing.T) {
