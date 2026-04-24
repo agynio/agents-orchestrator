@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"testing"
 
@@ -16,6 +17,12 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )
+
+const testServiceAccountNamespace = "platform"
+
+func TestMain(m *testing.M) {
+	os.Exit(testutil.RunWithServiceAccountNamespace(m, testServiceAccountNamespace))
+}
 
 func TestAssemblerMainContainer(t *testing.T) {
 	ctx := context.Background()
@@ -166,7 +173,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
-	assertEnv(t, envs, agnTokenCountingEnvVar, fmt.Sprintf("token-counting.%s.svc.cluster.local:50051", platformNamespaceFallback))
+	assertEnv(t, envs, TokenCountingEnvVar, buildTokenCountingAddress(testServiceAccountNamespace))
 	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
 	assertEnv(t, envs, "WORKSPACE_DIR", "/override")
 	assertEnv(t, envs, "HOME", "/override-home")
@@ -265,6 +272,64 @@ func TestAssemblerReusesWorkspaceMount(t *testing.T) {
 	if len(request.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
 	}
+}
+
+func TestAssemblerTokenCountingOverride(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	customAddress := "token-counting.custom.svc.cluster.local:50051"
+
+	agent := &agentsv1.Agent{
+		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+		OrganizationId: "org-1",
+		Name:           "assistant",
+		Role:           "ops",
+		Model:          "gpt-test",
+		Image:          "agent-image",
+		InitImage:      "agent-init-image",
+		Configuration:  "{}",
+	}
+
+	agentsClient := &testutil.FakeAgentsClient{
+		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				return nil, errors.New("unexpected agent id")
+			}
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
+		},
+		ListEnvsFunc: func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			if req.GetAgentId() != agentID.String() {
+				return &agentsv1.ListEnvsResponse{}, nil
+			}
+			return &agentsv1.ListEnvsResponse{Envs: []*agentsv1.Env{
+				{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: TokenCountingEnvVar, Source: &agentsv1.Env_Value{Value: customAddress}},
+			}}, nil
+		},
+		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		ListImagePullSecretAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		ListHooksFunc: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	envs := envMap(result.Request.Main.Env)
+	assertEnv(t, envs, TokenCountingEnvVar, customAddress)
 }
 
 func TestAssemblerAddsZitiSidecar(t *testing.T) {
@@ -467,7 +532,6 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
-	assertEnv(t, envs, agnTokenCountingEnvVar, fmt.Sprintf("token-counting.%s.svc.cluster.local:50051", platformNamespaceFallback))
 }
 
 func TestAssemblerInitImageOverride(t *testing.T) {

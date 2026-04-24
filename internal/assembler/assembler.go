@@ -20,32 +20,34 @@ import (
 )
 
 const (
-	listPageSize                   int32 = 100
-	rpcTimeout                           = 10 * time.Second
-	agynBinVolumeName                    = "agyn-bin"
-	agynBinMountPath                     = "/agyn-bin"
-	agynBinBinaryPath                    = "/agyn-bin/agynd"
-	mcpBasePort                          = 8100
-	ZitiSidecarContainerName             = "ziti-sidecar"
-	zitiIdentityVolumeName               = "ziti-identity"
-	zitiIdentityMountPath                = "/netfoundry"
-	ZitiIdentityBasename                 = "agent"
-	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
-	zitiDNSNameserver                    = "127.0.0.1"
-	zitiSidecarCommand                   = "tproxy"
-	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
-	zitiRestartPolicyKey                 = "restart_policy"
-	zitiRestartPolicyAlways              = "Always"
-	zitiDNSSearchService                 = "svc.cluster.local"
-	zitiDNSSearchCluster                 = "cluster.local"
-	zitiGatewayWaitContainerName         = "ziti-gateway-wait"
-	zitiGatewayWaitImage                 = "busybox:1.37.0"
-	zitiGatewayWaitTimeoutSeconds        = 60
-	platformNamespaceFallback            = "platform"
-	serviceAccountNamespacePath          = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-	agnTokenCountingEnvVar               = "AGN_TOKEN_COUNTING_ADDRESS"
+	listPageSize            int32 = 100
+	rpcTimeout                    = 10 * time.Second
+	agynBinVolumeName             = "agyn-bin"
+	agynBinMountPath              = "/agyn-bin"
+	agynBinBinaryPath             = "/agyn-bin/agynd"
+	mcpBasePort                   = 8100
+	ZitiSidecarContainerName      = "ziti-sidecar"
+	zitiIdentityVolumeName        = "ziti-identity"
+	zitiIdentityMountPath         = "/netfoundry"
+	ZitiIdentityBasename          = "agent"
+	ZitiEnrollmentTokenEnvVar     = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar    = "ZITI_IDENTITY_BASENAME"
+	TokenCountingEnvVar           = "AGN_TOKEN_COUNTING_ADDRESS"
+	namespacePathEnvVar           = "AGENTS_ORCHESTRATOR_NAMESPACE_PATH"
+	tokenCountingAddressFormat    = "token-counting.%s.svc.cluster.local:50051"
+	zitiDNSNameserver             = "127.0.0.1"
+	zitiSidecarCommand            = "tproxy"
+	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
+	zitiRestartPolicyKey          = "restart_policy"
+	zitiRestartPolicyAlways       = "Always"
+	zitiDNSSearchService          = "svc.cluster.local"
+	zitiDNSSearchCluster          = "cluster.local"
+	zitiGatewayWaitContainerName  = "ziti-gateway-wait"
+	zitiGatewayWaitImage          = "busybox:1.37.0"
+	zitiGatewayWaitTimeoutSeconds = 60
 )
+
+var serviceAccountNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
 var reservedEnvNames = map[string]struct{}{
 	"AGENT_ID":                 {},
@@ -59,7 +61,6 @@ var reservedEnvNames = map[string]struct{}{
 	"AGYN_GATEWAY_URL":         {},
 	"LLM_BASE_URL":             {},
 	"TRACING_ADDRESS":          {},
-	agnTokenCountingEnvVar:     {},
 	"AGENT_MCP_SERVERS":        {},
 	"MCP_PORT":                 {},
 	ZitiEnrollmentTokenEnvVar:  {},
@@ -128,6 +129,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 
 	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
+	mainEnv, err = ensureTokenCountingEnv(mainEnv)
+	if err != nil {
+		return nil, err
+	}
 
 	initImage := agent.GetInitImage()
 	if initImage == "" {
@@ -564,22 +569,45 @@ func buildGatewayURL(address string) string {
 	return "http://" + address
 }
 
-func platformNamespace() string {
-	data, err := os.ReadFile(serviceAccountNamespacePath)
+func ensureTokenCountingEnv(envs []*runnerv1.EnvVar) ([]*runnerv1.EnvVar, error) {
+	if envVarExists(envs, TokenCountingEnvVar) {
+		return envs, nil
+	}
+	namespace, err := readServiceAccountNamespace()
 	if err != nil {
-		log.Printf("assembler: warn: read namespace: %v", err)
-		return platformNamespaceFallback
+		return nil, err
 	}
-	namespace := strings.TrimSpace(string(data))
-	if namespace == "" {
-		log.Printf("assembler: warn: namespace empty")
-		return platformNamespaceFallback
-	}
-	return namespace
+	address := buildTokenCountingAddress(namespace)
+	return append(envs, &runnerv1.EnvVar{Name: TokenCountingEnvVar, Value: address}), nil
 }
 
-func tokenCountingAddress() string {
-	return fmt.Sprintf("token-counting.%s.svc.cluster.local:50051", platformNamespace())
+func envVarExists(envs []*runnerv1.EnvVar, name string) bool {
+	for _, env := range envs {
+		if env.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func readServiceAccountNamespace() (string, error) {
+	path := serviceAccountNamespacePath
+	if overridePath := os.Getenv(namespacePathEnvVar); overridePath != "" {
+		path = overridePath
+	}
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read service account namespace: %w", err)
+	}
+	namespace := strings.TrimSpace(string(value))
+	if namespace == "" {
+		return "", fmt.Errorf("service account namespace is empty")
+	}
+	return namespace, nil
+}
+
+func buildTokenCountingAddress(namespace string) string {
+	return fmt.Sprintf(tokenCountingAddressFormat, namespace)
 }
 
 func gatewayHost(address string) (string, error) {
@@ -654,7 +682,6 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
-		{Name: agnTokenCountingEnvVar, Value: tokenCountingAddress()},
 	}
 	if a.cfg.AgentTracingAddress != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})
