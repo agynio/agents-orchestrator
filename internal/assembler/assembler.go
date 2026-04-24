@@ -45,10 +45,6 @@ const (
 	platformNamespaceFallback            = "platform"
 	serviceAccountNamespacePath          = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 	agnTokenCountingEnvVar               = "AGN_TOKEN_COUNTING_ADDRESS"
-	agnWrapperContainerName              = "agn-wrapper"
-	agnWrapperImage                      = "busybox:1.37.0"
-	agnBinaryPath                        = "/agyn-bin/agn"
-	agnRealBinaryPath                    = "/agyn-bin/agn.real"
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -154,15 +150,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
 		},
 	}
-	agentWrapper := &runnerv1.ContainerSpec{
-		Image: agnWrapperImage,
-		Name:  agnWrapperContainerName,
-		Cmd:   buildAgnWrapperCommand(),
-		Mounts: []*runnerv1.VolumeMount{
-			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
-		},
-	}
-	initContainers := []*runnerv1.ContainerSpec{initContainer, agentWrapper}
+	initContainers := []*runnerv1.ContainerSpec{initContainer}
 	if a.cfg.ZitiEnabled {
 		gatewayHostname, err := gatewayHost(a.cfg.AgentGatewayAddress)
 		if err != nil {
@@ -182,7 +170,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Name:  zitiGatewayWaitContainerName,
 			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
 		}
-		initContainers = []*runnerv1.ContainerSpec{zitiSidecar, zitiGatewayWait, initContainer, agentWrapper}
+		initContainers = []*runnerv1.ContainerSpec{zitiSidecar, zitiGatewayWait, initContainer}
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -613,36 +601,6 @@ func buildZitiGatewayWaitCommand(host string) []string {
 		zitiDNSNameserver,
 		host,
 	)
-	return []string{"/bin/sh", "-c", script}
-}
-
-func buildAgnWrapperCommand() []string {
-	script := fmt.Sprintf(`set -e
-if [ ! -x %s ]; then
-  exit 0
-fi
-if [ ! -f %s ]; then
-  mv %s %s
-fi
-cat > %s <<'EOF'
-#!/bin/sh
-set -e
-config_path="${AGN_CONFIG_PATH:-}"
-if [ -n "$config_path" ] && [ -f "$config_path" ]; then
-  if grep -Eq '^[[:space:]]*system_prompt:[[:space:]]*assistant[[:space:]]*$' "$config_path"; then
-    tmp="${config_path}.agn.tmp"
-    awk '
-      /^[[:space:]]*system_prompt:[[:space:]]*assistant[[:space:]]*$/ {
-        sub(/assistant[[:space:]]*$/, "\"\"")
-      }
-      { print }
-    ' "$config_path" > "$tmp" && mv "$tmp" "$config_path"
-  fi
-fi
-exec %s "$@"
-EOF
-chmod +x %s
-`, agnBinaryPath, agnRealBinaryPath, agnBinaryPath, agnRealBinaryPath, agnBinaryPath, agnRealBinaryPath, agnBinaryPath)
 	return []string{"/bin/sh", "-c", script}
 }
 

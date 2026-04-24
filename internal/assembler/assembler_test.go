@@ -122,8 +122,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if request.ImagePullCredentials != nil {
 		t.Fatalf("expected no image pull credentials, got %+v", request.ImagePullCredentials)
 	}
-	if len(request.InitContainers) != 2 {
-		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
@@ -140,13 +140,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 	if initContainer.Mounts[0].MountPath != agynBinMountPath {
 		t.Fatalf("expected init container agyn-bin mount path %q, got %q", agynBinMountPath, initContainer.Mounts[0].MountPath)
-	}
-	agentWrapper := testutil.FindInitContainer(request.InitContainers, agnWrapperContainerName)
-	if agentWrapper == nil {
-		t.Fatal("expected agn wrapper init container")
-	}
-	if agentWrapper.Image != agnWrapperImage {
-		t.Fatalf("expected agn wrapper image %q, got %q", agnWrapperImage, agentWrapper.Image)
 	}
 	labels := request.AdditionalProperties
 	if len(labels) == 0 {
@@ -269,8 +262,8 @@ func TestAssemblerReusesWorkspaceMount(t *testing.T) {
 	if countMountsByPath(request.Main.Mounts, workspacePath) != 1 {
 		t.Fatalf("expected one workspace mount, got %d", countMountsByPath(request.Main.Mounts, workspacePath))
 	}
-	if len(request.InitContainers) != 2 {
-		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
 	}
 }
 
@@ -347,8 +340,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
 		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
 	}
-	if len(request.InitContainers) != 4 {
-		t.Fatalf("expected 4 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 3 {
+		t.Fatalf("expected 3 init containers, got %d", len(request.InitContainers))
 	}
 	if request.InitContainers[0].GetName() != ZitiSidecarContainerName {
 		t.Fatalf("expected %s to be first init container", ZitiSidecarContainerName)
@@ -358,9 +351,6 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 	if request.InitContainers[2].GetName() != "agent-init" {
 		t.Fatalf("expected agent-init to be third init container")
-	}
-	if request.InitContainers[3].GetName() != agnWrapperContainerName {
-		t.Fatalf("expected %s to be fourth init container", agnWrapperContainerName)
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
@@ -418,13 +408,6 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	expectedWaitCmd := buildZitiGatewayWaitCommand(gatewayHost)
 	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
 		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
-	}
-	agentWrapper := testutil.FindInitContainer(request.InitContainers, agnWrapperContainerName)
-	if agentWrapper == nil {
-		t.Fatal("expected agn wrapper init container")
-	}
-	if agentWrapper.Image != agnWrapperImage {
-		t.Fatalf("expected agn wrapper image %q, got %q", agnWrapperImage, agentWrapper.Image)
 	}
 	if len(request.Volumes) != 2 {
 		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
@@ -540,8 +523,8 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 		t.Fatalf("assemble: %v", err)
 	}
 	request := result.Request
-	if len(request.InitContainers) != 2 {
-		t.Fatalf("expected 2 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
