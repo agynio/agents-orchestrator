@@ -142,7 +142,7 @@ func (r *Reconciler) listWorkloadsByThread(ctx context.Context, threadID string,
 			req.AgentId = agentID
 		}
 		if len(statuses) > 0 {
-			req.StatusIn = statuses
+			req.Statuses = statuses
 		}
 		resp, err := r.runners.ListWorkloadsByThread(ctx, req)
 		if err != nil {
