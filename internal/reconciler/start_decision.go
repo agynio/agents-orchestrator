@@ -20,9 +20,13 @@ var startBackoffSchedule = []time.Duration{
 }
 
 func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread, now time.Time, agentUpdatedAt map[uuid.UUID]time.Time, degraded *degradeTracker) (bool, error) {
+	runnerCtx, err := r.runnerIdentityContextForAgent(ctx, target.AgentID)
+	if err != nil {
+		return false, err
+	}
 	threadID := target.ThreadID.String()
 	agentID := target.AgentID.String()
-	active, err := r.listWorkloadsByThread(ctx, threadID, &agentID, []runnersv1.WorkloadStatus{
+	active, err := r.listWorkloadsByThread(runnerCtx, threadID, &agentID, []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
@@ -33,7 +37,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 	if len(active) > 0 {
 		return false, nil
 	}
-	latest, err := r.latestWorkloadByThread(ctx, threadID, &agentID, []runnersv1.WorkloadStatus{
+	latest, err := r.latestWorkloadByThread(runnerCtx, threadID, &agentID, []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 	})
@@ -54,7 +58,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 	if updatedAt.After(latestRemovedAt) {
 		return true, nil
 	}
-	lastStopped, err := r.latestWorkloadByThread(ctx, threadID, &agentID, []runnersv1.WorkloadStatus{
+	lastStopped, err := r.latestWorkloadByThread(runnerCtx, threadID, &agentID, []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
 	})
 	if err != nil {
@@ -70,7 +74,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 			resetFloor = stoppedAt
 		}
 	}
-	recentFailures, err := r.listWorkloadsByThread(ctx, threadID, &agentID, []runnersv1.WorkloadStatus{
+	recentFailures, err := r.listWorkloadsByThread(runnerCtx, threadID, &agentID, []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 	}, maxStartAttempts+1)
 	if err != nil {
@@ -88,7 +92,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 		consecutiveFailures++
 	}
 	if consecutiveFailures >= maxStartAttempts {
-		r.degradeThread(ctx, threadID, degradeReasonStartFailures, degraded)
+		r.degradeThread(runnerCtx, threadID, degradeReasonStartFailures, degraded)
 		return false, nil
 	}
 	if consecutiveFailures == 0 {
