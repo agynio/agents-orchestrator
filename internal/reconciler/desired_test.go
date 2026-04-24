@@ -5,12 +5,14 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type fakeAgentsClient struct {
@@ -93,8 +95,9 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 
 	agents := &fakeAgentsClient{
 		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+			updatedAt := timestamppb.New(time.Now().UTC())
 			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
-				{Meta: &agentsv1.EntityMeta{Id: agentID.String()}},
+				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
 			}}, nil
 		},
 	}
@@ -133,7 +136,7 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 	}
 
 	reconciler := New(Config{Agents: agents, Threads: threads})
-	result, _, err := reconciler.fetchDesired(ctx)
+	result, _, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
 	}
@@ -154,8 +157,9 @@ func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 
 	agents := &fakeAgentsClient{
 		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+			updatedAt := timestamppb.New(time.Now().UTC())
 			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
-				{Meta: &agentsv1.EntityMeta{Id: agentID.String()}},
+				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
 			}}, nil
 		},
 	}
@@ -174,7 +178,7 @@ func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 	}
 
 	reconciler := New(Config{Agents: agents, Threads: threads})
-	result, _, err := reconciler.fetchDesired(ctx)
+	result, _, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
 	}

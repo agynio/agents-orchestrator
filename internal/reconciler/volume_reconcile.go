@@ -398,7 +398,7 @@ func (r *Reconciler) threadActivity(ctx context.Context, threadID string, cache 
 	if cached, ok := cache[threadID]; ok {
 		return cached, nil
 	}
-	workloads, err := r.listWorkloadsByThread(ctx, threadID)
+	workloads, err := r.listWorkloadsByThread(ctx, threadID, nil, nil, 0)
 	if err != nil {
 		return threadActivity{}, err
 	}
@@ -422,42 +422,6 @@ func (r *Reconciler) threadActivity(ctx context.Context, threadID string, cache 
 	}
 	cache[threadID] = activity
 	return activity, nil
-}
-
-func (r *Reconciler) listWorkloadsByThread(ctx context.Context, threadID string) ([]*runnersv1.Workload, error) {
-	if threadID == "" {
-		return nil, fmt.Errorf("thread id missing")
-	}
-	workloads := []*runnersv1.Workload{}
-	pageToken := ""
-	for {
-		resp, err := r.runners.ListWorkloadsByThread(ctx, &runnersv1.ListWorkloadsByThreadRequest{
-			ThreadId:  threadID,
-			PageSize:  workloadHistoryPageSize,
-			PageToken: pageToken,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list workloads for thread %s: %w", threadID, err)
-		}
-		for _, workload := range resp.GetWorkloads() {
-			if workload == nil {
-				return nil, fmt.Errorf("workload is nil")
-			}
-			meta := workload.GetMeta()
-			if meta == nil {
-				return nil, fmt.Errorf("workload meta missing")
-			}
-			if meta.GetId() == "" {
-				return nil, fmt.Errorf("workload meta id missing")
-			}
-			workloads = append(workloads, workload)
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
-		}
-	}
-	return workloads, nil
 }
 
 func parseVolumeTTL(value string) (time.Duration, error) {

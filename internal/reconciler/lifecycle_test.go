@@ -3,7 +3,6 @@ package reconciler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -146,25 +145,14 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetId() != workloadID {
 				return nil, errors.New("unexpected workload id")
 			}
-			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+			if req.Status != nil {
 				return nil, errors.New("unexpected workload status")
 			}
 			if req.GetInstanceId() != workloadID {
 				return nil, errors.New("unexpected instance id")
 			}
-			if len(req.GetContainers()) != 1 {
+			if len(req.GetContainers()) != 0 {
 				return nil, errors.New("unexpected containers")
-			}
-			container := req.GetContainers()[0]
-			expectedName := fmt.Sprintf("agent-%s-%s", agentID.String()[:8], threadID.String()[:8])
-			if container.GetContainerId() != mainContainerID || container.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_MAIN {
-				return nil, errors.New("unexpected main container")
-			}
-			if container.GetName() != expectedName {
-				return nil, errors.New("unexpected main container name")
-			}
-			if container.GetImage() != "agent-image" {
-				return nil, errors.New("unexpected main container image")
 			}
 			return &runnersv1.UpdateWorkloadResponse{}, nil
 		},
@@ -268,13 +256,13 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			if req.GetId() != workloadID {
 				return nil, errors.New("unexpected workload id")
 			}
-			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+			if req.Status != nil {
 				return nil, errors.New("unexpected workload status")
 			}
 			if req.GetInstanceId() != workloadID {
 				return nil, errors.New("unexpected instance id")
 			}
-			if len(req.GetContainers()) != 1 || req.GetContainers()[0].GetContainerId() != mainContainerID {
+			if len(req.GetContainers()) != 0 {
 				return nil, errors.New("unexpected containers")
 			}
 			return &runnersv1.UpdateWorkloadResponse{}, nil
@@ -511,6 +499,12 @@ func TestStartWorkloadDeletesIdentityOnRunnerError(t *testing.T) {
 			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
 				return nil, errors.New("unexpected workload status")
 			}
+			if req.GetFailureReason() != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED {
+				return nil, errors.New("unexpected failure reason")
+			}
+			if req.GetFailureMessage() != "runner error" {
+				return nil, errors.New("unexpected failure message")
+			}
 			if req.GetRemovedAt() == nil {
 				return nil, errors.New("missing removed_at")
 			}
@@ -620,6 +614,12 @@ func TestStartWorkloadRollsBackOnWorkloadIDMismatch(t *testing.T) {
 			}
 			if req.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
 				return nil, errors.New("unexpected workload status")
+			}
+			if req.GetFailureReason() != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED {
+				return nil, errors.New("unexpected failure reason")
+			}
+			if req.GetFailureMessage() != "workload id mismatch" {
+				return nil, errors.New("unexpected failure message")
 			}
 			if req.GetInstanceId() != instanceID {
 				return nil, errors.New("unexpected instance id")
@@ -829,6 +829,12 @@ func TestStopWorkloadMarksMissingRunnerOnNoTerminators(t *testing.T) {
 	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
 		t.Fatalf("unexpected workload status: %v", updateReq.GetStatus())
 	}
+	if updateReq.GetFailureReason() != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST {
+		t.Fatalf("unexpected failure reason: %v", updateReq.GetFailureReason())
+	}
+	if updateReq.GetFailureMessage() != "workload missing on runner" {
+		t.Fatalf("unexpected failure message: %v", updateReq.GetFailureMessage())
+	}
 	if updateReq.GetRemovedAt() == nil {
 		t.Fatal("expected removed_at")
 	}
@@ -936,6 +942,12 @@ func TestStopWorkloadMarksFailedWhenInstanceMissing(t *testing.T) {
 	}
 	if updateRequest.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
 		t.Fatalf("unexpected workload status: %v", updateRequest.GetStatus())
+	}
+	if updateRequest.GetFailureReason() != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST {
+		t.Fatalf("unexpected failure reason: %v", updateRequest.GetFailureReason())
+	}
+	if updateRequest.GetFailureMessage() != "missing instance id" {
+		t.Fatalf("unexpected failure message: %v", updateRequest.GetFailureMessage())
 	}
 	if updateRequest.GetRemovedAt() == nil {
 		t.Fatal("expected removed_at")

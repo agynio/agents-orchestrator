@@ -22,6 +22,7 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	workloadKey := "workload-1"
 	rawInstanceID := uuid.New().String()
 	instanceID := "workload-" + rawInstanceID
+	createdAt := timestamppb.New(time.Date(2024, time.January, 1, 1, 2, 3, 0, time.UTC))
 	startTime := timestamppb.New(time.Date(2024, time.January, 1, 2, 3, 4, 0, time.UTC))
 	finishTime := timestamppb.New(time.Date(2024, time.January, 1, 3, 4, 5, 0, time.UTC))
 	reason := "Completed"
@@ -32,7 +33,7 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -259,12 +260,13 @@ func TestReconcileWorkloadsTransitionsStartingToRunningOnInspectError(t *testing
 	workloadKey := "workload-1"
 	rawInstanceID := uuid.New().String()
 	instanceID := "workload-" + rawInstanceID
+	createdAt := timestamppb.New(time.Date(2024, time.January, 1, 1, 2, 3, 0, time.UTC))
 
 	var updateReq *runnersv1.UpdateWorkloadRequest
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -313,7 +315,7 @@ func TestReconcileWorkloadsTransitionsStartingToRunningOnInspectError(t *testing
 	if updateReq == nil {
 		t.Fatal("expected update workload")
 	}
-	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+	if updateReq.Status != nil {
 		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
 	}
 	if updateReq.GetInstanceId() != rawInstanceID {

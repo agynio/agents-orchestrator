@@ -28,15 +28,23 @@ func boolPtr(value bool) *bool {
 	return &value
 }
 
-func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, instanceID *string) {
+func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, instanceID *string, reason runnersv1.WorkloadFailureReason, message string, containers []*runnersv1.Container) {
 	status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED
+	reasonValue := reason
 	req := &runnersv1.UpdateWorkloadRequest{
-		Id:        workloadID,
-		Status:    &status,
-		RemovedAt: timestamppb.New(time.Now().UTC()),
+		Id:            workloadID,
+		Status:        &status,
+		RemovedAt:     timestamppb.New(time.Now().UTC()),
+		FailureReason: &reasonValue,
 	}
 	if instanceID != nil && *instanceID != "" {
 		req.InstanceId = instanceID
+	}
+	if message != "" {
+		req.FailureMessage = stringPtr(message)
+	}
+	if len(containers) > 0 {
+		req.Containers = containers
 	}
 	if _, err := r.runners.UpdateWorkload(ctx, req); err != nil {
 		log.Printf("reconciler: update workload %s to failed: %v", workloadID, err)
