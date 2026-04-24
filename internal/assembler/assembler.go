@@ -2,7 +2,9 @@ package assembler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"os"
@@ -575,7 +577,7 @@ func ensureTokenCountingEnv(envs []*runnerv1.EnvVar) ([]*runnerv1.EnvVar, error)
 	}
 	namespace, err := readServiceAccountNamespace()
 	if err != nil {
-		if os.IsNotExist(err) || os.IsPermission(err) {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
 			return envs, nil
 		}
 		return nil, err
