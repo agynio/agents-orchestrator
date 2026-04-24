@@ -33,6 +33,9 @@ jobs:
 
       - name: Run E2E tests
         uses: agynio/e2e/.github/actions/run-tests@main
+        env:
+          AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.14
+          AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.14
         with:
           service: agents_orchestrator
 
