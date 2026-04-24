@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,31 +20,31 @@ import (
 )
 
 const (
-	listPageSize                      int32 = 100
-	rpcTimeout                              = 10 * time.Second
-	agynBinVolumeName                       = "agyn-bin"
-	agynBinMountPath                        = "/agyn-bin"
-	agynBinBinaryPath                       = "/agyn-bin/agynd"
-	agentWorkspaceDir                       = "/workspace"
-	agentHomeDir                            = "/agyn"
-	agentWorkspaceVolumeName                = "agyn-workspace"
-	agentHomeVolumeName                     = "agyn-home"
-	agentPermissionsInitContainerName       = "agent-permissions"
-	agentPermissionsInitImage               = "busybox:1.37.0"
-	mcpBasePort                             = 8100
-	ZitiSidecarContainerName                = "ziti-sidecar"
-	zitiIdentityVolumeName                  = "ziti-identity"
-	zitiIdentityMountPath                   = "/netfoundry"
-	ZitiIdentityBasename                    = "agent"
-	ZitiEnrollmentTokenEnvVar               = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar              = "ZITI_IDENTITY_BASENAME"
-	zitiDNSNameserver                       = "127.0.0.1"
-	zitiSidecarCommand                      = "tproxy"
-	zitiRequiredCapabilityNetAdmin          = "NET_ADMIN"
-	zitiRestartPolicyKey                    = "restart_policy"
-	zitiRestartPolicyAlways                 = "Always"
-	zitiDNSSearchService                    = "svc.cluster.local"
-	zitiDNSSearchCluster                    = "cluster.local"
+	listPageSize                   int32 = 100
+	rpcTimeout                           = 10 * time.Second
+	agynBinVolumeName                    = "agyn-bin"
+	agynBinMountPath                     = "/agyn-bin"
+	agynBinBinaryPath                    = "/agyn-bin/agynd"
+	mcpBasePort                          = 8100
+	ZitiSidecarContainerName             = "ziti-sidecar"
+	zitiIdentityVolumeName               = "ziti-identity"
+	zitiIdentityMountPath                = "/netfoundry"
+	ZitiIdentityBasename                 = "agent"
+	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
+	zitiDNSNameserver                    = "127.0.0.1"
+	zitiSidecarCommand                   = "tproxy"
+	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
+	zitiRestartPolicyKey                 = "restart_policy"
+	zitiRestartPolicyAlways              = "Always"
+	zitiDNSSearchService                 = "svc.cluster.local"
+	zitiDNSSearchCluster                 = "cluster.local"
+	zitiGatewayWaitContainerName         = "ziti-gateway-wait"
+	zitiGatewayWaitImage                 = "busybox:1.37.0"
+	zitiGatewayWaitTimeoutSeconds        = 60
+	platformNamespaceFallback            = "platform"
+	serviceAccountNamespacePath          = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+	agnTokenCountingEnvVar               = "AGN_TOKEN_COUNTING_ADDRESS"
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -57,8 +59,7 @@ var reservedEnvNames = map[string]struct{}{
 	"AGYN_GATEWAY_URL":         {},
 	"LLM_BASE_URL":             {},
 	"TRACING_ADDRESS":          {},
-	"WORKSPACE_DIR":            {},
-	"HOME":                     {},
+	agnTokenCountingEnvVar:     {},
 	"AGENT_MCP_SERVERS":        {},
 	"MCP_PORT":                 {},
 	ZitiEnrollmentTokenEnvVar:  {},
@@ -118,7 +119,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	if err != nil {
 		return nil, fmt.Errorf("resolve agent mounts: %w", err)
 	}
-	agentMounts, workspaceMount, homeMount, platformVolumes := ensureAgentDirMounts(agentMounts)
 	agentImagePullAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{AgentId: agentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list agent image pull secret attachments: %w", err)
@@ -143,8 +143,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Env:    mainEnv,
 		Mounts: mainMounts,
 	}
-
-	permissionsInitContainer := buildAgentPermissionsInitContainer(workspaceMount, homeMount)
 	initContainer := &runnerv1.ContainerSpec{
 		Image: initImage,
 		Name:  "agent-init",
@@ -152,7 +150,28 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
 		},
 	}
-	initContainers := []*runnerv1.ContainerSpec{permissionsInitContainer, initContainer}
+	initContainers := []*runnerv1.ContainerSpec{initContainer}
+	if a.cfg.ZitiEnabled {
+		gatewayHostname, err := gatewayHost(a.cfg.AgentGatewayAddress)
+		if err != nil {
+			return nil, err
+		}
+		zitiSidecar := &runnerv1.ContainerSpec{
+			Image:                a.cfg.ZitiSidecarImage,
+			Name:                 ZitiSidecarContainerName,
+			Cmd:                  []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", a.cfg.ClusterDNS)},
+			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
+			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
+			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
+			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
+		}
+		zitiGatewayWait := &runnerv1.ContainerSpec{
+			Image: zitiGatewayWaitImage,
+			Name:  zitiGatewayWaitContainerName,
+			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
+		}
+		initContainers = []*runnerv1.ContainerSpec{zitiSidecar, zitiGatewayWait, initContainer}
+	}
 
 	mcps, err := a.listMcps(ctx, agentID)
 	if err != nil {
@@ -195,9 +214,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 
 	sidecarCapacity := len(mcpAssignments) + len(hookAssignments)
-	if a.cfg.ZitiEnabled {
-		sidecarCapacity++
-	}
 	sidecars := make([]*runnerv1.ContainerSpec, 0, sidecarCapacity)
 	mcpServers := make([]string, 0, len(mcpAssignments))
 	for _, assignment := range mcpAssignments {
@@ -215,17 +231,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		}
 		sidecars = append(sidecars, sidecar)
 	}
-	if a.cfg.ZitiEnabled {
-		sidecars = append(sidecars, &runnerv1.ContainerSpec{
-			Image:                a.cfg.ZitiSidecarImage,
-			Name:                 ZitiSidecarContainerName,
-			Cmd:                  []string{zitiSidecarCommand},
-			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
-			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
-			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
-			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
-		})
-	}
 	if len(mcpServers) > 0 {
 		main.Env = appendPlatformEnvVar(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
 	}
@@ -239,7 +244,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL,
 	}
 	volumes := append(volumeResolver.Specs(), agynBinVolume)
-	volumes = append(volumes, platformVolumes...)
 	if a.cfg.ZitiEnabled {
 		volumes = append(volumes, &runnerv1.VolumeSpec{
 			Name: zitiIdentityVolumeName,
@@ -560,6 +564,46 @@ func buildGatewayURL(address string) string {
 	return "http://" + address
 }
 
+func platformNamespace() string {
+	data, err := os.ReadFile(serviceAccountNamespacePath)
+	if err != nil {
+		log.Printf("assembler: warn: read namespace: %v", err)
+		return platformNamespaceFallback
+	}
+	namespace := strings.TrimSpace(string(data))
+	if namespace == "" {
+		log.Printf("assembler: warn: namespace empty")
+		return platformNamespaceFallback
+	}
+	return namespace
+}
+
+func tokenCountingAddress() string {
+	return fmt.Sprintf("token-counting.%s.svc.cluster.local:50051", platformNamespace())
+}
+
+func gatewayHost(address string) (string, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", fmt.Errorf("parse gateway host from %q: %w", address, err)
+	}
+	if host == "" {
+		return "", fmt.Errorf("gateway host missing from %q", address)
+	}
+	return host, nil
+}
+
+func buildZitiGatewayWaitCommand(host string) []string {
+	script := fmt.Sprintf(
+		"i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s\" >&2; exit 1",
+		zitiGatewayWaitTimeoutSeconds,
+		host,
+		zitiDNSNameserver,
+		host,
+	)
+	return []string{"/bin/sh", "-c", script}
+}
+
 func mergeEnvVars(platformEnv, userEnv []*runnerv1.EnvVar, owner string) []*runnerv1.EnvVar {
 	merged := make([]*runnerv1.EnvVar, 0, len(platformEnv)+len(userEnv))
 	seen := make(map[string]struct{}, len(platformEnv)+len(userEnv))
@@ -598,51 +642,6 @@ func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runn
 	return result
 }
 
-func ensureAgentDirMounts(mounts []*runnerv1.VolumeMount) ([]*runnerv1.VolumeMount, *runnerv1.VolumeMount, *runnerv1.VolumeMount, []*runnerv1.VolumeSpec) {
-	workspaceMount := findMountByPath(mounts, agentWorkspaceDir)
-	homeMount := findMountByPath(mounts, agentHomeDir)
-	platformVolumes := []*runnerv1.VolumeSpec{}
-	if workspaceMount == nil {
-		workspaceMount = &runnerv1.VolumeMount{Volume: agentWorkspaceVolumeName, MountPath: agentWorkspaceDir}
-		mounts = append(mounts, workspaceMount)
-		platformVolumes = append(platformVolumes, &runnerv1.VolumeSpec{Name: agentWorkspaceVolumeName, Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL})
-	}
-	if homeMount == nil {
-		homeMount = &runnerv1.VolumeMount{Volume: agentHomeVolumeName, MountPath: agentHomeDir}
-		mounts = append(mounts, homeMount)
-		platformVolumes = append(platformVolumes, &runnerv1.VolumeSpec{Name: agentHomeVolumeName, Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL})
-	}
-	return mounts, workspaceMount, homeMount, platformVolumes
-}
-
-func findMountByPath(mounts []*runnerv1.VolumeMount, path string) *runnerv1.VolumeMount {
-	for _, mount := range mounts {
-		if mount == nil {
-			panic("assembler: nil volume mount")
-		}
-		if mount.MountPath == path {
-			return mount
-		}
-	}
-	return nil
-}
-
-func buildAgentPermissionsInitContainer(workspaceMount, homeMount *runnerv1.VolumeMount) *runnerv1.ContainerSpec {
-	return &runnerv1.ContainerSpec{
-		Image: agentPermissionsInitImage,
-		Name:  agentPermissionsInitContainerName,
-		Cmd:   []string{"/bin/sh", "-c", agentPermissionsInitCommand()},
-		Mounts: []*runnerv1.VolumeMount{
-			{Volume: workspaceMount.Volume, MountPath: workspaceMount.MountPath},
-			{Volume: homeMount.Volume, MountPath: homeMount.MountPath},
-		},
-	}
-}
-
-func agentPermissionsInitCommand() string {
-	return fmt.Sprintf("mkdir -p %s %s && chmod 1777 %s && chmod 0777 %s", agentWorkspaceDir, agentHomeDir, agentWorkspaceDir, agentHomeDir)
-}
-
 func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uuid.UUID) []*runnerv1.EnvVar {
 	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	vars := []*runnerv1.EnvVar{
@@ -655,8 +654,7 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
-		{Name: "WORKSPACE_DIR", Value: agentWorkspaceDir},
-		{Name: "HOME", Value: agentHomeDir},
+		{Name: agnTokenCountingEnvVar, Value: tokenCountingAddress()},
 	}
 	if a.cfg.AgentTracingAddress != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})

@@ -603,6 +603,12 @@ func failureSummary(failure *runnerv1.WorkloadFailure) string {
 }
 
 func attachZitiEnrollmentToken(request *runnerv1.StartWorkloadRequest, jwt string) error {
+	for _, container := range request.InitContainers {
+		if container.Name == assembler.ZitiSidecarContainerName {
+			container.Env = append(container.Env, &runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt})
+			return nil
+		}
+	}
 	for _, container := range request.Sidecars {
 		if container.Name == assembler.ZitiSidecarContainerName {
 			container.Env = append(container.Env, &runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt})
