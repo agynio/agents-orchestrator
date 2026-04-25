@@ -31,7 +31,7 @@ jobs:
           ref: main
 
       - name: Setup DevSpace
-        uses: agynio/e2e/.github/actions/setup-devspace@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
+        uses: agynio/e2e/.github/actions/setup-devspace@a5e483ad61ebf8133c2b92044e5dc2403c99d840
 
       - name: Checkout runners
         uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
         run: devspace run deploy -n platform
 
       - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
+        uses: agynio/e2e/.github/actions/run-tests@a5e483ad61ebf8133c2b92044e5dc2403c99d840
         env:
           AGN_INIT_IMAGE: ${{ env.AGN_INIT_IMAGE }}
           AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
