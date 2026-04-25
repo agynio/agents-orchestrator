@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,9 +41,6 @@ const (
 	zitiGatewayWaitContainerName         = "ziti-gateway-wait"
 	zitiGatewayWaitImage                 = "busybox:1.37.0"
 	zitiGatewayWaitTimeoutSeconds        = 60
-	platformNamespaceFallback            = "platform"
-	serviceAccountNamespacePath          = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-	agnTokenCountingEnvVar               = "AGN_TOKEN_COUNTING_ADDRESS"
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -59,7 +55,6 @@ var reservedEnvNames = map[string]struct{}{
 	"AGYN_GATEWAY_URL":         {},
 	"LLM_BASE_URL":             {},
 	"TRACING_ADDRESS":          {},
-	agnTokenCountingEnvVar:     {},
 	"AGENT_MCP_SERVERS":        {},
 	"MCP_PORT":                 {},
 	ZitiEnrollmentTokenEnvVar:  {},
@@ -564,24 +559,6 @@ func buildGatewayURL(address string) string {
 	return "http://" + address
 }
 
-func platformNamespace() string {
-	data, err := os.ReadFile(serviceAccountNamespacePath)
-	if err != nil {
-		log.Printf("assembler: warn: read namespace: %v", err)
-		return platformNamespaceFallback
-	}
-	namespace := strings.TrimSpace(string(data))
-	if namespace == "" {
-		log.Printf("assembler: warn: namespace empty")
-		return platformNamespaceFallback
-	}
-	return namespace
-}
-
-func tokenCountingAddress() string {
-	return fmt.Sprintf("token-counting.%s.svc.cluster.local:50051", platformNamespace())
-}
-
 func gatewayHost(address string) (string, error) {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -654,7 +631,6 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
-		{Name: agnTokenCountingEnvVar, Value: tokenCountingAddress()},
 	}
 	if a.cfg.AgentTracingAddress != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})

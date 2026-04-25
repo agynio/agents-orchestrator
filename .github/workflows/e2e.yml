@@ -9,6 +9,10 @@ concurrency:
   group: e2e-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
+env:
+  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
+  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
@@ -22,19 +26,22 @@ jobs:
           path: service
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@1335bdb93b5d7ea3621630d504591cdf455f6d2b
+        uses: agynio/bootstrap/.github/actions/provision@main
         with:
-          ref: 1335bdb93b5d7ea3621630d504591cdf455f6d2b
+          ref: main
 
       - name: Setup DevSpace
-        uses: agynio/e2e/.github/actions/setup-devspace@1aa5e1ad1f7ee6c874318e3049688408ad23e2eb
+        uses: agynio/e2e/.github/actions/setup-devspace@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
 
       - name: Deploy orchestrator from source
         working-directory: service
         run: devspace run deploy -n platform
 
       - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@1aa5e1ad1f7ee6c874318e3049688408ad23e2eb
+        uses: agynio/e2e/.github/actions/run-tests@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
+        env:
+          AGN_INIT_IMAGE: ${{ env.AGN_INIT_IMAGE }}
+          AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
         with:
           service: agents_orchestrator
 
