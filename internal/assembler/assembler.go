@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,9 +31,6 @@ const (
 	ZitiIdentityBasename                 = "agent"
 	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
 	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
-	TokenCountingEnvVar                  = "AGN_TOKEN_COUNTING_ADDRESS"
-	namespacePathEnvVar                  = "AGENTS_ORCHESTRATOR_NAMESPACE_PATH"
-	tokenCountingAddressFormat           = "token-counting.%s.svc.cluster.local:50051"
 	zitiDNSNameserver                    = "127.0.0.1"
 	zitiSidecarCommand                   = "tproxy"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
@@ -46,8 +42,6 @@ const (
 	zitiGatewayWaitImage                 = "busybox:1.37.0"
 	zitiGatewayWaitTimeoutSeconds        = 60
 )
-
-var serviceAccountNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
 var reservedEnvNames = map[string]struct{}{
 	"AGENT_ID":                 {},
@@ -129,10 +123,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 
 	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
-	mainEnv, err = ensureTokenCountingEnv(mainEnv)
-	if err != nil {
-		return nil, err
-	}
 
 	initImage := agent.GetInitImage()
 	if initImage == "" {
@@ -567,47 +557,6 @@ func buildGatewayURL(address string) string {
 		return address
 	}
 	return "http://" + address
-}
-
-func ensureTokenCountingEnv(envs []*runnerv1.EnvVar) ([]*runnerv1.EnvVar, error) {
-	if envVarExists(envs, TokenCountingEnvVar) {
-		return envs, nil
-	}
-	namespace, err := readServiceAccountNamespace()
-	if err != nil {
-		return nil, err
-	}
-	address := buildTokenCountingAddress(namespace)
-	return append(envs, &runnerv1.EnvVar{Name: TokenCountingEnvVar, Value: address}), nil
-}
-
-func envVarExists(envs []*runnerv1.EnvVar, name string) bool {
-	for _, env := range envs {
-		if env.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func readServiceAccountNamespace() (string, error) {
-	path := serviceAccountNamespacePath
-	if overridePath := os.Getenv(namespacePathEnvVar); overridePath != "" {
-		path = overridePath
-	}
-	value, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read service account namespace: %w", err)
-	}
-	namespace := strings.TrimSpace(string(value))
-	if namespace == "" {
-		return "", fmt.Errorf("service account namespace is empty")
-	}
-	return namespace, nil
-}
-
-func buildTokenCountingAddress(namespace string) string {
-	return fmt.Sprintf(tokenCountingAddressFormat, namespace)
 }
 
 func gatewayHost(address string) (string, error) {
