@@ -366,7 +366,7 @@ func TestReconcileWorkloadsFailsCrashloop(t *testing.T) {
 	}
 }
 
-func TestReconcileWorkloadsTransitionsStartingToRunningOnInspectError(t *testing.T) {
+func TestReconcileWorkloadsDoesNotPromoteStartingOnInspectError(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
 	workloadKey := "workload-1"

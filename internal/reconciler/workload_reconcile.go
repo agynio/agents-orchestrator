@@ -355,6 +355,9 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 				mainRunning = false
 			}
 			if container.GetStatus() == runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING {
+				if container.GetReason() == crashLoopBackoffFlag && container.GetRestartCount() >= crashloopThreshold {
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP, message: containerFailureMessage(container)}, nil
+				}
 				if isImagePullFailure(container) && startAge > startGracePeriod {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
 				}
@@ -399,7 +402,7 @@ func (r *Reconciler) failWorkloadOnRunner(ctx context.Context, runnerClient runn
 	}
 	r.markWorkloadFailed(ctx, workloadID, stringPtr(instanceID), failure.reason, failure.message, containers)
 	if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
-		log.Printf("reconciler: stop workload %s after failure: %v", workloadID, err)
+		log.Printf("reconciler: stop workload %s (instance %s) after failure: %v", workloadID, instanceID, err)
 	}
 	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
 		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
