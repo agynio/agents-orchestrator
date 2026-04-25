@@ -22,20 +22,22 @@ jobs:
           path: service
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@0382a86ed54c603a30cceb91e2fe4eba8c2fd924
+        uses: agynio/bootstrap/.github/actions/provision@1335bdb93b5d7ea3621630d504591cdf455f6d2b
+        with:
+          ref: 1335bdb93b5d7ea3621630d504591cdf455f6d2b
 
       - name: Setup DevSpace
-        uses: agynio/e2e/.github/actions/setup-devspace@main
+        uses: agynio/e2e/.github/actions/setup-devspace@1aa5e1ad1f7ee6c874318e3049688408ad23e2eb
 
       - name: Deploy orchestrator from source
         working-directory: service
         run: devspace run deploy -n platform
 
       - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@main
+        uses: agynio/e2e/.github/actions/run-tests@1aa5e1ad1f7ee6c874318e3049688408ad23e2eb
         env:
-          AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.14
-          AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.14
+          AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.15
+          AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.15
         with:
           service: agents_orchestrator
 
