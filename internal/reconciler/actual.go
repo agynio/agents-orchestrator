@@ -40,11 +40,16 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context, orgIdentities map[
 	if err != nil {
 		return nil, err
 	}
-	for orgID := range orgIdentities {
+	for orgID, identityID := range orgIdentities {
 		orgIDCopy := orgID
+		orgCtx, err := runnerIdentityContext(ctx, identityID)
+		if err != nil {
+			return nil, err
+		}
+		useOrgIdentity := false
 		pageToken := ""
 		for {
-			resp, err := r.runners.ListWorkloads(runnerCtx, &runnersv1.ListWorkloadsRequest{
+			resp, err := r.listWorkloadsWithFallback(runnerCtx, orgCtx, &useOrgIdentity, &runnersv1.ListWorkloadsRequest{
 				PageSize:       activeWorkloadPageSize,
 				PageToken:      pageToken,
 				OrganizationId: &orgIDCopy,

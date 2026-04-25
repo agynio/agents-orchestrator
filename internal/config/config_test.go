@@ -43,8 +43,8 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.WorkloadReconcileInterval != time.Minute {
 		t.Fatalf("expected workload reconcile interval %q, got %q", time.Minute, cfg.WorkloadReconcileInterval)
 	}
-	if cfg.ClusterAdminIdentityID != "44444444-4444-4444-4444-444444444444" {
-		t.Fatalf("expected cluster admin identity id %q, got %q", "44444444-4444-4444-4444-444444444444", cfg.ClusterAdminIdentityID)
+	if cfg.ClusterAdminIdentityID != defaultClusterAdminIdentityID {
+		t.Fatalf("expected cluster admin identity id %q, got %q", defaultClusterAdminIdentityID, cfg.ClusterAdminIdentityID)
 	}
 }
 
@@ -86,12 +86,12 @@ func TestFromEnvAgentTracingAddress(t *testing.T) {
 	}
 }
 
-func TestFromEnvRequiresClusterAdminIdentityID(t *testing.T) {
+func TestFromEnvRejectsInvalidClusterAdminIdentityID(t *testing.T) {
 	setBaseEnv(t)
-	t.Setenv("CLUSTER_ADMIN_IDENTITY_ID", "")
+	t.Setenv("CLUSTER_ADMIN_IDENTITY_ID", "not-a-uuid")
 
 	if _, err := FromEnv(); err == nil {
-		t.Fatal("expected error for missing CLUSTER_ADMIN_IDENTITY_ID")
+		t.Fatal("expected error for invalid CLUSTER_ADMIN_IDENTITY_ID")
 	}
 }
 
@@ -114,7 +114,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_TRACING_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
-	t.Setenv("CLUSTER_ADMIN_IDENTITY_ID", "44444444-4444-4444-4444-444444444444")
+	t.Setenv("CLUSTER_ADMIN_IDENTITY_ID", "")
 	t.Setenv("POLL_INTERVAL", "")
 	t.Setenv("WORKLOAD_RECONCILE_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")
