@@ -33,6 +33,17 @@ jobs:
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
 
+      - name: Checkout runners
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/runners
+          ref: af1c53541498d7dd6cf18f0ee84d844140ea805f
+          path: runners
+
+      - name: Deploy runners from source
+        working-directory: runners
+        run: devspace run deploy -n platform
+
       - name: Deploy orchestrator from source
         working-directory: service
         run: devspace run deploy -n platform

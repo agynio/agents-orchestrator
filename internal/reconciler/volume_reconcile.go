@@ -220,16 +220,11 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 	if err != nil {
 		return nil, err
 	}
-	for orgID, identityID := range orgIdentities {
+	for orgID := range orgIdentities {
 		orgIDCopy := orgID
-		orgCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
-		useOrgIdentity := false
 		pageToken := ""
 		for {
-			resp, err := r.listVolumesWithFallback(runnerCtx, orgCtx, &useOrgIdentity, &runnersv1.ListVolumesRequest{
+			resp, err := r.runners.ListVolumes(runnerCtx, &runnersv1.ListVolumesRequest{
 				PageSize:       activeVolumePageSize,
 				PageToken:      pageToken,
 				OrganizationId: &orgIDCopy,

@@ -150,6 +150,71 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 	}
 }
 
+func TestFetchDesiredSkipsDegradedThreads(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	activeThreadID := uuid.New()
+	degradedThreadID := uuid.New()
+	otherParticipantID := uuid.New()
+	updatedAt := timestamppb.New(time.Date(2024, time.January, 4, 0, 0, 0, 0, time.UTC))
+
+	agents := &fakeAgentsClient{
+		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
+				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
+			}}, nil
+		},
+	}
+
+	threads := &fakeThreadsClient{
+		getUnackedMessages: func(_ context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
+			if req.GetParticipantId() != agentID.String() {
+				return nil, errors.New("unexpected participant id")
+			}
+			return &threadsv1.GetUnackedMessagesResponse{Messages: []*threadsv1.Message{
+				{Id: uuid.NewString(), ThreadId: activeThreadID.String()},
+				{Id: uuid.NewString(), ThreadId: degradedThreadID.String()},
+			}}, nil
+		},
+		getThreads: func(_ context.Context, req *threadsv1.GetThreadsRequest, _ ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
+			if req.GetParticipantId() != agentID.String() {
+				return nil, errors.New("unexpected participant id")
+			}
+			return &threadsv1.GetThreadsResponse{Threads: []*threadsv1.Thread{
+				{
+					Id: activeThreadID.String(),
+					Participants: []*threadsv1.Participant{
+						{Id: agentID.String(), Passive: false},
+						{Id: otherParticipantID.String(), Passive: false},
+					},
+				},
+				{
+					Id:     degradedThreadID.String(),
+					Status: threadsv1.ThreadStatus_THREAD_STATUS_DEGRADED,
+					Participants: []*threadsv1.Participant{
+						{Id: agentID.String(), Passive: false},
+						{Id: otherParticipantID.String(), Passive: false},
+					},
+				},
+			}}, nil
+		},
+	}
+
+	reconciler := New(Config{Agents: agents, Threads: threads, ClusterAdminIdentityID: testClusterAdminIdentityID})
+	result, _, _, err := reconciler.fetchDesired(ctx)
+	if err != nil {
+		t.Fatalf("fetch desired: %v", err)
+	}
+
+	expected := []AgentThread{{AgentID: agentID, ThreadID: activeThreadID}}
+	sortAgentThreads(result)
+	sortAgentThreads(expected)
+
+	if !reflect.DeepEqual(result, expected) {
+		t.Fatalf("expected %+v, got %+v", expected, result)
+	}
+}
+
 func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()

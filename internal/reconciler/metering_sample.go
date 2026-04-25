@@ -176,16 +176,11 @@ func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, orgIdentiti
 	if err != nil {
 		return nil, err
 	}
-	for orgID, identityID := range orgIdentities {
+	for orgID := range orgIdentities {
 		orgIDCopy := orgID
-		orgCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
-		useOrgIdentity := false
 		pageToken := ""
 		for {
-			resp, err := r.listWorkloadsWithFallback(runnerCtx, orgCtx, &useOrgIdentity, &runnersv1.ListWorkloadsRequest{
+			resp, err := r.runners.ListWorkloads(runnerCtx, &runnersv1.ListWorkloadsRequest{
 				PageSize:       meteringSamplePageSize,
 				PageToken:      pageToken,
 				OrganizationId: &orgIDCopy,
@@ -225,16 +220,11 @@ func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities
 	if err != nil {
 		return nil, err
 	}
-	for orgID, identityID := range orgIdentities {
+	for orgID := range orgIdentities {
 		orgIDCopy := orgID
-		orgCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
-		useOrgIdentity := false
 		pageToken := ""
 		for {
-			resp, err := r.listVolumesWithFallback(runnerCtx, orgCtx, &useOrgIdentity, &runnersv1.ListVolumesRequest{
+			resp, err := r.runners.ListVolumes(runnerCtx, &runnersv1.ListVolumesRequest{
 				PageSize:       meteringSamplePageSize,
 				PageToken:      pageToken,
 				OrganizationId: &orgIDCopy,
