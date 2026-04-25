@@ -216,12 +216,12 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 	if len(orgIdentities) == 0 {
 		return active, nil
 	}
-	for orgID, identityID := range orgIdentities {
+	runnerCtx, err := r.clusterAdminRunnerContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for orgID := range orgIdentities {
 		orgIDCopy := orgID
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
 		pageToken := ""
 		for {
 			resp, err := r.runners.ListVolumes(runnerCtx, &runnersv1.ListVolumesRequest{

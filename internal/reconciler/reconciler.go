@@ -34,6 +34,7 @@ type Reconciler struct {
 	meteringSampleInterval    time.Duration
 	zitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
 	assembler                 *assembler.Assembler
+	clusterAdminIdentityID    string
 	wake                      <-chan struct{}
 	poll                      time.Duration
 	workloadReconcileInterval time.Duration
@@ -49,6 +50,7 @@ type Config struct {
 	Metering                  meteringv1.MeteringServiceClient
 	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
 	Assembler                 *assembler.Assembler
+	ClusterAdminIdentityID    string
 	Wake                      <-chan struct{}
 	Poll                      time.Duration
 	WorkloadReconcileInterval time.Duration
@@ -67,6 +69,7 @@ func New(cfg Config) *Reconciler {
 		meteringSampleInterval:    cfg.MeteringSampleInterval,
 		zitiMgmt:                  cfg.ZitiMgmt,
 		assembler:                 cfg.Assembler,
+		clusterAdminIdentityID:    cfg.ClusterAdminIdentityID,
 		wake:                      cfg.Wake,
 		poll:                      cfg.Poll,
 		workloadReconcileInterval: cfg.WorkloadReconcileInterval,

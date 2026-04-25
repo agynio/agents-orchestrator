@@ -139,6 +139,7 @@ func run() error {
 		Runners:                   runnersClient,
 		Metering:                  meteringClient,
 		Assembler:                 assembler,
+		ClusterAdminIdentityID:    cfg.ClusterAdminIdentityID,
 		Wake:                      subscriber.Wake(),
 		Poll:                      cfg.PollInterval,
 		WorkloadReconcileInterval: cfg.WorkloadReconcileInterval,

@@ -121,7 +121,13 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Runners: runners, Metering: metering, Agents: defaultAgentsClient(), MeteringSampleInterval: time.Minute})
+	reconciler := New(Config{
+		Runners:                runners,
+		Metering:               metering,
+		Agents:                 defaultAgentsClient(),
+		MeteringSampleInterval: time.Minute,
+		ClusterAdminIdentityID: testClusterAdminIdentityID,
+	})
 	if err := reconciler.sampleMetering(ctx, now); err != nil {
 		t.Fatalf("sample metering: %v", err)
 	}
