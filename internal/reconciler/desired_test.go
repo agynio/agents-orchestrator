@@ -68,9 +68,6 @@ func (f *fakeThreadsClient) ListOrganizationThreads(ctx context.Context, req *th
 func (f *fakeThreadsClient) GetThread(context.Context, *threadsv1.GetThreadRequest, ...grpc.CallOption) (*threadsv1.GetThreadResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
-func (f *fakeThreadsClient) ListOrganizationThreads(context.Context, *threadsv1.ListOrganizationThreadsRequest, ...grpc.CallOption) (*threadsv1.ListOrganizationThreadsResponse, error) {
-	return nil, testutil.ErrNotImplemented
-}
 func (f *fakeThreadsClient) GetOrganizationThreads(context.Context, *threadsv1.GetOrganizationThreadsRequest, ...grpc.CallOption) (*threadsv1.GetOrganizationThreadsResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
