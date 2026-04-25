@@ -18,43 +18,52 @@ type AgentThread struct {
 	ThreadID uuid.UUID
 }
 
-func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, map[uuid.UUID]time.Duration, error) {
+func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, map[uuid.UUID]time.Duration, map[uuid.UUID]time.Time, error) {
 	agents, err := r.listAgents(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	unique := make(map[AgentThread]struct{})
 	idleTimeouts := make(map[uuid.UUID]time.Duration, len(agents))
+	agentUpdatedAt := make(map[uuid.UUID]time.Time, len(agents))
 	for _, agent := range agents {
 		if agent == nil {
-			return nil, nil, fmt.Errorf("agent is nil")
+			return nil, nil, nil, fmt.Errorf("agent is nil")
 		}
 		meta := agent.GetMeta()
 		if meta == nil {
-			return nil, nil, fmt.Errorf("agent meta missing")
+			return nil, nil, nil, fmt.Errorf("agent meta missing")
 		}
 		agentID, err := uuidutil.ParseUUID(meta.GetId(), "agent.meta.id")
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		idleTimeout, err := agentIdleTimeout(agent, agentID, r.idle)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
+		}
+		updatedAt := meta.GetUpdatedAt()
+		if updatedAt == nil {
+			return nil, nil, nil, fmt.Errorf("agent %s updated_at missing", agentID.String())
 		}
 		idleTimeouts[agentID] = idleTimeout
+		agentUpdatedAt[agentID] = updatedAt.AsTime().UTC()
 		threadIDs, err := r.listUnackedThreads(ctx, agentID)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if len(threadIDs) == 0 {
 			continue
 		}
-		passiveThreads, err := r.fetchPassiveThreads(ctx, agentID)
+		passiveThreads, degradedThreads, err := r.fetchThreadParticipation(ctx, agentID)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		for _, threadID := range threadIDs {
 			if _, ok := passiveThreads[threadID]; ok {
+				continue
+			}
+			if _, ok := degradedThreads[threadID]; ok {
 				continue
 			}
 			unique[AgentThread{AgentID: agentID, ThreadID: threadID}] = struct{}{}
@@ -64,7 +73,7 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, map[uuid.
 	for key := range unique {
 		result = append(result, key)
 	}
-	return result, idleTimeouts, nil
+	return result, idleTimeouts, agentUpdatedAt, nil
 }
 
 func agentIdleTimeout(agent *agentsv1.Agent, agentID uuid.UUID, fallback time.Duration) (time.Duration, error) {
@@ -131,11 +140,12 @@ func (r *Reconciler) listUnackedThreads(ctx context.Context, agentID uuid.UUID) 
 	}
 }
 
-func (r *Reconciler) fetchPassiveThreads(ctx context.Context, agentID uuid.UUID) (map[uuid.UUID]struct{}, error) {
+func (r *Reconciler) fetchThreadParticipation(ctx context.Context, agentID uuid.UUID) (map[uuid.UUID]struct{}, map[uuid.UUID]struct{}, error) {
 	passiveThreads := make(map[uuid.UUID]struct{})
+	degradedThreads := make(map[uuid.UUID]struct{})
 	runnerCtx, err := r.runnerIdentityContextForAgent(ctx, agentID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	token := ""
 	agentIDString := agentID.String()
@@ -146,27 +156,30 @@ func (r *Reconciler) fetchPassiveThreads(ctx context.Context, agentID uuid.UUID)
 			PageToken:     token,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("get threads for agent %s: %w", agentIDString, err)
+			return nil, nil, fmt.Errorf("get threads for agent %s: %w", agentIDString, err)
 		}
 		for _, thread := range page.GetThreads() {
 			if thread == nil {
-				return nil, fmt.Errorf("thread is nil")
+				return nil, nil, fmt.Errorf("thread is nil")
 			}
 			threadID, err := uuidutil.ParseUUID(thread.GetId(), "thread.id")
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			participant, err := findThreadParticipant(thread, agentID, threadID)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if participant.GetPassive() {
 				passiveThreads[threadID] = struct{}{}
 			}
+			if thread.GetStatus() == threadsv1.ThreadStatus_THREAD_STATUS_DEGRADED {
+				degradedThreads[threadID] = struct{}{}
+			}
 		}
 		token = page.GetNextPageToken()
 		if token == "" {
-			return passiveThreads, nil
+			return passiveThreads, degradedThreads, nil
 		}
 	}
 }

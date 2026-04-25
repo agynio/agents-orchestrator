@@ -10,7 +10,10 @@ import (
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 )
 
-const messageCreatedEvent = "message.created"
+const (
+	messageCreatedEvent = "message.created"
+	agentUpdatedEvent   = "agent.updated"
+)
 
 type Subscriber struct {
 	client notificationsv1.NotificationsServiceClient
@@ -59,7 +62,8 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			if envelope == nil {
 				continue
 			}
-			if envelope.GetEvent() == messageCreatedEvent {
+			switch envelope.GetEvent() {
+			case messageCreatedEvent, agentUpdatedEvent:
 				select {
 				case s.wake <- struct{}{}:
 				default:

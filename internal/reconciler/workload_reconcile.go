@@ -189,23 +189,43 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 	return nil
 }
 
+const (
+	startGracePeriod     = 60 * time.Second
+	initRetryThreshold   = 3
+	crashloopThreshold   = 3
+	crashLoopBackoffFlag = "CrashLoopBackOff"
+)
+
+var imagePullReasons = map[string]struct{}{
+	"ImagePullBackOff": {},
+	"ErrImagePull":     {},
+}
+
+var configInvalidReasons = map[string]struct{}{
+	"CreateContainerConfigError": {},
+	"CreateContainerError":       {},
+	"InvalidImageName":           {},
+}
+
 func (r *Reconciler) handleMissingRunnerWorkload(ctx context.Context, workload *runnersv1.Workload) error {
 	workloadID := workload.GetMeta().GetId()
 	if workloadID == "" {
 		return nil
 	}
-	missingAt := timestamppb.New(time.Now().UTC())
 	switch workload.GetStatus() {
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
-		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED
-		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
-			Id:        workloadID,
-			Status:    &status,
-			RemovedAt: missingAt,
-		})
-		return err
+		failureReason := runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST
+		failureMessage := "workload missing on runner"
+		r.markWorkloadFailed(ctx, workloadID, stringPtr(workload.GetInstanceId()), failureReason, failureMessage, nil)
+		if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
+			if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
+				log.Printf("reconciler: delete ziti identity %s after missing workload %s: %v", workload.GetZitiIdentityId(), workloadID, err)
+			}
+		}
+		return nil
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
+		missingAt := timestamppb.New(time.Now().UTC())
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
 		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
 			Id:        workloadID,
@@ -229,34 +249,55 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	}
 	updateReq := &runnersv1.UpdateWorkloadRequest{Id: workloadID}
 	shouldUpdate := false
-	switch workload.GetStatus() {
-	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING:
-		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
-		updateReq.Status = &status
+	if workload.GetInstanceId() != instanceID {
 		updateReq.InstanceId = stringPtr(instanceID)
 		shouldUpdate = true
-	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
-		if workload.GetInstanceId() != instanceID {
-			updateReq.InstanceId = stringPtr(instanceID)
-			shouldUpdate = true
-		}
-	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
-		if workload.GetInstanceId() != instanceID {
-			updateReq.InstanceId = stringPtr(instanceID)
-			shouldUpdate = true
-		}
 	}
 	inspectResp, err := r.inspectRunnerWorkload(ctx, runnerClient, instanceID)
+	var containers []*runnersv1.Container
 	if err != nil {
 		log.Printf("reconciler: warn: inspect workload %s: %v", workloadID, err)
 	} else {
-		containers, err := mapRunnerContainers(inspectResp.GetContainers())
-		if err != nil {
-			log.Printf("reconciler: warn: map workload %s containers: %v", workloadID, err)
+		mapped, mapErr := mapRunnerContainers(inspectResp.GetContainers())
+		if mapErr != nil {
+			log.Printf("reconciler: warn: map workload %s containers: %v", workloadID, mapErr)
 		} else {
+			containers = mapped
 			updateReq.Containers = containers
 			shouldUpdate = true
 		}
+	}
+	switch workload.GetStatus() {
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING:
+		if containers != nil {
+			ready, failure, err := classifyStartingContainers(containers, workload, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if failure != nil {
+				r.failWorkloadOnRunner(ctx, runnerClient, workload, instanceID, failure, containers)
+				return nil
+			}
+			if ready {
+				status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
+				updateReq.Status = &status
+				shouldUpdate = true
+			}
+		}
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
+		if containers != nil {
+			failure, err := classifyRunningContainers(containers)
+			if err != nil {
+				return err
+			}
+			if failure != nil {
+				r.failWorkloadOnRunner(ctx, runnerClient, workload, instanceID, failure, containers)
+				return nil
+			}
+		}
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
+		// stop below
+	default:
 	}
 	if shouldUpdate {
 		if _, err := r.runners.UpdateWorkload(ctx, updateReq); err != nil {
@@ -267,4 +308,122 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 		return r.stopRunnerWorkload(ctx, runnerClient, instanceID)
 	}
 	return nil
+}
+
+type workloadFailure struct {
+	reason  runnersv1.WorkloadFailureReason
+	message string
+}
+
+func classifyStartingContainers(containers []*runnersv1.Container, workload *runnersv1.Workload, now time.Time) (bool, *workloadFailure, error) {
+	createdAt, err := workloadCreatedAt(workload)
+	if err != nil {
+		return false, nil, err
+	}
+	startAge := now.Sub(createdAt)
+	initComplete := true
+	mainRunning := true
+	foundMain := false
+	for _, container := range containers {
+		if container == nil {
+			return false, nil, fmt.Errorf("workload %s has nil container", workload.GetMeta().GetId())
+		}
+		switch container.GetRole() {
+		case runnersv1.ContainerRole_CONTAINER_ROLE_INIT:
+			switch container.GetStatus() {
+			case runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING:
+				if isImagePullFailure(container) && startAge > startGracePeriod {
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
+				}
+				if isConfigInvalidFailure(container) && startAge > startGracePeriod {
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
+				}
+				initComplete = false
+			case runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:
+				if container.GetExitCode() != 0 && container.GetRestartCount() >= initRetryThreshold {
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: containerFailureMessage(container)}, nil
+				}
+				if container.GetExitCode() != 0 {
+					initComplete = false
+				}
+			default:
+				initComplete = false
+			}
+		case runnersv1.ContainerRole_CONTAINER_ROLE_MAIN:
+			foundMain = true
+			if container.GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING {
+				mainRunning = false
+			}
+			if container.GetStatus() == runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING {
+				if container.GetReason() == crashLoopBackoffFlag && container.GetRestartCount() >= crashloopThreshold {
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP, message: containerFailureMessage(container)}, nil
+				}
+				if isImagePullFailure(container) && startAge > startGracePeriod {
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
+				}
+				if isConfigInvalidFailure(container) && startAge > startGracePeriod {
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
+				}
+			}
+		default:
+		}
+	}
+	if !foundMain {
+		return false, nil, fmt.Errorf("workload %s missing main container", workload.GetMeta().GetId())
+	}
+	if initComplete && mainRunning {
+		return true, nil, nil
+	}
+	return false, nil, nil
+}
+
+func classifyRunningContainers(containers []*runnersv1.Container) (*workloadFailure, error) {
+	for _, container := range containers {
+		if container == nil {
+			return nil, fmt.Errorf("container is nil")
+		}
+		if container.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_MAIN {
+			continue
+		}
+		if container.GetStatus() == runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING && container.GetReason() == crashLoopBackoffFlag && container.GetRestartCount() >= crashloopThreshold {
+			return &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP, message: containerFailureMessage(container)}, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *Reconciler) failWorkloadOnRunner(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workload *runnersv1.Workload, instanceID string, failure *workloadFailure, containers []*runnersv1.Container) {
+	if failure == nil {
+		return
+	}
+	workloadID := workload.GetMeta().GetId()
+	if workloadID == "" {
+		return
+	}
+	r.markWorkloadFailed(ctx, workloadID, stringPtr(instanceID), failure.reason, failure.message, containers)
+	if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
+		log.Printf("reconciler: stop workload %s (instance %s) after failure: %v", workloadID, instanceID, err)
+	}
+	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
+		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
+			log.Printf("reconciler: delete ziti identity %s after workload %s failure: %v", workload.GetZitiIdentityId(), workloadID, err)
+		}
+	}
+}
+
+func isImagePullFailure(container *runnersv1.Container) bool {
+	_, ok := imagePullReasons[container.GetReason()]
+	return ok
+}
+
+func isConfigInvalidFailure(container *runnersv1.Container) bool {
+	_, ok := configInvalidReasons[container.GetReason()]
+	return ok
+}
+
+func containerFailureMessage(container *runnersv1.Container) string {
+	if container.GetMessage() != "" {
+		return container.GetMessage()
+	}
+	return container.GetReason()
 }

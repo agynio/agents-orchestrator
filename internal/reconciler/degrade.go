@@ -10,6 +10,7 @@ import (
 const (
 	degradeReasonRunnerDeprovisioned = "runner_deprovisioned"
 	degradeReasonVolumeLost          = "volume_lost"
+	degradeReasonStartFailures       = "agent_start_failures_exhausted"
 )
 
 type degradeTracker struct {
