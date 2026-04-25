@@ -215,11 +215,8 @@ func (r *Reconciler) handleMissingRunnerWorkload(ctx context.Context, workload *
 	switch workload.GetStatus() {
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
-		failureReason := runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED
+		failureReason := runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST
 		failureMessage := "workload missing on runner"
-		if workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
-			failureReason = runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST
-		}
 		r.markWorkloadFailed(ctx, workloadID, stringPtr(workload.GetInstanceId()), failureReason, failureMessage, nil)
 		if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
 			if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
@@ -289,7 +286,11 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 		}
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
 		if containers != nil {
-			if failure := classifyRunningContainers(containers); failure != nil {
+			failure, err := classifyRunningContainers(containers)
+			if err != nil {
+				return err
+			}
+			if failure != nil {
 				r.failWorkloadOnRunner(ctx, runnerClient, workload, instanceID, failure, containers)
 				return nil
 			}
@@ -334,6 +335,9 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 				if isImagePullFailure(container) && startAge > startGracePeriod {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
 				}
+				if isConfigInvalidFailure(container) && startAge > startGracePeriod {
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
+				}
 				initComplete = false
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:
 				if container.GetExitCode() != 0 && container.GetRestartCount() >= initRetryThreshold {
@@ -370,19 +374,19 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 	return false, nil, nil
 }
 
-func classifyRunningContainers(containers []*runnersv1.Container) *workloadFailure {
+func classifyRunningContainers(containers []*runnersv1.Container) (*workloadFailure, error) {
 	for _, container := range containers {
 		if container == nil {
-			continue
+			return nil, fmt.Errorf("container is nil")
 		}
 		if container.GetRole() != runnersv1.ContainerRole_CONTAINER_ROLE_MAIN {
 			continue
 		}
 		if container.GetStatus() == runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING && container.GetReason() == crashLoopBackoffFlag && container.GetRestartCount() >= crashloopThreshold {
-			return &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP, message: containerFailureMessage(container)}
+			return &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP, message: containerFailureMessage(container)}, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (r *Reconciler) failWorkloadOnRunner(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workload *runnersv1.Workload, instanceID string, failure *workloadFailure, containers []*runnersv1.Container) {

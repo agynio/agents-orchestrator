@@ -68,6 +68,9 @@ func (f *fakeThreadsClient) ListOrganizationThreads(ctx context.Context, req *th
 func (f *fakeThreadsClient) GetThread(context.Context, *threadsv1.GetThreadRequest, ...grpc.CallOption) (*threadsv1.GetThreadResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
+func (f *fakeThreadsClient) ListOrganizationThreads(context.Context, *threadsv1.ListOrganizationThreadsRequest, ...grpc.CallOption) (*threadsv1.ListOrganizationThreadsResponse, error) {
+	return nil, testutil.ErrNotImplemented
+}
 func (f *fakeThreadsClient) GetOrganizationThreads(context.Context, *threadsv1.GetOrganizationThreadsRequest, ...grpc.CallOption) (*threadsv1.GetOrganizationThreadsResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
@@ -147,6 +150,73 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 
 	if !reflect.DeepEqual(result, expected) {
 		t.Fatalf("expected %+v, got %+v", expected, result)
+	}
+}
+
+func TestFetchDesiredSkipsDegradedThreads(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	activeThreadID := uuid.New()
+	degradedThreadID := uuid.New()
+	otherParticipantID := uuid.New()
+
+	agents := &fakeAgentsClient{
+		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+			updatedAt := timestamppb.New(time.Now().UTC())
+			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
+				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
+			}}, nil
+		},
+	}
+
+	threads := &fakeThreadsClient{
+		getUnackedMessages: func(_ context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
+			if req.GetParticipantId() != agentID.String() {
+				return nil, errors.New("unexpected participant id")
+			}
+			return &threadsv1.GetUnackedMessagesResponse{Messages: []*threadsv1.Message{
+				{Id: uuid.NewString(), ThreadId: activeThreadID.String()},
+				{Id: uuid.NewString(), ThreadId: degradedThreadID.String()},
+			}}, nil
+		},
+		getThreads: func(_ context.Context, req *threadsv1.GetThreadsRequest, _ ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
+			if req.GetParticipantId() != agentID.String() {
+				return nil, errors.New("unexpected participant id")
+			}
+			return &threadsv1.GetThreadsResponse{Threads: []*threadsv1.Thread{
+				{
+					Id: activeThreadID.String(),
+					Participants: []*threadsv1.Participant{
+						{Id: agentID.String(), Passive: false},
+						{Id: otherParticipantID.String(), Passive: false},
+					},
+				},
+				{
+					Id: degradedThreadID.String(),
+					Participants: []*threadsv1.Participant{
+						{Id: agentID.String(), Passive: false},
+						{Id: otherParticipantID.String(), Passive: false},
+					},
+					Status: threadsv1.ThreadStatus_THREAD_STATUS_DEGRADED,
+				},
+			}}, nil
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		Agents:  agents,
+		Threads: threads,
+	})
+
+	result, _, _, err := reconciler.fetchDesired(ctx)
+	if err != nil {
+		t.Fatalf("fetch desired: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 thread, got %d", len(result))
+	}
+	if result[0].ThreadID != activeThreadID {
+		t.Fatalf("expected thread %s, got %s", activeThreadID, result[0].ThreadID)
 	}
 }
 
