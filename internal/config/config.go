@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 )
 
 type Config struct {
@@ -25,6 +28,7 @@ type Config struct {
 	AgentGatewayAddress       string
 	AgentTracingAddress       string
 	AgentLLMBaseURL           string
+	ClusterAdminIdentityID    string
 	PollInterval              time.Duration
 	WorkloadReconcileInterval time.Duration
 	IdleTimeout               time.Duration
@@ -108,6 +112,15 @@ func FromEnv() (Config, error) {
 			cfg.AgentLLMBaseURL = "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1"
 		}
 	}
+	clusterAdminIdentityID := strings.TrimSpace(os.Getenv("CLUSTER_ADMIN_IDENTITY_ID"))
+	if clusterAdminIdentityID == "" {
+		return Config{}, fmt.Errorf("CLUSTER_ADMIN_IDENTITY_ID is required")
+	}
+	parsedClusterAdminID, err := uuidutil.ParseUUID(clusterAdminIdentityID, "CLUSTER_ADMIN_IDENTITY_ID")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ClusterAdminIdentityID = parsedClusterAdminID.String()
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
 	if cfg.ZitiManagementAddress == "" {
 		cfg.ZitiManagementAddress = "ziti-management:50051"

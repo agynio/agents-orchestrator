@@ -21,6 +21,13 @@ func runnerIdentityContext(ctx context.Context, identityID string) (context.Cont
 	return metadata.NewOutgoingContext(ctx, metadata.Pairs(identityMetadataKey, identityID)), nil
 }
 
+func (r *Reconciler) clusterAdminRunnerContext(ctx context.Context) (context.Context, error) {
+	if r.clusterAdminIdentityID == "" {
+		return nil, fmt.Errorf("cluster admin identity id missing")
+	}
+	return runnerIdentityContext(ctx, r.clusterAdminIdentityID)
+}
+
 func (r *Reconciler) runnerIdentityContextForAgent(ctx context.Context, agentID uuid.UUID) (context.Context, error) {
 	return runnerIdentityContext(ctx, agentID.String())
 }

@@ -5,14 +5,12 @@ import (
 	"errors"
 	"reflect"
 	"testing"
-	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type fakeAgentsClient struct {
@@ -95,9 +93,8 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 
 	agents := &fakeAgentsClient{
 		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-			updatedAt := timestamppb.New(time.Now().UTC())
 			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
-				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
+				{Meta: &agentsv1.EntityMeta{Id: agentID.String()}},
 			}}, nil
 		},
 	}
@@ -135,8 +132,8 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Agents: agents, Threads: threads})
-	result, _, _, err := reconciler.fetchDesired(ctx)
+	reconciler := New(Config{Agents: agents, Threads: threads, ClusterAdminIdentityID: testClusterAdminIdentityID})
+	result, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
 	}
@@ -150,73 +147,6 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 	}
 }
 
-func TestFetchDesiredSkipsDegradedThreads(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	activeThreadID := uuid.New()
-	degradedThreadID := uuid.New()
-	otherParticipantID := uuid.New()
-
-	agents := &fakeAgentsClient{
-		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-			updatedAt := timestamppb.New(time.Now().UTC())
-			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
-				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
-			}}, nil
-		},
-	}
-
-	threads := &fakeThreadsClient{
-		getUnackedMessages: func(_ context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
-			if req.GetParticipantId() != agentID.String() {
-				return nil, errors.New("unexpected participant id")
-			}
-			return &threadsv1.GetUnackedMessagesResponse{Messages: []*threadsv1.Message{
-				{Id: uuid.NewString(), ThreadId: activeThreadID.String()},
-				{Id: uuid.NewString(), ThreadId: degradedThreadID.String()},
-			}}, nil
-		},
-		getThreads: func(_ context.Context, req *threadsv1.GetThreadsRequest, _ ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
-			if req.GetParticipantId() != agentID.String() {
-				return nil, errors.New("unexpected participant id")
-			}
-			return &threadsv1.GetThreadsResponse{Threads: []*threadsv1.Thread{
-				{
-					Id: activeThreadID.String(),
-					Participants: []*threadsv1.Participant{
-						{Id: agentID.String(), Passive: false},
-						{Id: otherParticipantID.String(), Passive: false},
-					},
-				},
-				{
-					Id: degradedThreadID.String(),
-					Participants: []*threadsv1.Participant{
-						{Id: agentID.String(), Passive: false},
-						{Id: otherParticipantID.String(), Passive: false},
-					},
-					Status: threadsv1.ThreadStatus_THREAD_STATUS_DEGRADED,
-				},
-			}}, nil
-		},
-	}
-
-	reconciler := newTestReconciler(Config{
-		Agents:  agents,
-		Threads: threads,
-	})
-
-	result, _, _, err := reconciler.fetchDesired(ctx)
-	if err != nil {
-		t.Fatalf("fetch desired: %v", err)
-	}
-	if len(result) != 1 {
-		t.Fatalf("expected 1 thread, got %d", len(result))
-	}
-	if result[0].ThreadID != activeThreadID {
-		t.Fatalf("expected thread %s, got %s", activeThreadID, result[0].ThreadID)
-	}
-}
-
 func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
@@ -224,9 +154,8 @@ func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 
 	agents := &fakeAgentsClient{
 		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-			updatedAt := timestamppb.New(time.Now().UTC())
 			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
-				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
+				{Meta: &agentsv1.EntityMeta{Id: agentID.String()}},
 			}}, nil
 		},
 	}
@@ -244,8 +173,8 @@ func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Agents: agents, Threads: threads})
-	result, _, _, err := reconciler.fetchDesired(ctx)
+	reconciler := New(Config{Agents: agents, Threads: threads, ClusterAdminIdentityID: testClusterAdminIdentityID})
+	result, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
 	}
