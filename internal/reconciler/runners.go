@@ -30,7 +30,7 @@ func (r *Reconciler) listRunners(ctx context.Context, organizationID string) ([]
 	var runners []*runnersv1.Runner
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListRunners(ctx, &runnersv1.ListRunnersRequest{
+		resp, err := r.runners.ListRunners(runnersContext(ctx), &runnersv1.ListRunnersRequest{
 			PageSize:       runnerPageSize,
 			PageToken:      pageToken,
 			OrganizationId: &orgID,
