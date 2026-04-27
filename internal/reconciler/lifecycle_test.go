@@ -26,7 +26,6 @@ const (
 	testOrganizationID         = "11111111-1111-1111-1111-111111111111"
 	testAgentID                = "22222222-2222-2222-2222-222222222222"
 	testAgentIDAlt             = "33333333-3333-3333-3333-333333333333"
-	testClusterAdminIdentityID = "44444444-4444-4444-4444-444444444444"
 	testAllocatedCPUMillicores = int32(500)
 	testAllocatedRAMBytes      = int64(1 << 30)
 )
@@ -1173,11 +1172,11 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
-			if len(req.GetStatuses()) == 0 {
+			if len(req.GetFilter().GetStatusIn()) == 0 {
 				return nil, errors.New("missing statuses")
 			}
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, ZitiIdentityId: activeID},
+				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, OrganizationId: testOrganizationID, ZitiIdentityId: activeID},
 			}}, nil
 		},
 	}
@@ -1226,7 +1225,7 @@ func TestFetchActualReturnsTrackedWorkloads(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID},
+				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, RunnerId: runnerID, OrganizationId: testOrganizationID},
 			}}, nil
 		},
 	}
@@ -1252,7 +1251,7 @@ func TestFetchActualSkipsMissingRunnerID(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}},
+				{Meta: &runnersv1.EntityMeta{Id: "workload-1"}, OrganizationId: testOrganizationID},
 			}}, nil
 		},
 	}
@@ -1282,9 +1281,6 @@ func newTestReconciler(cfg Config) *Reconciler {
 	}
 	if cfg.MeteringSampleInterval == 0 {
 		cfg.MeteringSampleInterval = time.Minute
-	}
-	if cfg.ClusterAdminIdentityID == "" {
-		cfg.ClusterAdminIdentityID = testClusterAdminIdentityID
 	}
 	if cfg.RunnerDialer == nil {
 		cfg.RunnerDialer = &fakeRunnerDialer{}
