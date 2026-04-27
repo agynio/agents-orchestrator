@@ -10,10 +10,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
+  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.15
   CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.20
-  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.11
-  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
+  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.23
+  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.15
   AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init:v1.0.0
   RUNNERS_REF: 0648a7fd8fe0ebea560e593809f460d78bb41f3f
 
@@ -30,9 +30,9 @@ jobs:
           path: service
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@ec73ff7f1cfcdca65a829e8e1a0ff8b8c050535d
+        uses: agynio/bootstrap/.github/actions/provision@17008dc24ccf6d6019ce47abc8c43be053671a8d
         with:
-          ref: ec73ff7f1cfcdca65a829e8e1a0ff8b8c050535d
+          ref: 17008dc24ccf6d6019ce47abc8c43be053671a8d
 
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@e20c83d821f789d2df96038826aed5aa25b91070
