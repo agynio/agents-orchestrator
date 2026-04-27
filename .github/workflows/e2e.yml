@@ -10,8 +10,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
-  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
+  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4
+  CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13
+  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1
+  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4
+  AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init:v1.0.0
 
 jobs:
   e2e:
@@ -31,13 +34,13 @@ jobs:
           ref: ec73ff7f1cfcdca65a829e8e1a0ff8b8c050535d
 
       - name: Setup DevSpace
-        uses: agynio/e2e/.github/actions/setup-devspace@a5e483ad61ebf8133c2b92044e5dc2403c99d840
+        uses: agynio/e2e/.github/actions/setup-devspace@e20c83d821f789d2df96038826aed5aa25b91070
 
       - name: Checkout runners
         uses: actions/checkout@v4
         with:
           repository: agynio/runners
-          ref: 7ae169ea800ea9648adb2202fd70e4ab8ea71771
+          ref: 0648a7fd8fe0ebea560e593809f460d78bb41f3f
           path: runners
 
       - name: Deploy runners from source
@@ -49,10 +52,13 @@ jobs:
         run: devspace run deploy -n platform
 
       - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@a5e483ad61ebf8133c2b92044e5dc2403c99d840
+        uses: agynio/e2e/.github/actions/run-tests@e20c83d821f789d2df96038826aed5aa25b91070
         env:
           AGN_INIT_IMAGE: ${{ env.AGN_INIT_IMAGE }}
+          CODEX_INIT_IMAGE: ${{ env.CODEX_INIT_IMAGE }}
+          CLAUDE_INIT_IMAGE: ${{ env.CLAUDE_INIT_IMAGE }}
           AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
+          AGYN_AGENT_INIT_IMAGE: ${{ env.AGYN_AGENT_INIT_IMAGE }}
         with:
           service: agents_orchestrator
 

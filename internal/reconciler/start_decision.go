@@ -148,7 +148,7 @@ func (r *Reconciler) listWorkloadsByThread(ctx context.Context, threadID string,
 		if len(statuses) > 0 {
 			req.Statuses = statuses
 		}
-		resp, err := r.runners.ListWorkloadsByThread(ctx, req)
+		resp, err := r.runners.ListWorkloadsByThread(runnersContext(ctx), req)
 		if err != nil {
 			return nil, fmt.Errorf("list workloads for thread %s: %w", threadID, err)
 		}

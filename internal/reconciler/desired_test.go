@@ -28,9 +28,10 @@ func (f *fakeAgentsClient) ListAgents(ctx context.Context, req *agentsv1.ListAge
 }
 
 type fakeThreadsClient struct {
-	getThreads         func(context.Context, *threadsv1.GetThreadsRequest, ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error)
-	getUnackedMessages func(context.Context, *threadsv1.GetUnackedMessagesRequest, ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error)
-	degradeThread      func(context.Context, *threadsv1.DegradeThreadRequest, ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error)
+	getThreads              func(context.Context, *threadsv1.GetThreadsRequest, ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error)
+	getUnackedMessages      func(context.Context, *threadsv1.GetUnackedMessagesRequest, ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error)
+	getUnackedMessageCounts func(context.Context, *threadsv1.GetUnackedMessageCountsRequest, ...grpc.CallOption) (*threadsv1.GetUnackedMessageCountsResponse, error)
+	degradeThread           func(context.Context, *threadsv1.DegradeThreadRequest, ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error)
 }
 
 func (f *fakeThreadsClient) CreateThread(context.Context, *threadsv1.CreateThreadRequest, ...grpc.CallOption) (*threadsv1.CreateThreadResponse, error) {
@@ -78,6 +79,13 @@ func (f *fakeThreadsClient) GetMessages(context.Context, *threadsv1.GetMessagesR
 func (f *fakeThreadsClient) GetUnackedMessages(ctx context.Context, req *threadsv1.GetUnackedMessagesRequest, opts ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
 	if f.getUnackedMessages != nil {
 		return f.getUnackedMessages(ctx, req, opts...)
+	}
+	return nil, testutil.ErrNotImplemented
+}
+
+func (f *fakeThreadsClient) GetUnackedMessageCounts(ctx context.Context, req *threadsv1.GetUnackedMessageCountsRequest, opts ...grpc.CallOption) (*threadsv1.GetUnackedMessageCountsResponse, error) {
+	if f.getUnackedMessageCounts != nil {
+		return f.getUnackedMessageCounts(ctx, req, opts...)
 	}
 	return nil, testutil.ErrNotImplemented
 }
@@ -135,7 +143,7 @@ func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Agents: agents, Threads: threads, ClusterAdminIdentityID: testClusterAdminIdentityID})
+	reconciler := New(Config{Agents: agents, Threads: threads})
 	result, _, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
@@ -200,7 +208,7 @@ func TestFetchDesiredSkipsDegradedThreads(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Agents: agents, Threads: threads, ClusterAdminIdentityID: testClusterAdminIdentityID})
+	reconciler := New(Config{Agents: agents, Threads: threads})
 	result, _, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
@@ -242,7 +250,7 @@ func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 		},
 	}
 
-	reconciler := New(Config{Agents: agents, Threads: threads, ClusterAdminIdentityID: testClusterAdminIdentityID})
+	reconciler := New(Config{Agents: agents, Threads: threads})
 	result, _, _, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)

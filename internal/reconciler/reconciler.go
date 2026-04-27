@@ -34,7 +34,6 @@ type Reconciler struct {
 	meteringSampleInterval    time.Duration
 	zitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
 	assembler                 *assembler.Assembler
-	clusterAdminIdentityID    string
 	wake                      <-chan struct{}
 	poll                      time.Duration
 	workloadReconcileInterval time.Duration
@@ -50,7 +49,6 @@ type Config struct {
 	Metering                  meteringv1.MeteringServiceClient
 	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
 	Assembler                 *assembler.Assembler
-	ClusterAdminIdentityID    string
 	Wake                      <-chan struct{}
 	Poll                      time.Duration
 	WorkloadReconcileInterval time.Duration
@@ -69,7 +67,6 @@ func New(cfg Config) *Reconciler {
 		meteringSampleInterval:    cfg.MeteringSampleInterval,
 		zitiMgmt:                  cfg.ZitiMgmt,
 		assembler:                 cfg.Assembler,
-		clusterAdminIdentityID:    cfg.ClusterAdminIdentityID,
 		wake:                      cfg.Wake,
 		poll:                      cfg.Poll,
 		workloadReconcileInterval: cfg.WorkloadReconcileInterval,
@@ -232,7 +229,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 		}
 		selectedRunner = runner
 	} else {
-		selectedRunner, err = r.selectRunner(runnerCtx, target.AgentID.String(), assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
+		selectedRunner, err = r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
 		if err != nil {
 			log.Printf("reconciler: select runner for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 			return
@@ -334,7 +331,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 		Id:         workloadIDValue,
 		InstanceId: stringPtr(instanceID),
 	}
-	if _, err := r.runners.UpdateWorkload(runnerCtx, updateReq); err != nil {
+	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), updateReq); err != nil {
 		log.Printf("reconciler: update workload record %s after start: %v", workloadIDValue, err)
 	}
 }
@@ -373,7 +370,7 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 		return
 	}
 	stoppingStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING
-	if _, err := r.runners.UpdateWorkload(runnerCtx, &runnersv1.UpdateWorkloadRequest{
+	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
 		Id:     workloadID,
 		Status: &stoppingStatus,
 	}); err != nil {
@@ -391,7 +388,7 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 		return
 	}
 	stoppedStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
-	if _, err := r.runners.UpdateWorkload(runnerCtx, &runnersv1.UpdateWorkloadRequest{
+	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
 		Id:        workloadID,
 		Status:    &stoppedStatus,
 		RemovedAt: timestamppb.New(time.Now().UTC()),

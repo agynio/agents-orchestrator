@@ -92,8 +92,6 @@ env:
     value: ""
   - name: AGENT_TRACING_ADDRESS
     value: ""
-  - name: CLUSTER_ADMIN_IDENTITY_ID
-    value: ""
   - name: POLL_INTERVAL
     value: ""
   - name: IDLE_TIMEOUT

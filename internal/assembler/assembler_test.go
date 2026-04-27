@@ -441,7 +441,6 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	t.Setenv("CLUSTER_DNS", "")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
-	t.Setenv("CLUSTER_ADMIN_IDENTITY_ID", "44444444-4444-4444-4444-444444444444")
 	t.Setenv("POLL_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")
 	t.Setenv("STOP_TIMEOUT_SEC", "")

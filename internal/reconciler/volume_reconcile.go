@@ -12,6 +12,7 @@ import (
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/agynio/agents-orchestrator/internal/runnerdial"
+	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -216,44 +217,50 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 	if len(orgIdentities) == 0 {
 		return active, nil
 	}
-	runnerCtx, err := r.clusterAdminRunnerContext(ctx)
-	if err != nil {
-		return nil, err
+	pageToken := ""
+	statuses := []runnersv1.VolumeStatus{
+		runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
+		runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+		runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
 	}
-	for orgID := range orgIdentities {
-		orgIDCopy := orgID
-		pageToken := ""
-		for {
-			resp, err := r.runners.ListVolumes(runnerCtx, &runnersv1.ListVolumesRequest{
-				PageSize:       activeVolumePageSize,
-				PageToken:      pageToken,
-				OrganizationId: &orgIDCopy,
-				Statuses: []runnersv1.VolumeStatus{
-					runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
-					runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
-					runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
-				},
-			})
+	for {
+		resp, err := r.runners.ListVolumes(runnersContext(ctx), &runnersv1.ListVolumesRequest{
+			PageSize:  activeVolumePageSize,
+			PageToken: pageToken,
+			Filter: &runnersv1.ListVolumesFilter{
+				StatusIn: statuses,
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list volumes: %w", err)
+		}
+		for _, volume := range resp.GetVolumes() {
+			if volume == nil {
+				return nil, fmt.Errorf("volume is nil")
+			}
+			meta := volume.GetMeta()
+			if meta == nil {
+				return nil, fmt.Errorf("volume meta missing")
+			}
+			if meta.GetId() == "" {
+				return nil, fmt.Errorf("volume meta id missing")
+			}
+			orgID := strings.TrimSpace(volume.GetOrganizationId())
+			if orgID == "" {
+				return nil, fmt.Errorf("volume %s organization id missing", meta.GetId())
+			}
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "volume.organization_id")
 			if err != nil {
-				return nil, fmt.Errorf("list volumes: %w", err)
+				return nil, err
 			}
-			for _, volume := range resp.GetVolumes() {
-				if volume == nil {
-					return nil, fmt.Errorf("volume is nil")
-				}
-				meta := volume.GetMeta()
-				if meta == nil {
-					return nil, fmt.Errorf("volume meta missing")
-				}
-				if meta.GetId() == "" {
-					return nil, fmt.Errorf("volume meta id missing")
-				}
-				active = append(active, volume)
+			if _, ok := orgIdentities[parsedOrgID.String()]; !ok {
+				continue
 			}
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
-			}
+			active = append(active, volume)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
 		}
 	}
 	return active, nil
@@ -269,14 +276,14 @@ func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runn
 		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
 			Id:     volumeID,
 			Status: &status,
 		})
 		return err
 	case runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
-		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
 			Id:        volumeID,
 			Status:    &status,
 			RemovedAt: timestamppb.New(time.Now().UTC()),
@@ -299,7 +306,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 	switch volume.GetStatus() {
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE
-		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
 			Id:         volumeID,
 			Status:     &status,
 			InstanceId: stringPtr(instanceID),
@@ -307,7 +314,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 		return err
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
 		if volume.GetInstanceId() != instanceID {
-			if _, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+			if _, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
 				Id:         volumeID,
 				InstanceId: stringPtr(instanceID),
 			}); err != nil {
@@ -322,7 +329,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 			return nil
 		}
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING
-		if _, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{Id: volumeID, Status: &status}); err != nil {
+		if _, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{Id: volumeID, Status: &status}); err != nil {
 			return err
 		}
 		return r.removeRunnerVolume(ctx, runnerClient, instanceID)
