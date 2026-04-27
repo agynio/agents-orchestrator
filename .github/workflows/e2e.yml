@@ -10,12 +10,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.15
+  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
   CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.20
   CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.23
-  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.15
+  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
   AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init:v1.0.0
-  RUNNERS_REF: 0648a7fd8fe0ebea560e593809f460d78bb41f3f
+  RUNNERS_REF: fe33df94a8057d381949c9f063f7f23be8217f0a
 
 jobs:
   e2e:
@@ -35,7 +35,7 @@ jobs:
           ref: ec73ff7f1cfcdca65a829e8e1a0ff8b8c050535d
 
       - name: Setup DevSpace
-        uses: agynio/e2e/.github/actions/setup-devspace@e20c83d821f789d2df96038826aed5aa25b91070
+        uses: agynio/e2e/.github/actions/setup-devspace@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
 
       - name: Checkout runners
         uses: actions/checkout@v4
@@ -53,7 +53,7 @@ jobs:
         run: devspace run deploy -n platform
 
       - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@e20c83d821f789d2df96038826aed5aa25b91070
+        uses: agynio/e2e/.github/actions/run-tests@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
         env:
           AGN_INIT_IMAGE: ${{ env.AGN_INIT_IMAGE }}
           CODEX_INIT_IMAGE: ${{ env.CODEX_INIT_IMAGE }}
@@ -61,6 +61,7 @@ jobs:
           AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
           AGYN_AGENT_INIT_IMAGE: ${{ env.AGYN_AGENT_INIT_IMAGE }}
         with:
+          ref: 0a4f88cc9d2392234dd2faa88427d3051e2722d0
           service: agents_orchestrator
 
       - name: Restore ArgoCD sync
