@@ -229,7 +229,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 		}
 		selectedRunner = runner
 	} else {
-		selectedRunner, err = r.selectRunner(runnerCtx, target.AgentID.String(), assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
+		selectedRunner, err = r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
 		if err != nil {
 			log.Printf("reconciler: select runner for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 			return
