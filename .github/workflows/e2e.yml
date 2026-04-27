@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: agynio/runners
-          ref: 7ae169ea800ea9648adb2202fd70e4ab8ea71771
+          ref: 0648a7fd8fe0ebea560e593809f460d78bb41f3f
           path: runners
 
       - name: Deploy runners from source
