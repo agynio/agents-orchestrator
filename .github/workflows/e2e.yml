@@ -10,8 +10,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
-  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4.16
+  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4
+  CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13
+  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1
+  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.4
 
 jobs:
   e2e:
@@ -52,6 +54,8 @@ jobs:
         uses: agynio/e2e/.github/actions/run-tests@a5e483ad61ebf8133c2b92044e5dc2403c99d840
         env:
           AGN_INIT_IMAGE: ${{ env.AGN_INIT_IMAGE }}
+          CODEX_INIT_IMAGE: ${{ env.CODEX_INIT_IMAGE }}
+          CLAUDE_INIT_IMAGE: ${{ env.CLAUDE_INIT_IMAGE }}
           AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
         with:
           service: agents_orchestrator
