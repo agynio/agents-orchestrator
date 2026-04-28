@@ -43,9 +43,6 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.WorkloadReconcileInterval != time.Minute {
 		t.Fatalf("expected workload reconcile interval %q, got %q", time.Minute, cfg.WorkloadReconcileInterval)
 	}
-	if cfg.ClusterAdminIdentityID != defaultClusterAdminIdentityID {
-		t.Fatalf("expected cluster admin identity id %q, got %q", defaultClusterAdminIdentityID, cfg.ClusterAdminIdentityID)
-	}
 }
 
 func TestFromEnvDefaultsZiti(t *testing.T) {
@@ -86,15 +83,6 @@ func TestFromEnvAgentTracingAddress(t *testing.T) {
 	}
 }
 
-func TestFromEnvRejectsInvalidClusterAdminIdentityID(t *testing.T) {
-	setBaseEnv(t)
-	t.Setenv("CLUSTER_ADMIN_IDENTITY_ID", "not-a-uuid")
-
-	if _, err := FromEnv(); err == nil {
-		t.Fatal("expected error for invalid CLUSTER_ADMIN_IDENTITY_ID")
-	}
-}
-
 func setBaseEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
@@ -114,7 +102,6 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_TRACING_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
-	t.Setenv("CLUSTER_ADMIN_IDENTITY_ID", "")
 	t.Setenv("POLL_INTERVAL", "")
 	t.Setenv("WORKLOAD_RECONCILE_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")

@@ -86,7 +86,7 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
-			if !req.GetPendingSample() {
+			if !req.GetFilter().GetPendingSample() {
 				return nil, errors.New("expected pending sample workload request")
 			}
 			if req.GetPageToken() == "" {
@@ -98,7 +98,7 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 			return nil, errors.New("unexpected workload page token")
 		},
 		listVolumes: func(_ context.Context, req *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
-			if !req.GetPendingSample() {
+			if !req.GetFilter().GetPendingSample() {
 				return nil, errors.New("expected pending sample volume request")
 			}
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{volume}}, nil
@@ -126,7 +126,6 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 		Metering:               metering,
 		Agents:                 defaultAgentsClient(),
 		MeteringSampleInterval: time.Minute,
-		ClusterAdminIdentityID: testClusterAdminIdentityID,
 	})
 	if err := reconciler.sampleMetering(ctx, now); err != nil {
 		t.Fatalf("sample metering: %v", err)

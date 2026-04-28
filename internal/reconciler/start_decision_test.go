@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestShouldStartWorkloadUsesRunnerIdentityContext(t *testing.T) {
+func TestShouldStartWorkloadStripsRunnerIdentityContext(t *testing.T) {
 	ctx := context.Background()
 	threadID := uuid.New()
 	agentID := uuid.MustParse(testAgentID)
@@ -28,12 +28,9 @@ func TestShouldStartWorkloadUsesRunnerIdentityContext(t *testing.T) {
 			if req.GetThreadId() != threadID.String() {
 				return nil, errors.New("unexpected thread id")
 			}
-			metadataValues, ok := metadata.FromOutgoingContext(ctx)
-			if !ok {
-				return nil, errors.New("missing outgoing metadata")
-			}
+			metadataValues, _ := metadata.FromOutgoingContext(ctx)
 			identityValues := metadataValues.Get(identityMetadataKey)
-			if len(identityValues) != 1 || identityValues[0] != agentID.String() {
+			if len(identityValues) != 0 {
 				return nil, fmt.Errorf("unexpected identity metadata: %v", identityValues)
 			}
 			return &runnersv1.ListWorkloadsByThreadResponse{}, nil

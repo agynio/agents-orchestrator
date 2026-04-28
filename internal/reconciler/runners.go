@@ -10,12 +10,8 @@ import (
 
 const runnerPageSize int32 = 100
 
-func (r *Reconciler) selectRunner(ctx context.Context, identityID, organizationID string, runnerLabels map[string]string, requiredCapabilities []string) (*runnersv1.Runner, error) {
-	runnerCtx, err := runnerIdentityContext(ctx, identityID)
-	if err != nil {
-		return nil, err
-	}
-	runners, err := r.listRunners(runnerCtx, organizationID)
+func (r *Reconciler) selectRunner(ctx context.Context, organizationID string, runnerLabels map[string]string, requiredCapabilities []string) (*runnersv1.Runner, error) {
+	runners, err := r.listRunners(ctx, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +26,7 @@ func (r *Reconciler) listRunners(ctx context.Context, organizationID string) ([]
 	var runners []*runnersv1.Runner
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListRunners(ctx, &runnersv1.ListRunnersRequest{
+		resp, err := r.runners.ListRunners(runnersContext(ctx), &runnersv1.ListRunnersRequest{
 			PageSize:       runnerPageSize,
 			PageToken:      pageToken,
 			OrganizationId: &orgID,
@@ -52,12 +48,8 @@ func (r *Reconciler) listRunnersByOrg(ctx context.Context, orgIdentities map[str
 		return nil, nil
 	}
 	var runners []*runnersv1.Runner
-	for orgID, identityID := range orgIdentities {
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
-		orgRunners, err := r.listRunners(runnerCtx, orgID)
+	for orgID := range orgIdentities {
+		orgRunners, err := r.listRunners(ctx, orgID)
 		if err != nil {
 			return nil, err
 		}

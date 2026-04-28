@@ -46,7 +46,7 @@ func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, 
 	if len(containers) > 0 {
 		req.Containers = containers
 	}
-	if _, err := r.runners.UpdateWorkload(ctx, req); err != nil {
+	if _, err := r.runners.UpdateWorkload(runnersContext(ctx), req); err != nil {
 		log.Printf("reconciler: update workload %s to failed: %v", workloadID, err)
 	}
 }
@@ -57,7 +57,7 @@ func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runne
 	if zitiIdentityID != nil {
 		zitiIdentityValue = *zitiIdentityID
 	}
-	_, err := r.runners.CreateWorkload(ctx, &runnersv1.CreateWorkloadRequest{
+	_, err := r.runners.CreateWorkload(runnersContext(ctx), &runnersv1.CreateWorkloadRequest{
 		Id:                     workloadID,
 		RunnerId:               runnerID,
 		ThreadId:               target.ThreadID.String(),
@@ -96,7 +96,7 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 			SizeGb:         record.sizeGB,
 			Status:         runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
 		}
-		if _, err := r.runners.CreateVolume(ctx, req); err != nil {
+		if _, err := r.runners.CreateVolume(runnersContext(ctx), req); err != nil {
 			return created, err
 		}
 		created = append(created, record)
@@ -115,7 +115,7 @@ func (r *Reconciler) markVolumeRecordsFailed(ctx context.Context, records []volu
 			log.Printf("reconciler: volume record missing id")
 			continue
 		}
-		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
 			Id:        record.id,
 			Status:    &status,
 			RemovedAt: removedAt,

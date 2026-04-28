@@ -77,8 +77,8 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 	}
 
 	records := make([]*meteringv1.UsageRecord, 0, len(workloads)*2+len(volumes))
-	workloadUpdates := make(map[string][]*runnersv1.SampledAtEntry)
-	volumeUpdates := make(map[string][]*runnersv1.SampledAtEntry)
+	workloadUpdates := make([]*runnersv1.SampledAtEntry, 0, len(workloads))
+	volumeUpdates := make([]*runnersv1.SampledAtEntry, 0, len(volumes))
 
 	for _, workload := range workloads {
 		workloadRecords, update, err := sampleWorkloadMetering(workload, now)
@@ -86,23 +86,7 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			return err
 		}
 		if update != nil {
-			meta := workload.GetMeta()
-			if meta == nil {
-				return fmt.Errorf("workload meta missing")
-			}
-			orgID := strings.TrimSpace(workload.GetOrganizationId())
-			if orgID == "" {
-				return fmt.Errorf("workload %s organization id missing", meta.GetId())
-			}
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "workload.organization_id")
-			if err != nil {
-				return err
-			}
-			identityID, ok := orgIdentities[parsedOrgID.String()]
-			if !ok {
-				return fmt.Errorf("workload %s missing identity for org %s", meta.GetId(), orgID)
-			}
-			workloadUpdates[identityID] = append(workloadUpdates[identityID], update)
+			workloadUpdates = append(workloadUpdates, update)
 		}
 		records = append(records, workloadRecords...)
 	}
@@ -112,23 +96,7 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			return err
 		}
 		if update != nil {
-			meta := volume.GetMeta()
-			if meta == nil {
-				return fmt.Errorf("volume meta missing")
-			}
-			orgID := strings.TrimSpace(volume.GetOrganizationId())
-			if orgID == "" {
-				return fmt.Errorf("volume %s organization id missing", meta.GetId())
-			}
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "volume.organization_id")
-			if err != nil {
-				return err
-			}
-			identityID, ok := orgIdentities[parsedOrgID.String()]
-			if !ok {
-				return fmt.Errorf("volume %s missing identity for org %s", meta.GetId(), orgID)
-			}
-			volumeUpdates[identityID] = append(volumeUpdates[identityID], update)
+			volumeUpdates = append(volumeUpdates, update)
 		}
 		if volumeRecord != nil {
 			records = append(records, volumeRecord)
@@ -140,27 +108,13 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 			return fmt.Errorf("record metering: %w", err)
 		}
 	}
-	for identityID, entries := range workloadUpdates {
-		if len(entries) == 0 {
-			continue
-		}
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return err
-		}
-		if _, err := r.runners.BatchUpdateWorkloadSampledAt(runnerCtx, &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: entries}); err != nil {
+	if len(workloadUpdates) > 0 {
+		if _, err := r.runners.BatchUpdateWorkloadSampledAt(runnersContext(ctx), &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: workloadUpdates}); err != nil {
 			return fmt.Errorf("update workloads sampled_at: %w", err)
 		}
 	}
-	for identityID, entries := range volumeUpdates {
-		if len(entries) == 0 {
-			continue
-		}
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return err
-		}
-		if _, err := r.runners.BatchUpdateVolumeSampledAt(runnerCtx, &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: entries}); err != nil {
+	if len(volumeUpdates) > 0 {
+		if _, err := r.runners.BatchUpdateVolumeSampledAt(runnersContext(ctx), &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: volumeUpdates}); err != nil {
 			return fmt.Errorf("update volumes sampled_at: %w", err)
 		}
 	}
@@ -172,40 +126,45 @@ func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, orgIdentiti
 	if len(orgIdentities) == 0 {
 		return workloads, nil
 	}
-	runnerCtx, err := r.clusterAdminRunnerContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for orgID := range orgIdentities {
-		orgIDCopy := orgID
-		pageToken := ""
-		for {
-			resp, err := r.runners.ListWorkloads(runnerCtx, &runnersv1.ListWorkloadsRequest{
-				PageSize:       meteringSamplePageSize,
-				PageToken:      pageToken,
-				OrganizationId: &orgIDCopy,
-				PendingSample:  boolPtr(true),
-			})
+	pageToken := ""
+	for {
+		resp, err := r.runners.ListWorkloads(runnersContext(ctx), &runnersv1.ListWorkloadsRequest{
+			PageSize:  meteringSamplePageSize,
+			PageToken: pageToken,
+			Filter: &runnersv1.ListWorkloadsFilter{
+				PendingSample: boolPtr(true),
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list workloads for metering: %w", err)
+		}
+		for _, workload := range resp.GetWorkloads() {
+			if workload == nil {
+				return nil, fmt.Errorf("workload is nil")
+			}
+			meta := workload.GetMeta()
+			if meta == nil {
+				return nil, fmt.Errorf("workload meta missing")
+			}
+			if meta.GetId() == "" {
+				return nil, fmt.Errorf("workload meta id missing")
+			}
+			orgID := strings.TrimSpace(workload.GetOrganizationId())
+			if orgID == "" {
+				return nil, fmt.Errorf("workload %s organization id missing", meta.GetId())
+			}
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "workload.organization_id")
 			if err != nil {
-				return nil, fmt.Errorf("list workloads for metering: %w", err)
+				return nil, err
 			}
-			for _, workload := range resp.GetWorkloads() {
-				if workload == nil {
-					return nil, fmt.Errorf("workload is nil")
-				}
-				meta := workload.GetMeta()
-				if meta == nil {
-					return nil, fmt.Errorf("workload meta missing")
-				}
-				if meta.GetId() == "" {
-					return nil, fmt.Errorf("workload meta id missing")
-				}
-				workloads = append(workloads, workload)
+			if _, ok := orgIdentities[parsedOrgID.String()]; !ok {
+				continue
 			}
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
-			}
+			workloads = append(workloads, workload)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
 		}
 	}
 	return workloads, nil
@@ -216,40 +175,45 @@ func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities
 	if len(orgIdentities) == 0 {
 		return volumes, nil
 	}
-	runnerCtx, err := r.clusterAdminRunnerContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for orgID := range orgIdentities {
-		orgIDCopy := orgID
-		pageToken := ""
-		for {
-			resp, err := r.runners.ListVolumes(runnerCtx, &runnersv1.ListVolumesRequest{
-				PageSize:       meteringSamplePageSize,
-				PageToken:      pageToken,
-				OrganizationId: &orgIDCopy,
-				PendingSample:  boolPtr(true),
-			})
+	pageToken := ""
+	for {
+		resp, err := r.runners.ListVolumes(runnersContext(ctx), &runnersv1.ListVolumesRequest{
+			PageSize:  meteringSamplePageSize,
+			PageToken: pageToken,
+			Filter: &runnersv1.ListVolumesFilter{
+				PendingSample: boolPtr(true),
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list volumes for metering: %w", err)
+		}
+		for _, volume := range resp.GetVolumes() {
+			if volume == nil {
+				return nil, fmt.Errorf("volume is nil")
+			}
+			meta := volume.GetMeta()
+			if meta == nil {
+				return nil, fmt.Errorf("volume meta missing")
+			}
+			if meta.GetId() == "" {
+				return nil, fmt.Errorf("volume meta id missing")
+			}
+			orgID := strings.TrimSpace(volume.GetOrganizationId())
+			if orgID == "" {
+				return nil, fmt.Errorf("volume %s organization id missing", meta.GetId())
+			}
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "volume.organization_id")
 			if err != nil {
-				return nil, fmt.Errorf("list volumes for metering: %w", err)
+				return nil, err
 			}
-			for _, volume := range resp.GetVolumes() {
-				if volume == nil {
-					return nil, fmt.Errorf("volume is nil")
-				}
-				meta := volume.GetMeta()
-				if meta == nil {
-					return nil, fmt.Errorf("volume meta missing")
-				}
-				if meta.GetId() == "" {
-					return nil, fmt.Errorf("volume meta id missing")
-				}
-				volumes = append(volumes, volume)
+			if _, ok := orgIdentities[parsedOrgID.String()]; !ok {
+				continue
 			}
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
-			}
+			volumes = append(volumes, volume)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
 		}
 	}
 	return volumes, nil
