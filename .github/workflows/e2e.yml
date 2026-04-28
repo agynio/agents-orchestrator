@@ -30,9 +30,7 @@ jobs:
           path: service
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@ec73ff7f1cfcdca65a829e8e1a0ff8b8c050535d
-        with:
-          ref: ec73ff7f1cfcdca65a829e8e1a0ff8b8c050535d
+        uses: agynio/bootstrap/.github/actions/provision@main
 
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
