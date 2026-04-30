@@ -20,7 +20,7 @@ func TestSubscriberWakeOnMessageCreated(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 1)
 	ack := make(chan struct{}, 1)
 	agentID := "11111111-1111-1111-1111-111111111111"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour, "")
 	defer harness.cancel()
 	waitForSubscribe(t, harness.subscribeReqs, 1)
 
@@ -43,7 +43,7 @@ func TestSubscriberWakeOnAgentUpdated(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 1)
 	ack := make(chan struct{}, 1)
 	agentID := "22222222-2222-2222-2222-222222222222"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour, "")
 	defer harness.cancel()
 	waitForSubscribe(t, harness.subscribeReqs, 1)
 
@@ -66,7 +66,7 @@ func TestSubscriberIgnoresOtherEvents(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 1)
 	ack := make(chan struct{}, 1)
 	agentID := "33333333-3333-3333-3333-333333333333"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour, "")
 	defer harness.cancel()
 	waitForSubscribe(t, harness.subscribeReqs, 1)
 
@@ -89,7 +89,7 @@ func TestSubscriberCoalescesWake(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 2)
 	ack := make(chan struct{}, 2)
 	agentID := "44444444-4444-4444-4444-444444444444"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour, "")
 	defer harness.cancel()
 	waitForSubscribe(t, harness.subscribeReqs, 1)
 
@@ -119,7 +119,7 @@ func TestSubscriberSubscribesWithRooms(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 1)
 	ack := make(chan struct{}, 1)
 	agentID := "55555555-5555-5555-5555-555555555555"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour, "")
 	defer harness.cancel()
 
 	req := waitForSubscribe(t, harness.subscribeReqs, 1)
@@ -134,12 +134,32 @@ func TestSubscriberSubscribesWithRooms(t *testing.T) {
 	}
 }
 
+func TestSubscriberAddsServiceTokenMetadata(t *testing.T) {
+	responses := make(chan *notificationsv1.SubscribeResponse, 1)
+	ack := make(chan struct{}, 1)
+	agentID := "88888888-8888-8888-8888-888888888888"
+	token := "service-token"
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour, token)
+	defer harness.cancel()
+
+	waitForSubscribe(t, harness.subscribeReqs, 1)
+	gotToken := waitForSubscribeToken(t, harness.subscribeTokens, 1)
+	if gotToken != token {
+		t.Fatalf("expected service token %q, got %q", token, gotToken)
+	}
+
+	harness.cancel()
+	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+}
+
 func TestSubscriberResubscribesOnAgentChange(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse)
 	ack := make(chan struct{}, 1)
 	agentID := "66666666-6666-6666-6666-666666666666"
 	updatedAgentID := "77777777-7777-7777-7777-777777777777"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, 10*time.Millisecond)
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, 10*time.Millisecond, "")
 	defer harness.cancel()
 
 	firstReq := waitForSubscribe(t, harness.subscribeReqs, 1)
@@ -166,7 +186,7 @@ func TestSubscriberResubscribesOnAgentChange(t *testing.T) {
 	}
 }
 
-func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialAgents []*agentsv1.Agent, refreshInterval time.Duration) *subscriberHarness {
+func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialAgents []*agentsv1.Agent, refreshInterval time.Duration, serviceToken string) *subscriberHarness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &agentStore{agents: initialAgents}
@@ -174,7 +194,16 @@ func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.Subscrib
 		return &agentsv1.ListAgentsResponse{Agents: store.list()}, nil
 	}}
 	subscribeReqs := make(chan *notificationsv1.SubscribeRequest, 4)
+	subscribeTokens := make(chan string, 4)
 	client := &fakeNotificationsClient{subscribe: func(ctx context.Context, req *notificationsv1.SubscribeRequest, opts ...grpc.CallOption) (notificationsv1.NotificationsService_SubscribeClient, error) {
+		token := ""
+		if md, ok := metadata.FromOutgoingContext(ctx); ok {
+			values := md.Get(serviceTokenMetadataKey)
+			if len(values) > 0 {
+				token = values[0]
+			}
+		}
+		subscribeTokens <- token
 		subscribeReqs <- req
 		return &fakeSubscribeStream{
 			fakeClientStream: fakeClientStream{ctx: ctx},
@@ -182,18 +211,19 @@ func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.Subscrib
 			ack:              ack,
 		}, nil
 	}}
-	subscriber := New(client, agentsClient)
+	subscriber := New(client, agentsClient, WithServiceToken(serviceToken))
 	subscriber.roomRefreshInterval = refreshInterval
 	done := make(chan error, 1)
 	go func() {
 		done <- subscriber.Run(ctx)
 	}()
 	return &subscriberHarness{
-		subscriber:    subscriber,
-		cancel:        cancel,
-		done:          done,
-		store:         store,
-		subscribeReqs: subscribeReqs,
+		subscriber:      subscriber,
+		cancel:          cancel,
+		done:            done,
+		store:           store,
+		subscribeReqs:   subscribeReqs,
+		subscribeTokens: subscribeTokens,
 	}
 }
 
@@ -214,6 +244,19 @@ func waitForSubscribe(t *testing.T, subscribeReqs <-chan *notificationsv1.Subscr
 		}
 	}
 	return req
+}
+
+func waitForSubscribeToken(t *testing.T, tokens <-chan string, count int) string {
+	t.Helper()
+	var token string
+	for i := 0; i < count; i++ {
+		select {
+		case token = <-tokens:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("timeout waiting for subscribe token %d", i)
+		}
+	}
+	return token
 }
 
 func waitForAck(t *testing.T, ack <-chan struct{}, count int) {
@@ -296,11 +339,12 @@ func (s *agentStore) set(agents []*agentsv1.Agent) {
 }
 
 type subscriberHarness struct {
-	subscriber    *Subscriber
-	cancel        context.CancelFunc
-	done          chan error
-	store         *agentStore
-	subscribeReqs chan *notificationsv1.SubscribeRequest
+	subscriber      *Subscriber
+	cancel          context.CancelFunc
+	done            chan error
+	store           *agentStore
+	subscribeReqs   chan *notificationsv1.SubscribeRequest
+	subscribeTokens chan string
 }
 
 func agentFixture(id string) *agentsv1.Agent {

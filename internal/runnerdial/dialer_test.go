@@ -31,7 +31,9 @@ func TestDialerCachesConnections(t *testing.T) {
 	}()
 	t.Cleanup(func() {
 		server.Stop()
-		listener.Close()
+		if err := listener.Close(); err != nil {
+			t.Fatalf("close listener: %v", err)
+		}
 	})
 
 	var conns []*grpc.ClientConn
@@ -86,7 +88,9 @@ func TestDialerEvictsBadConnections(t *testing.T) {
 	}()
 	t.Cleanup(func() {
 		server.Stop()
-		listener.Close()
+		if err := listener.Close(); err != nil {
+			t.Fatalf("close listener: %v", err)
+		}
 	})
 
 	var conns []*grpc.ClientConn

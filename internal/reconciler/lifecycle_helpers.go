@@ -9,14 +9,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func workloadStatusPtr(status runnersv1.WorkloadStatus) *runnersv1.WorkloadStatus {
-	return &status
-}
-
-func volumeStatusPtr(status runnersv1.VolumeStatus) *runnersv1.VolumeStatus {
-	return &status
-}
-
 func stringPtr(value string) *string {
 	if value == "" {
 		return nil
