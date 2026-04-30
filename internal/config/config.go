@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -31,6 +32,7 @@ type Config struct {
 	StopTimeoutSec            uint32
 	LeaseName                 string
 	LeaseNamespace            string
+	InternalSubscribeToken    string
 }
 
 func FromEnv() (Config, error) {
@@ -198,5 +200,6 @@ func FromEnv() (Config, error) {
 		cfg.LeaseName = "agents-orchestrator"
 	}
 	cfg.LeaseNamespace = os.Getenv("LEASE_NAMESPACE")
+	cfg.InternalSubscribeToken = strings.TrimSpace(os.Getenv("INTERNAL_SUBSCRIBE_TOKEN"))
 	return cfg, nil
 }

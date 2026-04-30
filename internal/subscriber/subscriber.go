@@ -13,6 +13,7 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -20,6 +21,7 @@ const (
 	agentUpdatedEvent                 = "agent.updated"
 	agentRoomPrefix                   = "agent:"
 	threadParticipantRoomPrefix       = "thread_participant:"
+	serviceTokenMetadataKey           = "x-service-token"
 	listAgentsPageSize          int32 = 100
 	defaultRoomRefreshInterval        = 30 * time.Second
 )
@@ -34,15 +36,28 @@ type Subscriber struct {
 	agents              agentsv1.AgentsServiceClient
 	wake                chan struct{}
 	roomRefreshInterval time.Duration
+	serviceToken        string
 }
 
-func New(client notificationsv1.NotificationsServiceClient, agents agentsv1.AgentsServiceClient) *Subscriber {
-	return &Subscriber{
+type Option func(*Subscriber)
+
+func WithServiceToken(token string) Option {
+	return func(s *Subscriber) {
+		s.serviceToken = strings.TrimSpace(token)
+	}
+}
+
+func New(client notificationsv1.NotificationsServiceClient, agents agentsv1.AgentsServiceClient, opts ...Option) *Subscriber {
+	subscriber := &Subscriber{
 		client:              client,
 		agents:              agents,
 		wake:                make(chan struct{}, 1),
 		roomRefreshInterval: defaultRoomRefreshInterval,
 	}
+	for _, opt := range opts {
+		opt(subscriber)
+	}
+	return subscriber
 }
 
 func (s *Subscriber) Run(ctx context.Context) error {
@@ -61,6 +76,9 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			continue
 		}
 		streamCtx, cancel := context.WithCancel(ctx)
+		if s.serviceToken != "" {
+			streamCtx = metadata.AppendToOutgoingContext(streamCtx, serviceTokenMetadataKey, s.serviceToken)
+		}
 		stream, err := s.client.Subscribe(streamCtx, &notificationsv1.SubscribeRequest{Rooms: snapshot.rooms})
 		if err != nil {
 			cancel()

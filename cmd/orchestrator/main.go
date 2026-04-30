@@ -44,52 +44,50 @@ func run() error {
 		return err
 	}
 
-	closeConn := func(conn *grpc.ClientConn) {
+	closeConn := func(name string, conn *grpc.ClientConn) {
 		if conn == nil {
 			return
 		}
-		_ = conn.Close()
+		if err := conn.Close(); err != nil {
+			log.Printf("close %s connection: %v", name, err)
+		}
 	}
 
-	threadsConn, err := grpc.DialContext(ctx, cfg.ThreadsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	threadsConn, err := grpc.NewClient(cfg.ThreadsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial threads: %w", err)
 	}
-	defer closeConn(threadsConn)
+	defer closeConn("threads", threadsConn)
 
-	notificationsConn, err := grpc.DialContext(ctx, cfg.NotificationsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	notificationsConn, err := grpc.NewClient(cfg.NotificationsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial notifications: %w", err)
 	}
-	defer closeConn(notificationsConn)
+	defer closeConn("notifications", notificationsConn)
 
-	agentsConn, err := grpc.DialContext(
-		ctx,
-		cfg.AgentsAddress,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	agentsConn, err := grpc.NewClient(cfg.AgentsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial agents: %w", err)
 	}
-	defer closeConn(agentsConn)
+	defer closeConn("agents", agentsConn)
 
-	secretsConn, err := grpc.DialContext(ctx, cfg.SecretsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	secretsConn, err := grpc.NewClient(cfg.SecretsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial secrets: %w", err)
 	}
-	defer closeConn(secretsConn)
+	defer closeConn("secrets", secretsConn)
 
 	runnersConn, err := grpc.NewClient(cfg.RunnersAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial runners: %w", err)
 	}
-	defer closeConn(runnersConn)
+	defer closeConn("runners", runnersConn)
 
 	meteringConn, err := grpc.NewClient(cfg.MeteringServiceAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial metering: %w", err)
 	}
-	defer closeConn(meteringConn)
+	defer closeConn("metering", meteringConn)
 
 	var (
 		runnerDialer   runnerdial.RunnerDialer
@@ -116,12 +114,12 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("dial runner: %w", err)
 		}
-		defer closeConn(runnerConn)
+		defer closeConn("runner", runnerConn)
 		runnerClient := runnerv1.NewRunnerServiceClient(runnerConn)
 		runnerDialer = runnerdial.NewFallbackDialer(runnerClient)
 	}
 	defer runnerDialer.Close()
-	defer closeConn(zitiMgmtConn)
+	defer closeConn("ziti management", zitiMgmtConn)
 
 	threadsClient := threadsv1.NewThreadsServiceClient(threadsConn)
 	notificationsClient := notificationsv1.NewNotificationsServiceClient(notificationsConn)
@@ -129,7 +127,7 @@ func run() error {
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 	meteringClient := meteringv1.NewMeteringServiceClient(meteringConn)
-	subscriber := subscriber.New(notificationsClient, agentsClient)
+	subscriber := subscriber.New(notificationsClient, agentsClient, subscriber.WithServiceToken(cfg.InternalSubscribeToken))
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
 		Threads:                   threadsClient,
