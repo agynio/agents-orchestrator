@@ -256,3 +256,24 @@ func TestMapRunnerContainers(t *testing.T) {
 		t.Fatalf("unexpected sidecar container status: %v", sidecarContainer.GetStatus())
 	}
 }
+
+func TestMapRunnerContainersUnspecifiedStatus(t *testing.T) {
+	containers, err := mapRunnerContainers([]*runnerv1.WorkloadContainer{
+		{
+			ContainerId: "main-id",
+			Name:        "main",
+			Role:        runnerv1.ContainerRole_CONTAINER_ROLE_MAIN,
+			Image:       "main-image",
+			Status:      runnerv1.ContainerStatus_CONTAINER_STATUS_UNSPECIFIED,
+		},
+	})
+	if err != nil {
+		t.Fatalf("map containers: %v", err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(containers))
+	}
+	if containers[0].GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING {
+		t.Fatalf("unexpected container status: %v", containers[0].GetStatus())
+	}
+}
