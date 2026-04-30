@@ -501,7 +501,7 @@ func runnerContainerRole(role runnerv1.ContainerRole) (runnersv1.ContainerRole, 
 func runnerContainerStatus(status runnerv1.ContainerStatus) (runnersv1.ContainerStatus, error) {
 	switch status {
 	case runnerv1.ContainerStatus_CONTAINER_STATUS_UNSPECIFIED:
-		return runnersv1.ContainerStatus_CONTAINER_STATUS_UNSPECIFIED, fmt.Errorf("runner returned unspecified container status")
+		return runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING, nil
 	case runnerv1.ContainerStatus_CONTAINER_STATUS_RUNNING:
 		return runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, nil
 	case runnerv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:

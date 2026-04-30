@@ -101,6 +101,29 @@ func TestClassifyStartingContainersMainCrashloop(t *testing.T) {
 	}
 }
 
+func TestClassifyStartingContainersMainTerminated(t *testing.T) {
+	now := time.Now().UTC()
+	exitCode := int32(1)
+	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now.Add(-startGracePeriod - time.Second))}}
+	containers := []*runnersv1.Container{
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED, "Error", "", 0, &exitCode),
+	}
+
+	ready, failure, err := classifyStartingContainers(containers, workload, now)
+	if err != nil {
+		t.Fatalf("classify starting containers: %v", err)
+	}
+	if ready {
+		t.Fatal("expected workload to be not ready")
+	}
+	if failure == nil {
+		t.Fatal("expected failure")
+	}
+	if failure.reason != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED {
+		t.Fatalf("unexpected failure reason: %v", failure.reason)
+	}
+}
+
 func TestClassifyStartingContainersInitRestartFailure(t *testing.T) {
 	now := time.Now().UTC()
 	exitCode := int32(1)

@@ -351,10 +351,21 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 			}
 		case runnersv1.ContainerRole_CONTAINER_ROLE_MAIN:
 			foundMain = true
-			if container.GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING {
+			status := container.GetStatus()
+			if status != runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING {
 				mainRunning = false
 			}
-			if container.GetStatus() == runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING {
+			if status == runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED {
+				message := containerFailureMessage(container)
+				exitCode := container.GetExitCode()
+				if message == "" {
+					message = fmt.Sprintf("main container terminated with exit code %d", exitCode)
+				} else if exitCode != 0 {
+					message = fmt.Sprintf("%s (exit code %d)", message, exitCode)
+				}
+				return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: message}, nil
+			}
+			if status == runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING {
 				if container.GetReason() == crashLoopBackoffFlag && container.GetRestartCount() >= crashloopThreshold {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP, message: containerFailureMessage(container)}, nil
 				}
