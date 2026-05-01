@@ -288,6 +288,7 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 				shouldUpdate = true
 			}
 		} else if inspectStateRunning && inspectContainerCount == 0 {
+			// Some runner versions report state_running without containers; avoid a stuck STARTING state.
 			status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
 			updateReq.Status = &status
 			shouldUpdate = true
