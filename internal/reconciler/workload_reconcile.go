@@ -254,14 +254,18 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 		shouldUpdate = true
 	}
 	inspectResp, err := r.inspectRunnerWorkload(ctx, runnerClient, instanceID)
+	inspectStateRunning := false
+	inspectContainerCount := 0
 	var containers []*runnersv1.Container
 	if err != nil {
 		log.Printf("reconciler: warn: inspect workload %s: %v", workloadID, err)
 	} else {
+		inspectStateRunning = inspectResp.GetStateRunning()
+		inspectContainerCount = len(inspectResp.GetContainers())
 		mapped, mapErr := mapRunnerContainers(inspectResp.GetContainers())
 		if mapErr != nil {
 			log.Printf("reconciler: warn: map workload %s containers: %v", workloadID, mapErr)
-		} else {
+		} else if mapped != nil {
 			containers = mapped
 			updateReq.Containers = containers
 			shouldUpdate = true
@@ -283,6 +287,10 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 				updateReq.Status = &status
 				shouldUpdate = true
 			}
+		} else if inspectStateRunning && inspectContainerCount == 0 {
+			status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
+			updateReq.Status = &status
+			shouldUpdate = true
 		}
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
 		if containers != nil {
