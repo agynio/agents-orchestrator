@@ -160,6 +160,147 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	}
 }
 
+func TestReconcileWorkloadsTransitionsStartingToRunningWithoutContainers(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	workloadKey := "workload-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
+	createdAt := timestamppb.New(time.Date(2024, time.January, 1, 1, 2, 3, 0, time.UTC))
+
+	var updateReq *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	inspectCalled := false
+	runner := &fakeRunnerClient{
+		listWorkloads: func(_ context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
+			return &runnerv1.ListWorkloadsResponse{Workloads: []*runnerv1.WorkloadListItem{
+				{WorkloadKey: workloadKey, InstanceId: instanceID},
+			}}, nil
+		},
+		inspectWorkload: func(_ context.Context, req *runnerv1.InspectWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+			inspectCalled = true
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return &runnerv1.InspectWorkloadResponse{StateRunning: true}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileWorkloads(ctx); err != nil {
+		t.Fatalf("reconcile workloads: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected update workload")
+	}
+	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	}
+	if updateReq.GetInstanceId() != rawInstanceID {
+		t.Fatalf("unexpected instance id: %v", updateReq.GetInstanceId())
+	}
+	if len(updateReq.GetContainers()) != 0 {
+		t.Fatalf("expected no containers, got %d", len(updateReq.GetContainers()))
+	}
+	if !inspectCalled {
+		t.Fatal("expected inspect workload")
+	}
+}
+
+func TestReconcileWorkloadsDoesNotPromoteStartingWhenNotRunning(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	workloadKey := "workload-1"
+	rawInstanceID := uuid.New().String()
+	instanceID := "workload-" + rawInstanceID
+	createdAt := timestamppb.New(time.Date(2024, time.January, 1, 1, 2, 3, 0, time.UTC))
+
+	updateCalled := false
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, InstanceId: stringPtr(rawInstanceID)},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+		updateWorkload: func(_ context.Context, _ *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateCalled = true
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	inspectCalled := false
+	runner := &fakeRunnerClient{
+		listWorkloads: func(_ context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
+			return &runnerv1.ListWorkloadsResponse{Workloads: []*runnerv1.WorkloadListItem{
+				{WorkloadKey: workloadKey, InstanceId: instanceID},
+			}}, nil
+		},
+		inspectWorkload: func(_ context.Context, req *runnerv1.InspectWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+			inspectCalled = true
+			if req.GetWorkloadId() != rawInstanceID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return &runnerv1.InspectWorkloadResponse{StateRunning: false}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			if id != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       agents,
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileWorkloads(ctx); err != nil {
+		t.Fatalf("reconcile workloads: %v", err)
+	}
+	if updateCalled {
+		t.Fatal("expected no update workload")
+	}
+	if !inspectCalled {
+		t.Fatal("expected inspect workload")
+	}
+}
+
 func TestReconcileWorkloadsRefreshesContainersOnRunning(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
