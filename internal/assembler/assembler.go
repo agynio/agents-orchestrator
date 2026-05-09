@@ -628,7 +628,7 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 		{Name: "AGENT_ROLE", Value: agent.GetRole()},
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
-		{Name: "AGYN_IDENTITY_ID", Value: agentID.String()},
+		{Name: "AGYN_IDENTITY_ID", Value: agent.GetIdentityId()},
 		{Name: "THREAD_ID", Value: threadID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
