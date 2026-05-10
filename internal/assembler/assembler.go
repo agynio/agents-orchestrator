@@ -621,6 +621,10 @@ func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runn
 }
 
 func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uuid.UUID) []*runnerv1.EnvVar {
+	identityID := agent.GetIdentityId()
+	if identityID == "" {
+		identityID = agent.GetIdentityID()
+	}
 	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_ID", Value: agentID.String()},
@@ -628,7 +632,7 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 		{Name: "AGENT_ROLE", Value: agent.GetRole()},
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
-		{Name: "AGYN_IDENTITY_ID", Value: agent.GetIdentityId()},
+		{Name: "AGYN_IDENTITY_ID", Value: identityID},
 		{Name: "THREAD_ID", Value: threadID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
