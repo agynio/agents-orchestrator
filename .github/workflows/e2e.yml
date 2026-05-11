@@ -59,7 +59,7 @@ jobs:
           AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
           AGYN_AGENT_INIT_IMAGE: ${{ env.AGYN_AGENT_INIT_IMAGE }}
         with:
-          ref: 09e2994c1dff9fa97aa8c56dfbabe32982d1bc7f
+          ref: {NEW_SHA}
           service: agents_orchestrator
 
       - name: Restore ArgoCD sync
