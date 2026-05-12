@@ -72,6 +72,32 @@ jobs:
           kubectl set image deployment/"$deployment" -n platform "$container=$image"
           kubectl rollout status deployment/"$deployment" -n platform --timeout=600s
 
+      - name: Checkout chat-app
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/chat-app
+          ref: main
+          path: chat-app
+
+      - name: Deploy chat-app from source
+        working-directory: chat-app
+        env:
+          CI: "true"
+        run: devspace run dev -n platform
+
+      - name: Checkout tracing-app
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/tracing-app
+          ref: main
+          path: tracing-app
+
+      - name: Deploy tracing-app from source
+        working-directory: tracing-app
+        env:
+          CI: "true"
+        run: devspace run dev -n platform
+
       - name: Deploy orchestrator from source
         working-directory: service
         run: devspace run deploy -n platform
