@@ -89,7 +89,7 @@ jobs:
           corepack prepare pnpm@10.33.0 --activate
           pnpm install --frozen-lockfile
           pnpm build
-          devspace run dev -n platform
+          devspace run-pipeline dev -n platform
 
       - name: Checkout tracing-app
         uses: actions/checkout@v4
@@ -102,7 +102,7 @@ jobs:
         working-directory: tracing-app
         env:
           CI: "true"
-        run: devspace run dev -n platform
+        run: devspace run-pipeline dev -n platform
 
       - name: Deploy orchestrator from source
         working-directory: service
