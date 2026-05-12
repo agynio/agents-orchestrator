@@ -12,7 +12,7 @@ concurrency:
 env:
   AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:latest
   CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:latest
-  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.23
+  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.25
   AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:latest
   AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init:v1.0.0
 
