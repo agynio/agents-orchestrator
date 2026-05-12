@@ -33,7 +33,7 @@ jobs:
         uses: agynio/bootstrap/.github/actions/provision@main
 
       - name: Setup DevSpace
-        uses: agynio/e2e/.github/actions/setup-devspace@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
+        uses: agynio/e2e/.github/actions/setup-devspace@main
 
       - name: Checkout runners
         uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
         run: devspace run deploy -n platform
 
       - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
+        uses: agynio/e2e/.github/actions/run-tests@main
         env:
           AGN_INIT_IMAGE: ${{ env.AGN_INIT_IMAGE }}
           CODEX_INIT_IMAGE: ${{ env.CODEX_INIT_IMAGE }}
@@ -59,7 +59,6 @@ jobs:
           AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
           AGYN_AGENT_INIT_IMAGE: ${{ env.AGYN_AGENT_INIT_IMAGE }}
         with:
-          ref: 6df1c6725dfedaca351fc83d85d4a12dbd8551a7
           service: agents_orchestrator
 
       - name: Restore ArgoCD sync
