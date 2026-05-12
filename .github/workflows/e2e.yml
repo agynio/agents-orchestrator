@@ -83,7 +83,13 @@ jobs:
         working-directory: chat-app
         env:
           CI: "true"
-        run: devspace run dev -n platform
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+          pnpm install --frozen-lockfile
+          pnpm build
+          devspace run dev -n platform
 
       - name: Checkout tracing-app
         uses: actions/checkout@v4
