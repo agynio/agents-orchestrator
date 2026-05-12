@@ -15,7 +15,6 @@ env:
   CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.23
   AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:latest
   AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init:v1.0.0
-  RUNNERS_REF: fe33df94a8057d381949c9f063f7f23be8217f0a
 
 jobs:
   e2e:
@@ -33,25 +32,14 @@ jobs:
         uses: agynio/bootstrap/.github/actions/provision@main
 
       - name: Setup DevSpace
-        uses: agynio/e2e/.github/actions/setup-devspace@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
-
-      - name: Checkout runners
-        uses: actions/checkout@v4
-        with:
-          repository: agynio/runners
-          ref: ${{ env.RUNNERS_REF }}
-          path: runners
-
-      - name: Deploy runners from source
-        working-directory: runners
-        run: devspace run deploy -n platform
+        uses: agynio/e2e/.github/actions/setup-devspace@main
 
       - name: Deploy orchestrator from source
         working-directory: service
         run: devspace run deploy -n platform
 
       - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@ddf19ce30ef4abc4be8d7981cb7db1a9f479f405
+        uses: agynio/e2e/.github/actions/run-tests@main
         env:
           AGN_INIT_IMAGE: ${{ env.AGN_INIT_IMAGE }}
           CODEX_INIT_IMAGE: ${{ env.CODEX_INIT_IMAGE }}
@@ -59,7 +47,6 @@ jobs:
           AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
           AGYN_AGENT_INIT_IMAGE: ${{ env.AGYN_AGENT_INIT_IMAGE }}
         with:
-          ref: 6df1c6725dfedaca351fc83d85d4a12dbd8551a7
           service: agents_orchestrator
 
       - name: Restore ArgoCD sync
