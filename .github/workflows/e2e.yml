@@ -45,6 +45,33 @@ jobs:
         working-directory: runners
         run: devspace run deploy -n platform
 
+      - name: Checkout expose
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/expose
+          ref: main
+          path: expose
+
+      - name: Deploy expose from source
+        working-directory: expose
+        run: |
+          set -euo pipefail
+          image="ghcr.io/agynio/expose:e2e-main"
+          docker build -t "$image" .
+          k3d image import "$image" -c agyn-local
+          if kubectl get application expose -n argocd >/dev/null 2>&1; then
+            kubectl patch application expose -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":null}}}'
+          fi
+          deployment=$(kubectl get deployment -n platform -l app.kubernetes.io/name=expose -o jsonpath='{.items[0].metadata.name}')
+          if [ -z "$deployment" ]; then
+            deployment="expose"
+          fi
+          container=$(kubectl get deployment "$deployment" -n platform -o jsonpath='{.spec.template.spec.containers[0].name}')
+          kubectl set image deployment/"$deployment" -n platform "$container=$image"
+          kubectl rollout status deployment/"$deployment" -n platform --timeout=600s
+
       - name: Deploy orchestrator from source
         working-directory: service
         run: devspace run deploy -n platform
