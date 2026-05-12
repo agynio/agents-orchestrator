@@ -15,7 +15,6 @@ env:
   CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.23
   AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:latest
   AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init:v1.0.0
-  RUNNERS_REF: fe33df94a8057d381949c9f063f7f23be8217f0a
 
 jobs:
   e2e:
@@ -39,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: agynio/runners
-          ref: ${{ env.RUNNERS_REF }}
+          ref: main
           path: runners
 
       - name: Deploy runners from source
