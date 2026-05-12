@@ -46,6 +46,7 @@ jobs:
           CLAUDE_INIT_IMAGE: ${{ env.CLAUDE_INIT_IMAGE }}
           AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
           AGYN_AGENT_INIT_IMAGE: ${{ env.AGYN_AGENT_INIT_IMAGE }}
+          E2E_SUITES: go-core
         with:
           service: agents_orchestrator
 
