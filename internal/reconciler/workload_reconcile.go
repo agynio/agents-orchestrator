@@ -330,16 +330,17 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 		return false, nil, err
 	}
 	startAge := now.Sub(createdAt)
-	initComplete := true
 	mainRunning := true
 	foundMain := false
+	initBlocked := false
 	for _, container := range containers {
 		if container == nil {
 			return false, nil, fmt.Errorf("workload %s has nil container", workload.GetMeta().GetId())
 		}
 		switch container.GetRole() {
 		case runnersv1.ContainerRole_CONTAINER_ROLE_INIT:
-			switch container.GetStatus() {
+			status := container.GetStatus()
+			switch status {
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING:
 				if isImagePullFailure(container) && startAge > startGracePeriod {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
@@ -347,16 +348,17 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 				if isConfigInvalidFailure(container) && startAge > startGracePeriod {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
 				}
-				initComplete = false
+				initBlocked = true
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:
 				if container.GetExitCode() != 0 && container.GetRestartCount() >= initRetryThreshold {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: containerFailureMessage(container)}, nil
 				}
 				if container.GetExitCode() != 0 {
-					initComplete = false
+					initBlocked = true
 				}
+			case runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING:
 			default:
-				initComplete = false
+				initBlocked = true
 			}
 		case runnersv1.ContainerRole_CONTAINER_ROLE_MAIN:
 			foundMain = true
@@ -391,7 +393,7 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 	if !foundMain {
 		return false, nil, fmt.Errorf("workload %s missing main container", workload.GetMeta().GetId())
 	}
-	if initComplete && mainRunning {
+	if !initBlocked && mainRunning {
 		return true, nil, nil
 	}
 	return false, nil, nil
