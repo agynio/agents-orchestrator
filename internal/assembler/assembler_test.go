@@ -25,6 +25,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	agent := &agentsv1.Agent{
 		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
 		OrganizationId: "org-1",
+		IdentityId:     "identity-1",
 		Name:           "assistant",
 		Role:           "ops",
 		Model:          "gpt-test",
@@ -162,6 +163,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_ROLE", agent.GetRole())
 	assertEnv(t, envs, "AGENT_MODEL", agent.GetModel())
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
+	assertEnv(t, envs, "AGYN_IDENTITY_ID", agent.GetIdentityId())
 	assertEnv(t, envs, "THREAD_ID", threadID.String())
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
