@@ -77,6 +77,22 @@ func (f *FakeAgentsClient) ListAgents(ctx context.Context, req *agentsv1.ListAge
 	return nil, ErrNotImplemented
 }
 
+func (f *FakeAgentsClient) SetAgentRole(context.Context, *agentsv1.SetAgentRoleRequest, ...grpc.CallOption) (*agentsv1.SetAgentRoleResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) RemoveAgentRole(context.Context, *agentsv1.RemoveAgentRoleRequest, ...grpc.CallOption) (*agentsv1.RemoveAgentRoleResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) ListAgentRoles(context.Context, *agentsv1.ListAgentRolesRequest, ...grpc.CallOption) (*agentsv1.ListAgentRolesResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) ListMyAgentRoles(context.Context, *agentsv1.ListMyAgentRolesRequest, ...grpc.CallOption) (*agentsv1.ListMyAgentRolesResponse, error) {
+	return nil, ErrNotImplemented
+}
+
 func (f *FakeAgentsClient) CreateVolume(context.Context, *agentsv1.CreateVolumeRequest, ...grpc.CallOption) (*agentsv1.CreateVolumeResponse, error) {
 	return nil, ErrNotImplemented
 }
