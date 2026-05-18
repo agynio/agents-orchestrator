@@ -5,28 +5,20 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: e2e-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
-
-env:
-  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:latest
-  CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:latest
-  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.25
-  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:latest
-  AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init:v1.0.0
 
 jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    permissions:
-      contents: read
     steps:
       - name: Checkout service
         uses: actions/checkout@v4
-        with:
-          path: service
 
       - name: Provision cluster
         uses: agynio/bootstrap/.github/actions/provision@main
@@ -35,23 +27,13 @@ jobs:
         uses: agynio/e2e/.github/actions/setup-devspace@main
 
       - name: Deploy orchestrator from source
-        working-directory: service
-        run: devspace run deploy -n platform
+        run: devspace run deploy
 
       - name: Run E2E tests
         uses: agynio/e2e/.github/actions/run-tests@main
-        env:
-          AGN_INIT_IMAGE: ${{ env.AGN_INIT_IMAGE }}
-          CODEX_INIT_IMAGE: ${{ env.CODEX_INIT_IMAGE }}
-          CLAUDE_INIT_IMAGE: ${{ env.CLAUDE_INIT_IMAGE }}
-          AGN_EXPOSE_INIT_IMAGE: ${{ env.AGN_EXPOSE_INIT_IMAGE }}
-          AGYN_AGENT_INIT_IMAGE: ${{ env.AGYN_AGENT_INIT_IMAGE }}
-          E2E_SUITES: go-core
-          E2E_GO_TEST_RUN: ^TestFullPipelineClaudeMessageResponse$
         with:
           service: agents_orchestrator
 
       - name: Restore ArgoCD sync
         if: always()
-        working-directory: service
-        run: devspace run restore-argocd -n platform
+        run: devspace run restore-argocd
