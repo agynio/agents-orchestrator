@@ -176,7 +176,8 @@ pipelines:
       restore_argocd_sync
 
 dev:
-  # CI counterpart: agents-orchestrator-deploy (one-shot sync)
+  # Interactive dev sync uses inotify in the container. CI deploy avoids DevSpace
+  # sync/watch entirely and performs a one-shot source upload in sync_sources_once.
   agents-orchestrator:
     namespace: ${ORCHESTRATOR_NAMESPACE}
     labelSelector:
@@ -187,6 +188,7 @@ dev:
         container: agents-orchestrator
         sync:
           - path: ./:/opt/app/data
+            polling: false
             excludePaths:
               - .git/
               - .devspace/
