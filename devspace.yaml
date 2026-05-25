@@ -53,25 +53,14 @@ functions:
                 - |
                   set -eu
                   elapsed=0
-                  while [ ! -f /opt/app/data/go.mod ]; do
+                  while [ ! -f /opt/app/data/go.mod ] || [ ! -f /opt/app/data/buf.gen.yaml ]; do
                     sleep 1; elapsed=$((elapsed + 1))
                     [ "$elapsed" -ge 240 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
                   done
-                  buf generate buf.build/agynio/api \
-                    --include-imports \
-                    --path agynio/api/runner/v1 \
-                    --path agynio/api/runners/v1 \
-                    --path agynio/api/threads/v1 \
-                    --path agynio/api/notifications/v1 \
-                    --path agynio/api/metering/v1 \
-                    --path agynio/api/agents/v1 \
-                    --path agynio/api/secrets/v1 \
-                    --path agynio/api/ziti_management/v1 \
-                    --path agynio/api/identity/v1 \
-                    --path agynio/api/llm/v1 \
-                    --path agynio/api/users/v1 \
-                    --path agynio/api/organizations/v1 \
-                    --path agynio/api/tracing/v1
+                  until [ -f /opt/app/data/.gen/go/agynio/api/llm/v1/llm.pb.go ]; do
+                    sleep 1; elapsed=$((elapsed + 1))
+                    [ "$elapsed" -ge 240 ] && { echo "ERROR: generated source sync timeout" >&2; exit 1; }
+                  done
                   exec go run ./cmd/orchestrator
               volumeMounts:
                 - name: data
