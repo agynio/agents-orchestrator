@@ -202,6 +202,7 @@ dev:
         sync:
           - path: ./:/opt/app/data
             initialSync: mirrorLocal
+            waitInitialSync: true
             noWatch: true
             polling: false
             excludePaths:
