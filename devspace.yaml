@@ -121,6 +121,19 @@ functions:
       echo "  still waiting... (${ELAPSED}s)"
     done
     echo "Orchestrator is running from source."
+  sync_sources_once: |-
+    echo "Syncing source tree into agents-orchestrator pod..."
+    LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
+    POD="$(kubectl get pod -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
+      -o jsonpath='{.items[0].metadata.name}')"
+    tar \
+      --exclude='./.git' \
+      --exclude='./.devspace' \
+      --exclude='./.gen' \
+      --exclude='./tmp' \
+      -cf - . | kubectl exec -i -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
+        -c agents-orchestrator -- tar -xf - -C /opt/app/data
+    echo "Source tree synced."
 
 commands:
   deploy: |-
@@ -151,7 +164,9 @@ pipelines:
     run: |-
       disable_argocd_sync
       patch_deployment
-      start_dev --disable-pod-replace agents-orchestrator-deploy
+      kubectl rollout status deployment/agents-orchestrator \
+        -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s
+      sync_sources_once
       wait_for_orchestrator
       echo "Deploy complete. Orchestrator is running from source."
 
