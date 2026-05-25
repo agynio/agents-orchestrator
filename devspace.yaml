@@ -201,7 +201,9 @@ dev:
         container: agents-orchestrator
         sync:
           - path: ./:/opt/app/data
+            initialSync: mirrorLocal
             noWatch: true
+            polling: false
             excludePaths:
               - .git/
               - .devspace/
