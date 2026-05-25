@@ -126,12 +126,13 @@ functions:
     LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
     POD="$(kubectl get pod -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
       -o jsonpath='{.items[0].metadata.name}')"
-    tar \
-      --exclude='./.git' \
-      --exclude='./.devspace' \
-      --exclude='./.gen' \
-      --exclude='./tmp' \
-      -cf - . | kubectl exec -i -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
+    find . -mindepth 1 -maxdepth 1 \
+      ! -name .git \
+      ! -name .devspace \
+      ! -name .gen \
+      ! -name tmp \
+      -print0 | tar --null -T - -cf - | \
+      kubectl exec -i -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
         -c agents-orchestrator -- tar -xf - -C /opt/app/data
     echo "Source tree synced."
 
