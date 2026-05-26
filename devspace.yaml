@@ -3,7 +3,6 @@ version: v2beta1
 vars:
   ORCHESTRATOR_NAMESPACE: platform
   DEV_IMAGE: ghcr.io/agynio/devcontainer-go:1
-  CI_IMAGE: agents-orchestrator:e2e
 
 functions:
   disable_argocd_sync: |-
@@ -99,29 +98,12 @@ functions:
                   type: RuntimeDefault
     EOF
     )"
-  patch_ci_image_deployment: |-
-    echo "Patching agents-orchestrator deployment to use CI image..."
-    kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<EOF
-    spec:
-      template:
-        spec:
-          containers:
-            - name: agents-orchestrator
-              image: ${CI_IMAGE}
-              imagePullPolicy: Never
-              env:
-                - name: POLL_INTERVAL
-                  value: "10s"
-                - name: WORKLOAD_RECONCILE_INTERVAL
-                  value: "10s"
-    EOF
-    )"
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."
     kubectl rollout status deployment/agents-orchestrator \
       -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s
 
-    echo "Waiting for orchestrator process start..."
+    echo "Waiting for orchestrator source sync and process start..."
     ELAPSED=0
     LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
     until kubectl logs -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" --tail=200 2>/dev/null | \
@@ -138,17 +120,21 @@ functions:
       fi
       echo "  still waiting... (${ELAPSED}s)"
     done
-    echo "Orchestrator is running."
-  build_ci_image: |-
-    echo "Building agents-orchestrator CI image..."
-    docker buildx build --load -t ${CI_IMAGE} .
-    if command -v k3d >/dev/null 2>&1 && k3d cluster list agyn-local >/dev/null 2>&1; then
-      echo "Importing agents-orchestrator CI image into k3d cluster..."
-      k3d image import ${CI_IMAGE} -c agyn-local
-    else
-      echo "k3d cluster agyn-local not found; assuming ${CI_IMAGE} is already visible to Kubernetes."
-    fi
-    echo "Agents-orchestrator CI image is ready."
+    echo "Orchestrator is running from source."
+  sync_sources_once: |-
+    echo "Syncing source tree into agents-orchestrator pod..."
+    LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
+    POD="$(kubectl get pod -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
+      -o jsonpath='{.items[0].metadata.name}')"
+    find . -mindepth 1 -maxdepth 1 \
+      ! -name .git \
+      ! -name .devspace \
+      ! -name .gen \
+      ! -name tmp \
+      -print0 | tar --null -T - -cf - | \
+      kubectl exec -i -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
+        -c agents-orchestrator -- tar -xf - -C /opt/app/data
+    echo "Source tree synced."
 
 commands:
   deploy: |-
@@ -178,12 +164,12 @@ pipelines:
   deploy:
     run: |-
       disable_argocd_sync
-      build_ci_image
-      patch_ci_image_deployment
+      patch_deployment
       kubectl rollout status deployment/agents-orchestrator \
         -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s
+      sync_sources_once
       wait_for_orchestrator
-      echo "Deploy complete. Orchestrator is running from the CI image."
+      echo "Deploy complete. Orchestrator is running from source."
 
   restore-argocd:
     run: |-
@@ -191,7 +177,7 @@ pipelines:
 
 dev:
   # Interactive dev sync uses inotify in the container. CI deploy avoids DevSpace
-  # sync/watch entirely and runs the freshly built CI image.
+  # sync/watch entirely and performs a one-shot source upload in sync_sources_once.
   agents-orchestrator:
     namespace: ${ORCHESTRATOR_NAMESPACE}
     labelSelector:
@@ -222,7 +208,7 @@ dev:
           enabled: true
           lastLines: 200
 
-  # Kept for manual one-shot DevSpace sync experiments. CI deploy uses a built image instead.
+  # One-shot variant of agents-orchestrator for CI deploy pipeline. Keep sync excludePaths in sync.
   agents-orchestrator-deploy:
     namespace: ${ORCHESTRATOR_NAMESPACE}
     labelSelector:
