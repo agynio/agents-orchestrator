@@ -26,7 +26,10 @@ jobs:
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@main
 
-      - name: Deploy orchestrator from source
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Deploy orchestrator from CI image
         run: devspace run deploy
 
       - name: Run E2E tests
