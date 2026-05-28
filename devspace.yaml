@@ -188,35 +188,33 @@ functions:
     DELETE_PODS="$(printf '%s\n%s\n' "${TERMINATING_PODS}" "${OLD_REPLICA_SET_PODS}" | awk 'NF && !seen[$0]++')"
     if [ -z "${DELETE_PODS}" ]; then
       echo "No terminating agents-orchestrator pods found to force delete."
-      return 0
+    else
+      echo "Force deleting stuck old or terminating agents-orchestrator pods:"
+      for POD in ${DELETE_PODS}; do
+        echo "  ${POD}"
+        kubectl describe pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} >&2 || true
+        kubectl delete pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} \
+          --grace-period=0 --force --wait=false || true
+      done
     fi
-    echo "Force deleting stuck old or terminating agents-orchestrator pods:"
-    for POD in ${DELETE_PODS}; do
-      echo "  ${POD}"
-      kubectl describe pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} >&2 || true
-      kubectl delete pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} \
-        --grace-period=0 --force --wait=false || true
-    done
   rollout_or_recover: |-
     echo "Waiting for orchestrator deployment to roll out..."
     if kubectl rollout status deployment/agents-orchestrator \
       -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s; then
-      return 0
+      echo "Orchestrator deployment successfully rolled out."
+    else
+      echo "WARNING: orchestrator rollout did not finish within 120s; collecting diagnostics." >&2
+      rollout_diagnostics
+      force_delete_terminating_orchestrator_pods
+
+      echo "Retrying orchestrator rollout after cleanup..."
+      if ! kubectl rollout status deployment/agents-orchestrator \
+        -n ${ORCHESTRATOR_NAMESPACE} --timeout=240s; then
+        echo "ERROR: orchestrator rollout still did not finish after cleanup." >&2
+        rollout_diagnostics
+        exit 1
+      fi
     fi
-
-    echo "WARNING: orchestrator rollout did not finish within 120s; collecting diagnostics." >&2
-    rollout_diagnostics
-    force_delete_terminating_orchestrator_pods
-
-    echo "Retrying orchestrator rollout after cleanup..."
-    if kubectl rollout status deployment/agents-orchestrator \
-      -n ${ORCHESTRATOR_NAMESPACE} --timeout=240s; then
-      return 0
-    fi
-
-    echo "ERROR: orchestrator rollout still did not finish after cleanup." >&2
-    rollout_diagnostics
-    exit 1
 
 commands:
   deploy: |-
