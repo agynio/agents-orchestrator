@@ -162,8 +162,10 @@ functions:
     LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
     echo "Diagnostic deployment:" >&2
     kubectl get deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} -o wide >&2 || true
+    kubectl describe deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} >&2 || true
     echo "Diagnostic replica sets:" >&2
     kubectl get rs -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
+    kubectl describe rs -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" >&2 || true
     echo "Diagnostic pods:" >&2
     kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
     echo "Diagnostic pod descriptions:" >&2
@@ -174,13 +176,24 @@ functions:
     LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
     TERMINATING_PODS="$(kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
       -o jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
-    if [ -z "${TERMINATING_PODS}" ]; then
+    OLD_REPLICA_SET_PODS="$(kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
+      -o jsonpath='{range .items[?(@.metadata.ownerReferences[0].kind=="ReplicaSet")]}{.metadata.name}{"\t"}{.metadata.ownerReferences[0].name}{"\n"}{end}' 2>/dev/null \
+      | while IFS="$(printf '\t')" read -r POD REPLICA_SET; do
+          [ -n "${POD}" ] || continue
+          DESIRED="$(kubectl get rs "${REPLICA_SET}" -n ${ORCHESTRATOR_NAMESPACE} -o jsonpath='{.spec.replicas}' 2>/dev/null || true)"
+          if [ "${DESIRED}" = "0" ]; then
+            printf '%s\n' "${POD}"
+          fi
+        done)"
+    DELETE_PODS="$(printf '%s\n%s\n' "${TERMINATING_PODS}" "${OLD_REPLICA_SET_PODS}" | awk 'NF && !seen[$0]++')"
+    if [ -z "${DELETE_PODS}" ]; then
       echo "No terminating agents-orchestrator pods found to force delete."
       return 0
     fi
-    echo "Force deleting terminating agents-orchestrator pods:"
-    for POD in ${TERMINATING_PODS}; do
+    echo "Force deleting stuck old or terminating agents-orchestrator pods:"
+    for POD in ${DELETE_PODS}; do
       echo "  ${POD}"
+      kubectl describe pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} >&2 || true
       kubectl delete pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} \
         --grace-period=0 --force --wait=false || true
     done
