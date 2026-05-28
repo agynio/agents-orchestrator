@@ -99,9 +99,7 @@ functions:
     EOF
     )"
   wait_for_orchestrator: |-
-    echo "Waiting for orchestrator deployment to roll out..."
-    kubectl rollout status deployment/agents-orchestrator \
-      -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s
+    rollout_or_recover
 
     echo "Waiting for orchestrator source sync and process start..."
     ELAPSED=0
@@ -160,6 +158,52 @@ functions:
       exit 1
     fi
     echo "Source tree synced."
+  rollout_diagnostics: |-
+    LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
+    echo "Diagnostic deployment:" >&2
+    kubectl get deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} -o wide >&2 || true
+    echo "Diagnostic replica sets:" >&2
+    kubectl get rs -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
+    echo "Diagnostic pods:" >&2
+    kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
+    echo "Diagnostic pod descriptions:" >&2
+    kubectl describe pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" >&2 || true
+    echo "Diagnostic recent events:" >&2
+    kubectl get events -n ${ORCHESTRATOR_NAMESPACE} --sort-by=.lastTimestamp | tail -n 80 >&2 || true
+  force_delete_terminating_orchestrator_pods: |-
+    LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
+    TERMINATING_PODS="$(kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
+      -o jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+    if [ -z "${TERMINATING_PODS}" ]; then
+      echo "No terminating agents-orchestrator pods found to force delete."
+      return 0
+    fi
+    echo "Force deleting terminating agents-orchestrator pods:"
+    for POD in ${TERMINATING_PODS}; do
+      echo "  ${POD}"
+      kubectl delete pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} \
+        --grace-period=0 --force --wait=false || true
+    done
+  rollout_or_recover: |-
+    echo "Waiting for orchestrator deployment to roll out..."
+    if kubectl rollout status deployment/agents-orchestrator \
+      -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s; then
+      return 0
+    fi
+
+    echo "WARNING: orchestrator rollout did not finish within 120s; collecting diagnostics." >&2
+    rollout_diagnostics
+    force_delete_terminating_orchestrator_pods
+
+    echo "Retrying orchestrator rollout after cleanup..."
+    if kubectl rollout status deployment/agents-orchestrator \
+      -n ${ORCHESTRATOR_NAMESPACE} --timeout=240s; then
+      return 0
+    fi
+
+    echo "ERROR: orchestrator rollout still did not finish after cleanup." >&2
+    rollout_diagnostics
+    exit 1
 
 commands:
   deploy: |-
@@ -190,8 +234,7 @@ pipelines:
     run: |-
       disable_argocd_sync
       patch_deployment
-      kubectl rollout status deployment/agents-orchestrator \
-        -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s
+      rollout_or_recover
       sync_sources_once
       wait_for_orchestrator
       echo "Deploy complete. Orchestrator is running from source."
