@@ -56,9 +56,16 @@ functions:
                   while [ ! -f /opt/app/data/go.mod ] || \
                     [ ! -f /opt/app/data/go.sum ] || \
                     [ ! -f /opt/app/data/buf.gen.yaml ] || \
-                    [ ! -f /opt/app/data/buf.yaml ]; do
+                    [ ! -f /opt/app/data/buf.yaml ] || \
+                    [ ! -f /opt/app/data/cmd/orchestrator/main.go ]; do
                     sleep 1; elapsed=$((elapsed + 1))
-                    [ "$elapsed" -ge 240 ] && { echo "ERROR: sync timeout waiting for source and Buf config" >&2; exit 1; }
+                    if [ "$elapsed" -ge 240 ]; then
+                      echo "ERROR: sync timeout waiting for source and Buf config" >&2
+                      ls -la /opt/app/data >&2 || true
+                      ls -la /opt/app/data/cmd >&2 || true
+                      ls -la /opt/app/data/cmd/orchestrator >&2 || true
+                      exit 1
+                    fi
                   done
                   buf generate buf.build/agynio/api \
                     --include-imports \
