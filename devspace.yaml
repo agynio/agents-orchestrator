@@ -53,9 +53,19 @@ functions:
                 - |
                   set -eu
                   elapsed=0
-                  while [ ! -f /opt/app/data/go.mod ]; do
+                  while [ ! -f /opt/app/data/go.mod ] || \
+                    [ ! -f /opt/app/data/go.sum ] || \
+                    [ ! -f /opt/app/data/buf.gen.yaml ] || \
+                    [ ! -f /opt/app/data/buf.yaml ] || \
+                    [ ! -f /opt/app/data/cmd/orchestrator/main.go ]; do
                     sleep 1; elapsed=$((elapsed + 1))
-                    [ "$elapsed" -ge 240 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
+                    if [ "$elapsed" -ge 240 ]; then
+                      echo "ERROR: sync timeout waiting for source and Buf config" >&2
+                      ls -la /opt/app/data >&2 || true
+                      ls -la /opt/app/data/cmd >&2 || true
+                      ls -la /opt/app/data/cmd/orchestrator >&2 || true
+                      exit 1
+                    fi
                   done
                   buf generate buf.build/agynio/api \
                     --include-imports \
@@ -96,9 +106,7 @@ functions:
     EOF
     )"
   wait_for_orchestrator: |-
-    echo "Waiting for orchestrator deployment to roll out..."
-    kubectl rollout status deployment/agents-orchestrator \
-      -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s
+    rollout_or_recover
 
     echo "Waiting for orchestrator source sync and process start..."
     ELAPSED=0
@@ -118,6 +126,116 @@ functions:
       echo "  still waiting... (${ELAPSED}s)"
     done
     echo "Orchestrator is running from source."
+  sync_sources_once: |-
+    echo "Syncing source tree into agents-orchestrator pod..."
+    LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
+
+    SYNC_ARCHIVE="$(mktemp)"
+    trap 'rm -f "${SYNC_ARCHIVE}"' EXIT
+    find . -mindepth 1 -maxdepth 1 \
+      ! -name .git \
+      ! -name .devspace \
+      ! -name .gen \
+      ! -name tmp \
+      -print0 | tar --null -T - -cf "${SYNC_ARCHIVE}"
+    SYNC_SIZE="$(wc -c < "${SYNC_ARCHIVE}")"
+    ATTEMPT=1
+    SYNC_COMPLETE=false
+    while [ "${ATTEMPT}" -le 5 ]; do
+      echo "Source sync attempt ${ATTEMPT}/5..."
+      POD="$(kubectl get pod -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
+        --field-selector=status.phase=Running \
+        --sort-by=.metadata.creationTimestamp \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | tail -n 1 || true)"
+      if [ -z "${POD}" ]; then
+        echo "No running agents-orchestrator pod found for selector ${LABEL_SELECTOR}." >&2
+      else
+        kubectl wait -n ${ORCHESTRATOR_NAMESPACE} "pod/${POD}" \
+          --for=condition=Ready --timeout=30s >&2 || true
+        echo "Uploading source archive (${SYNC_SIZE} bytes) to pod ${POD}..."
+        if timeout 120s kubectl cp -n ${ORCHESTRATOR_NAMESPACE} \
+          -c agents-orchestrator "${SYNC_ARCHIVE}" "${POD}:/tmp/agents-orchestrator-source.tar" && \
+          timeout 120s kubectl exec -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
+            -c agents-orchestrator -- sh -c \
+            'tar -xf /tmp/agents-orchestrator-source.tar -C /opt/app/data && rm -f /tmp/agents-orchestrator-source.tar'; then
+          echo "Source tree synced to pod ${POD}."
+          SYNC_COMPLETE=true
+          break
+        fi
+        echo "WARNING: source sync attempt ${ATTEMPT} failed for pod ${POD}; retrying with current pod selection." >&2
+      fi
+
+      echo "Diagnostic pod list:" >&2
+      kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
+      echo "Diagnostic deployment rollout:" >&2
+      kubectl rollout status deployment/agents-orchestrator \
+        -n ${ORCHESTRATOR_NAMESPACE} --timeout=30s >&2 || true
+      ATTEMPT=$((ATTEMPT + 1))
+      sleep 5
+    done
+
+    if [ "${SYNC_COMPLETE}" != "true" ]; then
+      echo "ERROR: source archive upload/extract failed after retries" >&2
+      rollout_diagnostics
+      exit 1
+    fi
+  rollout_diagnostics: |-
+    LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
+    echo "Diagnostic deployment:" >&2
+    kubectl get deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} -o wide >&2 || true
+    kubectl describe deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} >&2 || true
+    echo "Diagnostic replica sets:" >&2
+    kubectl get rs -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
+    kubectl describe rs -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" >&2 || true
+    echo "Diagnostic pods:" >&2
+    kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
+    echo "Diagnostic pod descriptions:" >&2
+    kubectl describe pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" >&2 || true
+    echo "Diagnostic recent events:" >&2
+    kubectl get events -n ${ORCHESTRATOR_NAMESPACE} --sort-by=.lastTimestamp | tail -n 80 >&2 || true
+  force_delete_terminating_orchestrator_pods: |-
+    LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
+    TERMINATING_PODS="$(kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
+      -o jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+    OLD_REPLICA_SET_PODS="$(kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
+      -o jsonpath='{range .items[?(@.metadata.ownerReferences[0].kind=="ReplicaSet")]}{.metadata.name}{"\t"}{.metadata.ownerReferences[0].name}{"\n"}{end}' 2>/dev/null \
+      | while IFS="$(printf '\t')" read -r POD REPLICA_SET; do
+          [ -n "${POD}" ] || continue
+          DESIRED="$(kubectl get rs "${REPLICA_SET}" -n ${ORCHESTRATOR_NAMESPACE} -o jsonpath='{.spec.replicas}' 2>/dev/null || true)"
+          if [ "${DESIRED}" = "0" ]; then
+            printf '%s\n' "${POD}"
+          fi
+        done)"
+    DELETE_PODS="$(printf '%s\n%s\n' "${TERMINATING_PODS}" "${OLD_REPLICA_SET_PODS}" | awk 'NF && !seen[$0]++')"
+    if [ -z "${DELETE_PODS}" ]; then
+      echo "No terminating agents-orchestrator pods found to force delete."
+    else
+      echo "Force deleting stuck old or terminating agents-orchestrator pods:"
+      for POD in ${DELETE_PODS}; do
+        echo "  ${POD}"
+        kubectl describe pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} >&2 || true
+        kubectl delete pod "${POD}" -n ${ORCHESTRATOR_NAMESPACE} \
+          --grace-period=0 --force --wait=false || true
+      done
+    fi
+  rollout_or_recover: |-
+    echo "Waiting for orchestrator deployment to roll out..."
+    if kubectl rollout status deployment/agents-orchestrator \
+      -n ${ORCHESTRATOR_NAMESPACE} --timeout=120s; then
+      echo "Orchestrator deployment successfully rolled out."
+    else
+      echo "WARNING: orchestrator rollout did not finish within 120s; collecting diagnostics." >&2
+      rollout_diagnostics
+      force_delete_terminating_orchestrator_pods
+
+      echo "Retrying orchestrator rollout after cleanup..."
+      if ! kubectl rollout status deployment/agents-orchestrator \
+        -n ${ORCHESTRATOR_NAMESPACE} --timeout=240s; then
+        echo "ERROR: orchestrator rollout still did not finish after cleanup." >&2
+        rollout_diagnostics
+        exit 1
+      fi
+    fi
 
 commands:
   deploy: |-
@@ -148,7 +266,8 @@ pipelines:
     run: |-
       disable_argocd_sync
       patch_deployment
-      start_dev --disable-pod-replace agents-orchestrator-deploy
+      rollout_or_recover
+      sync_sources_once
       wait_for_orchestrator
       echo "Deploy complete. Orchestrator is running from source."
 
@@ -157,7 +276,8 @@ pipelines:
       restore_argocd_sync
 
 dev:
-  # CI counterpart: agents-orchestrator-deploy (one-shot sync)
+  # Interactive dev sync uses inotify in the container. CI deploy avoids DevSpace
+  # sync/watch entirely and performs a one-shot source upload in sync_sources_once.
   agents-orchestrator:
     namespace: ${ORCHESTRATOR_NAMESPACE}
     labelSelector:
@@ -168,6 +288,7 @@ dev:
         container: agents-orchestrator
         sync:
           - path: ./:/opt/app/data
+            polling: false
             excludePaths:
               - .git/
               - .devspace/
@@ -198,7 +319,10 @@ dev:
         container: agents-orchestrator
         sync:
           - path: ./:/opt/app/data
+            initialSync: mirrorLocal
+            waitInitialSync: true
             noWatch: true
+            polling: false
             excludePaths:
               - .git/
               - .devspace/
