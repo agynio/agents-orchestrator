@@ -129,13 +129,6 @@ functions:
   sync_sources_once: |-
     echo "Syncing source tree into agents-orchestrator pod..."
     LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
-    POD="$(kubectl get pod -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
-      -o jsonpath='{.items[0].metadata.name}')"
-    if [ -z "${POD}" ]; then
-      echo "ERROR: agents-orchestrator pod not found for selector ${LABEL_SELECTOR}" >&2
-      kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
-      exit 1
-    fi
 
     SYNC_ARCHIVE="$(mktemp)"
     trap 'rm -f "${SYNC_ARCHIVE}"' EXIT
@@ -146,25 +139,46 @@ functions:
       ! -name tmp \
       -print0 | tar --null -T - -cf "${SYNC_ARCHIVE}"
     SYNC_SIZE="$(wc -c < "${SYNC_ARCHIVE}")"
-    echo "Uploading source archive (${SYNC_SIZE} bytes) to pod ${POD}..."
-    if ! timeout 120s kubectl cp -n ${ORCHESTRATOR_NAMESPACE} \
-      -c agents-orchestrator "${SYNC_ARCHIVE}" "${POD}:/tmp/agents-orchestrator-source.tar"; then
-      echo "ERROR: source archive upload failed or timed out" >&2
-      kubectl get pod -n ${ORCHESTRATOR_NAMESPACE} "${POD}" -o wide >&2 || true
-      kubectl logs -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
-        -c agents-orchestrator --tail=200 >&2 || true
+    ATTEMPT=1
+    SYNC_COMPLETE=false
+    while [ "${ATTEMPT}" -le 5 ]; do
+      echo "Source sync attempt ${ATTEMPT}/5..."
+      POD="$(kubectl get pod -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" \
+        --field-selector=status.phase=Running \
+        --sort-by=.metadata.creationTimestamp \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | tail -n 1 || true)"
+      if [ -z "${POD}" ]; then
+        echo "No running agents-orchestrator pod found for selector ${LABEL_SELECTOR}." >&2
+      else
+        kubectl wait -n ${ORCHESTRATOR_NAMESPACE} "pod/${POD}" \
+          --for=condition=Ready --timeout=30s >&2 || true
+        echo "Uploading source archive (${SYNC_SIZE} bytes) to pod ${POD}..."
+        if timeout 120s kubectl cp -n ${ORCHESTRATOR_NAMESPACE} \
+          -c agents-orchestrator "${SYNC_ARCHIVE}" "${POD}:/tmp/agents-orchestrator-source.tar" && \
+          timeout 120s kubectl exec -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
+            -c agents-orchestrator -- sh -c \
+            'tar -xf /tmp/agents-orchestrator-source.tar -C /opt/app/data && rm -f /tmp/agents-orchestrator-source.tar'; then
+          echo "Source tree synced to pod ${POD}."
+          SYNC_COMPLETE=true
+          break
+        fi
+        echo "WARNING: source sync attempt ${ATTEMPT} failed for pod ${POD}; retrying with current pod selection." >&2
+      fi
+
+      echo "Diagnostic pod list:" >&2
+      kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
+      echo "Diagnostic deployment rollout:" >&2
+      kubectl rollout status deployment/agents-orchestrator \
+        -n ${ORCHESTRATOR_NAMESPACE} --timeout=30s >&2 || true
+      ATTEMPT=$((ATTEMPT + 1))
+      sleep 5
+    done
+
+    if [ "${SYNC_COMPLETE}" != "true" ]; then
+      echo "ERROR: source archive upload/extract failed after retries" >&2
+      rollout_diagnostics
       exit 1
     fi
-    if ! timeout 120s kubectl exec -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
-      -c agents-orchestrator -- sh -c \
-      'tar -xf /tmp/agents-orchestrator-source.tar -C /opt/app/data && rm -f /tmp/agents-orchestrator-source.tar'; then
-      echo "ERROR: source archive extraction failed or timed out" >&2
-      kubectl get pod -n ${ORCHESTRATOR_NAMESPACE} "${POD}" -o wide >&2 || true
-      kubectl logs -n ${ORCHESTRATOR_NAMESPACE} "${POD}" \
-        -c agents-orchestrator --tail=200 >&2 || true
-      exit 1
-    fi
-    echo "Source tree synced."
   rollout_diagnostics: |-
     LABEL_SELECTOR="app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator"
     echo "Diagnostic deployment:" >&2
