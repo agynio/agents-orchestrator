@@ -52,11 +52,22 @@ functions:
                 - -c
                 - |
                   set -eu
+                  required_files="go.mod go.sum buf.yaml buf.lock buf.gen.yaml cmd/orchestrator/main.go"
                   elapsed=0
-                  while [ ! -f /opt/app/data/go.mod ]; do
+                  while :; do
+                    missing_files=""
+                    for required_file in $required_files; do
+                      if [ ! -f "/opt/app/data/${required_file}" ]; then
+                        missing_files="${missing_files} ${required_file}"
+                      fi
+                    done
+                    if [ -z "$missing_files" ]; then
+                      break
+                    fi
                     sleep 1; elapsed=$((elapsed + 1))
-                    [ "$elapsed" -ge 240 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
+                    [ "$elapsed" -ge 240 ] && { echo "ERROR: sync timeout waiting for:${missing_files}" >&2; exit 1; }
                   done
+                  [ -s /opt/app/data/buf.gen.yaml ] || { echo "ERROR: buf.gen.yaml is empty" >&2; exit 1; }
                   buf generate buf.build/agynio/api \
                     --include-imports \
                     --path agynio/api/runner/v1 \
