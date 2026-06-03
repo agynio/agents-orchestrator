@@ -168,15 +168,29 @@ func dialZitiWithRetry(ctx context.Context, zitiCtx ZitiDialer, service string) 
 		if IsNoTerminators(err) {
 			return nil, fmt.Errorf("dial ziti service %s: %w", service, err)
 		}
-		log.Printf("dial ziti service %s: attempt %d/%d failed: %v", service, attempt, retryMaxAttempts, err)
 		lastErr = err
 		if isAuthFailure(err) {
+			log.Printf(
+				"runnerdial: dial ziti service failed service=%s attempt=%d/%d auth_failure=true action=re_enroll err=%v",
+				service,
+				attempt,
+				retryMaxAttempts,
+				err,
+			)
 			zitiCtx.NotifyAuthFailure(ctx)
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 			continue
 		}
+		log.Printf(
+			"runnerdial: dial ziti service failed service=%s attempt=%d/%d auth_failure=false backoff=%s err=%v",
+			service,
+			attempt,
+			retryMaxAttempts,
+			backoff,
+			err,
+		)
 		if attempt == retryMaxAttempts {
 			break
 		}

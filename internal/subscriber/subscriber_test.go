@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -166,6 +167,58 @@ func TestSubscriberResubscribesOnAgentChange(t *testing.T) {
 	}
 }
 
+func TestFormatRoomSnapshotIncludesCountsFingerprintAndSamples(t *testing.T) {
+	snapshot := roomSnapshot{
+		rooms: []string{
+			"agent:11111111-1111-1111-1111-111111111111",
+			"agent:22222222-2222-2222-2222-222222222222",
+			"custom:room",
+			"thread_participant:11111111-1111-1111-1111-111111111111",
+			"thread_participant:22222222-2222-2222-2222-222222222222",
+		},
+	}
+	snapshot.fingerprint = fingerprintRooms(snapshot.rooms)
+
+	formatted := formatRoomSnapshot(snapshot)
+	assertContains(t, formatted, "rooms_count=5")
+	assertContains(t, formatted, "agent_rooms=2")
+	assertContains(t, formatted, "thread_participant_rooms=2")
+	assertContains(t, formatted, "other_rooms=1")
+	assertContains(t, formatted, "fingerprint=sha256:")
+	assertContains(t, formatted, "agent:11111111-1111-1111-1111-111111111111")
+	assertContains(t, formatted, "custom:room")
+	if strings.Contains(formatted, "thread_participant:22222222-2222-2222-2222-222222222222") {
+		t.Fatalf("expected sample to be limited, got %q", formatted)
+	}
+}
+
+func TestRepeatedErrorLimiterSuppressesUntilSummaryInterval(t *testing.T) {
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	limiter := newRepeatedErrorLimiter(time.Minute)
+	limiter.now = func() time.Time { return now }
+
+	first := limiter.Record("Recv\x00Unauthenticated\x00identity not available")
+	if !first.First || first.Summary || first.Suppressed != 0 {
+		t.Fatalf("expected first decision, got %+v", first)
+	}
+
+	second := limiter.Record("Recv\x00Unauthenticated\x00identity not available")
+	if second.First || second.Summary || second.Suppressed != 0 {
+		t.Fatalf("expected suppressed decision, got %+v", second)
+	}
+
+	now = now.Add(time.Minute)
+	third := limiter.Record("Recv\x00Unauthenticated\x00identity not available")
+	if third.First || !third.Summary || third.Suppressed != 2 {
+		t.Fatalf("expected summary for two suppressed errors, got %+v", third)
+	}
+
+	fourth := limiter.Record("Subscribe\x00Unauthenticated\x00identity not available")
+	if !fourth.First || fourth.Summary || fourth.Suppressed != 0 {
+		t.Fatalf("expected independent key to log first occurrence, got %+v", fourth)
+	}
+}
+
 func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialAgents []*agentsv1.Agent, refreshInterval time.Duration) *subscriberHarness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -305,4 +358,11 @@ type subscriberHarness struct {
 
 func agentFixture(id string) *agentsv1.Agent {
 	return &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: id}}
+}
+
+func assertContains(t *testing.T, value, substring string) {
+	t.Helper()
+	if !strings.Contains(value, substring) {
+		t.Fatalf("expected %q to contain %q", value, substring)
+	}
 }

@@ -84,7 +84,7 @@ func (m *ZitiManager) DialContext(ctx context.Context, service string) (edge.Con
 func (m *ZitiManager) NotifyAuthFailure(ctx context.Context) {
 	waitCtx := m.effectiveContext(ctx)
 	if err := m.triggerReEnroll(waitCtx); err != nil && waitCtx.Err() == nil {
-		log.Printf("ziti re-enroll after auth failure failed: %v", err)
+		log.Printf("zitimanager: re-enroll after auth failure failed identity_id=%s err=%v", m.currentIdentityID(), err)
 	}
 }
 
@@ -105,12 +105,12 @@ func (m *ZitiManager) RunLeaseRenewal(ctx context.Context) {
 			}
 			if isNotFoundGrpcError(err) {
 				if err := m.triggerReEnroll(ctx); err != nil && ctx.Err() == nil {
-					log.Printf("ziti lease renewal re-enroll failed: %v", err)
+					log.Printf("zitimanager: lease renewal re-enroll failed identity_id=%s err=%v", m.currentIdentityID(), err)
 				}
 				continue
 			}
 			if ctx.Err() == nil {
-				log.Printf("failed to extend ziti lease: %v", err)
+				log.Printf("zitimanager: extend ziti lease failed identity_id=%s err=%v", m.currentIdentityID(), err)
 			}
 		}
 	}
@@ -282,7 +282,16 @@ func retryWithBackoff(ctx context.Context, operationName string, fn func(context
 			delay = retryMaxBackoff
 		}
 
-		log.Printf("%s failed (attempt %d), retrying in %s: %v", operationName, attempt, delay, err)
+		statusErr, _ := status.FromError(err)
+		log.Printf(
+			"zitimanager: retryable operation failed operation=%q attempt=%d backoff=%s grpc_code=%s grpc_desc=%q err=%v",
+			operationName,
+			attempt,
+			delay,
+			statusErr.Code().String(),
+			statusErr.Message(),
+			err,
+		)
 
 		timer := time.NewTimer(delay)
 		select {
