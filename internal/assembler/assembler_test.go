@@ -1476,10 +1476,6 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 	if string(request.GetInlineFiles()[egressCACertPath]) != string(cert) {
 		t.Fatalf("expected egress CA inline file bytes")
 	}
-	if request.GetLabels()[ManagedByLabelKey] != ManagedByValue {
-		t.Fatalf("expected managed-by workload label")
-	}
-
 	containers := []*runnerv1.ContainerSpec{request.Main}
 	containers = append(containers, request.GetSidecars()...)
 	containers = append(containers, request.GetInitContainers()...)

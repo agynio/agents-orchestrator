@@ -273,9 +273,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		ImagePullCredentials: imagePullCredentials,
 		Capabilities:         append([]string(nil), agent.GetCapabilities()...),
 		InlineFiles:          egressCAInlineFiles(a.egressCACert),
-		Labels: map[string]string{
-			ManagedByLabelKey: ManagedByValue,
-		},
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
