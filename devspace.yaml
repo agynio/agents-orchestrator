@@ -118,8 +118,8 @@ functions:
       grep -q "orchestrator: ready"; do
       sleep 5
       ELAPSED=$((ELAPSED + 5))
-      if [ "$ELAPSED" -ge 600 ]; then
-        echo "ERROR: orchestrator ready log not found within 600s" >&2
+      if [ "$ELAPSED" -ge 1200 ]; then
+        echo "ERROR: orchestrator ready log not found within 1200s" >&2
         echo "Diagnostic pod list:" >&2
         kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
         echo "Diagnostic logs (tail 200):" >&2
