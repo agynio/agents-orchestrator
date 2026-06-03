@@ -32,10 +32,6 @@ rbac:
     - apiGroups: ["coordination.k8s.io"]
       resources: ["leases"]
       verbs: ["get", "create", "update"]
-    - apiGroups: [""]
-      resources: ["secrets"]
-      resourceNames: ["egress-ca"]
-      verbs: ["get"]
 
 podAnnotations: {}
 podLabels: {}
@@ -170,3 +166,9 @@ metrics:
     relabelings: []
     metricRelabelings: []
     endpoints: []
+
+egressCA:
+  namespace: ""
+  secretName: egress-ca
+  rbac:
+    create: true
