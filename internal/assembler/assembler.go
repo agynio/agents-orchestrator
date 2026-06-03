@@ -44,21 +44,22 @@ const (
 )
 
 var reservedEnvNames = map[string]struct{}{
-	"AGENT_ID":                 {},
-	"AGENT_NAME":               {},
-	"AGENT_ROLE":               {},
-	"AGENT_MODEL":              {},
-	"AGENT_CONFIG":             {},
-	"THREAD_ID":                {},
-	"WORKLOAD_ID":              {},
-	"GATEWAY_ADDRESS":          {},
-	"AGYN_GATEWAY_URL":         {},
-	"LLM_BASE_URL":             {},
-	"TRACING_ADDRESS":          {},
-	"AGENT_MCP_SERVERS":        {},
-	"MCP_PORT":                 {},
-	ZitiEnrollmentTokenEnvVar:  {},
-	ZitiIdentityBasenameEnvVar: {},
+	"AGENT_ID":                    {},
+	"AGENT_NAME":                  {},
+	"AGENT_ROLE":                  {},
+	"AGENT_MODEL":                 {},
+	"AGENT_CONFIG":                {},
+	"THREAD_ID":                   {},
+	"WORKLOAD_ID":                 {},
+	"GATEWAY_ADDRESS":             {},
+	"AGYN_GATEWAY_URL":            {},
+	"LLM_BASE_URL":                {},
+	"TRACING_ADDRESS":             {},
+	"OTEL_EXPORTER_OTLP_ENDPOINT": {},
+	"AGENT_MCP_SERVERS":           {},
+	"MCP_PORT":                    {},
+	ZitiEnrollmentTokenEnvVar:     {},
+	ZitiIdentityBasenameEnvVar:    {},
 }
 
 type Assembler struct {
@@ -634,6 +635,7 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 	}
 	if a.cfg.AgentTracingAddress != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})
+		vars = append(vars, &runnerv1.EnvVar{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "http://localhost:4317"})
 	}
 	return vars
 }

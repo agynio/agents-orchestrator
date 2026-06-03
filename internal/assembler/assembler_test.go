@@ -167,6 +167,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
 	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
+	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	assertEnv(t, envs, "WORKSPACE_DIR", "/override")
 	assertEnv(t, envs, "HOME", "/override-home")
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
@@ -466,6 +467,8 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
+	assertEnv(t, envs, "TRACING_ADDRESS", "tracing.ziti:443")
+	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 }
 
 func TestAssemblerInitImageOverride(t *testing.T) {
