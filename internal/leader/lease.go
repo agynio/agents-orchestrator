@@ -5,18 +5,16 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/agynio/agents-orchestrator/internal/config"
+	"github.com/agynio/agents-orchestrator/internal/k8sclient"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 )
-
-const namespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
 type Leader struct {
 	client    kubernetes.Interface
@@ -34,16 +32,9 @@ func New(cfg *config.Config, onStarted func(context.Context)) (*Leader, error) {
 	if identity == "" {
 		return nil, fmt.Errorf("HOSTNAME must be set")
 	}
-	namespace := cfg.LeaseNamespace
-	if namespace == "" {
-		value, err := os.ReadFile(namespacePath)
-		if err != nil {
-			return nil, fmt.Errorf("read lease namespace: %w", err)
-		}
-		namespace = strings.TrimSpace(string(value))
-		if namespace == "" {
-			return nil, fmt.Errorf("lease namespace is empty")
-		}
+	namespace, err := k8sclient.ResolveNamespace(cfg.LeaseNamespace, "lease")
+	if err != nil {
+		return nil, err
 	}
 	name := cfg.LeaseName
 	if name == "" {

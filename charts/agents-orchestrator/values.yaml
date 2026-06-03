@@ -32,6 +32,10 @@ rbac:
     - apiGroups: ["coordination.k8s.io"]
       resources: ["leases"]
       verbs: ["get", "create", "update"]
+    - apiGroups: [""]
+      resources: ["secrets"]
+      resourceNames: ["egress-ca"]
+      verbs: ["get"]
 
 podAnnotations: {}
 podLabels: {}
@@ -99,6 +103,8 @@ env:
   - name: STOP_TIMEOUT_SEC
     value: ""
   - name: LEASE_NAME
+    value: ""
+  - name: EGRESS_CA_NAMESPACE
     value: ""
 envFrom: []
 extraEnvVars: []

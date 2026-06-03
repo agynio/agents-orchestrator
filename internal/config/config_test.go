@@ -108,4 +108,5 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("STOP_TIMEOUT_SEC", "")
 	t.Setenv("LEASE_NAME", "")
 	t.Setenv("LEASE_NAMESPACE", "")
+	t.Setenv("EGRESS_CA_NAMESPACE", "")
 }

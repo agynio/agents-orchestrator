@@ -19,11 +19,15 @@ import (
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/config"
+	"github.com/agynio/agents-orchestrator/internal/k8sclient"
 	"github.com/agynio/agents-orchestrator/internal/leader"
 	"github.com/agynio/agents-orchestrator/internal/reconciler"
 	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/agynio/agents-orchestrator/internal/subscriber"
 	"github.com/agynio/agents-orchestrator/internal/zitimanager"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -130,7 +134,23 @@ func run() error {
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 	meteringClient := meteringv1.NewMeteringServiceClient(meteringConn)
 	subscriber := subscriber.New(notificationsClient, agentsClient)
-	assembler := assembler.New(agentsClient, secretsClient, &cfg)
+	egressCANamespace, err := k8sclient.ResolveNamespace(cfg.EgressCANamespace, "egress CA")
+	if err != nil {
+		return err
+	}
+	kubeConfig, err := rest.InClusterConfig()
+	if err != nil {
+		return fmt.Errorf("load kubernetes config: %w", err)
+	}
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("create kubernetes client: %w", err)
+	}
+	egressCACert, err := assembler.LoadEgressCACertificate(ctx, assembler.NewKubernetesSecretGetter(kubeClient.CoreV1()), egressCANamespace)
+	if err != nil {
+		return err
+	}
+	assembler := assembler.NewWithEgressCA(agentsClient, secretsClient, &cfg, egressCACert)
 	reconciler := reconciler.New(reconciler.Config{
 		Threads:                   threadsClient,
 		Agents:                    agentsClient,

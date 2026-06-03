@@ -31,6 +31,8 @@ const (
 	ZitiIdentityBasename                 = "agent"
 	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
 	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
+	egressCACertPath                     = "/etc/agyn/egress-ca/ca.crt"
+	egressCACertDir                      = "/etc/agyn/egress-ca"
 	zitiDNSNameserver                    = "127.0.0.1"
 	zitiSidecarCommand                   = "tproxy"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
@@ -56,6 +58,11 @@ var reservedEnvNames = map[string]struct{}{
 	"LLM_BASE_URL":                {},
 	"TRACING_ADDRESS":             {},
 	"OTEL_EXPORTER_OTLP_ENDPOINT": {},
+	"SSL_CERT_FILE":               {},
+	"REQUESTS_CA_BUNDLE":          {},
+	"NODE_EXTRA_CA_CERTS":         {},
+	"CURL_CA_BUNDLE":              {},
+	"SSL_CERT_DIR":                {},
 	"AGENT_MCP_SERVERS":           {},
 	"MCP_PORT":                    {},
 	ZitiEnrollmentTokenEnvVar:     {},
@@ -63,9 +70,10 @@ var reservedEnvNames = map[string]struct{}{
 }
 
 type Assembler struct {
-	agents  agentsv1.AgentsServiceClient
-	secrets secretsv1.SecretsServiceClient
-	cfg     *config.Config
+	agents       agentsv1.AgentsServiceClient
+	secrets      secretsv1.SecretsServiceClient
+	cfg          *config.Config
+	egressCACert []byte
 }
 
 type AssembleResult struct {
@@ -84,7 +92,11 @@ type PersistentVolumeInfo struct {
 }
 
 func New(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
-	return &Assembler{agents: agents, secrets: secrets, cfg: cfg}
+	return NewWithEgressCA(agents, secrets, cfg, nil)
+}
+
+func NewWithEgressCA(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config, egressCACert []byte) *Assembler {
+	return &Assembler{agents: agents, secrets: secrets, cfg: cfg, egressCACert: append([]byte(nil), egressCACert...)}
 }
 
 func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (*AssembleResult, error) {
@@ -124,6 +136,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 
 	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
+	mainEnv = appendEgressCAEnvVars(mainEnv)
 
 	initImage := agent.GetInitImage()
 	if initImage == "" {
@@ -133,11 +146,12 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	mainMounts := append([]*runnerv1.VolumeMount{}, agentMounts...)
 	mainMounts = append(mainMounts, &runnerv1.VolumeMount{Volume: agynBinVolumeName, MountPath: agynBinMountPath})
 	main := &runnerv1.ContainerSpec{
-		Image:  agent.GetImage(),
-		Name:   fmt.Sprintf("agent-%s-%s", agentID.String()[:8], threadID.String()[:8]),
-		Cmd:    []string{agynBinBinaryPath},
-		Env:    mainEnv,
-		Mounts: mainMounts,
+		Image:            agent.GetImage(),
+		Name:             fmt.Sprintf("agent-%s-%s", agentID.String()[:8], threadID.String()[:8]),
+		Cmd:              []string{agynBinBinaryPath},
+		Env:              mainEnv,
+		Mounts:           mainMounts,
+		InlineFileMounts: egressCAInlineFileMounts(a.egressCACert),
 	}
 	initContainer := &runnerv1.ContainerSpec{
 		Image: initImage,
@@ -146,6 +160,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
 		},
 	}
+	applyEgressCA(initContainer, a.egressCACert)
 	initContainers := []*runnerv1.ContainerSpec{initContainer}
 	if a.cfg.ZitiEnabled {
 		gatewayHostname, err := gatewayHost(a.cfg.AgentGatewayAddress)
@@ -166,6 +181,8 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Name:  zitiGatewayWaitContainerName,
 			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
 		}
+		applyEgressCA(zitiSidecar, a.egressCACert)
+		applyEgressCA(zitiGatewayWait, a.egressCACert)
 		initContainers = []*runnerv1.ContainerSpec{zitiSidecar, zitiGatewayWait, initContainer}
 	}
 
@@ -255,6 +272,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		InitContainers:       initContainers,
 		ImagePullCredentials: imagePullCredentials,
 		Capabilities:         append([]string(nil), agent.GetCapabilities()...),
+		InlineFiles:          egressCAInlineFiles(a.egressCACert),
+		Labels: map[string]string{
+			ManagedByLabelKey: ManagedByValue,
+		},
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
@@ -523,12 +544,14 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 	}, envVars, fmt.Sprintf("mcp %s", mcpID.String()))
+	envVars = appendEgressCAEnvVars(envVars)
 	return &runnerv1.ContainerSpec{
-		Image:  mcp.GetImage(),
-		Name:   fmt.Sprintf("mcp-%s", mcpID.String()[:8]),
-		Cmd:    []string{"/bin/sh", "-c", mcp.GetCommand()},
-		Env:    envVars,
-		Mounts: mounts,
+		Image:            mcp.GetImage(),
+		Name:             fmt.Sprintf("mcp-%s", mcpID.String()[:8]),
+		Cmd:              []string{"/bin/sh", "-c", mcp.GetCommand()},
+		Env:              envVars,
+		Mounts:           mounts,
+		InlineFileMounts: egressCAInlineFileMounts(a.egressCACert),
 	}, nil
 }
 
@@ -544,12 +567,14 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 		return nil, err
 	}
 	envVars = mergeEnvVars(nil, envVars, fmt.Sprintf("hook %s", assignment.id.String()))
+	envVars = appendEgressCAEnvVars(envVars)
 	return &runnerv1.ContainerSpec{
-		Image:  assignment.hook.GetImage(),
-		Name:   fmt.Sprintf("hook-%s", assignment.id.String()[:8]),
-		Cmd:    []string{"/bin/sh", "-c", assignment.hook.GetFunction()},
-		Env:    envVars,
-		Mounts: mounts,
+		Image:            assignment.hook.GetImage(),
+		Name:             fmt.Sprintf("hook-%s", assignment.id.String()[:8]),
+		Cmd:              []string{"/bin/sh", "-c", assignment.hook.GetFunction()},
+		Env:              envVars,
+		Mounts:           mounts,
+		InlineFileMounts: egressCAInlineFileMounts(a.egressCACert),
 	}, nil
 }
 
