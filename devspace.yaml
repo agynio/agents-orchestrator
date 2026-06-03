@@ -25,6 +25,21 @@ functions:
     else
       echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
     fi
+  ensure_egress_ca_rbac: |-
+    echo "Ensuring agents-orchestrator can read egress CA secret..."
+    kubectl create role agents-orchestrator-egress-ca \
+      -n ${ORCHESTRATOR_NAMESPACE} \
+      --verb=get \
+      --resource=secrets \
+      --resource-name=egress-ca \
+      --dry-run=client \
+      -o yaml | kubectl apply -f -
+    kubectl create rolebinding agents-orchestrator-egress-ca \
+      -n ${ORCHESTRATOR_NAMESPACE} \
+      --role=agents-orchestrator-egress-ca \
+      --serviceaccount=${ORCHESTRATOR_NAMESPACE}:agents-orchestrator \
+      --dry-run=client \
+      -o yaml | kubectl apply -f -
   patch_deployment: |-
     echo "Patching agents-orchestrator deployment for DevSpace..."
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
@@ -91,9 +106,6 @@ functions:
                 requests:
                   cpu: 500m
                   memory: 1Gi
-                limits:
-                  cpu: "2"
-                  memory: 4Gi
               securityContext:
                 runAsNonRoot: true
                 runAsUser: 1000
@@ -145,6 +157,7 @@ pipelines:
     run: |-
       trap 'echo "Restoring ArgoCD sync..."; restore_argocd_sync' EXIT
       disable_argocd_sync
+      ensure_egress_ca_rbac
       patch_deployment
       if [ "$(get_flag "watch")" == "true" ]; then
         start_dev --disable-pod-replace agents-orchestrator
@@ -158,6 +171,7 @@ pipelines:
   deploy:
     run: |-
       disable_argocd_sync
+      ensure_egress_ca_rbac
       patch_deployment
       start_dev --disable-pod-replace agents-orchestrator-deploy
       wait_for_orchestrator
