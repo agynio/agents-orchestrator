@@ -130,6 +130,7 @@ func run() error {
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 	meteringClient := meteringv1.NewMeteringServiceClient(meteringConn)
 	subscriber := subscriber.New(notificationsClient, agentsClient)
+	subscriber.SetServiceTargets(cfg.NotificationsAddress, cfg.AgentsAddress)
 	assembler := assembler.New(agentsClient, secretsClient, &cfg)
 	reconciler := reconciler.New(reconciler.Config{
 		Threads:                   threadsClient,

@@ -2,17 +2,22 @@ package subscriber
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -22,6 +27,10 @@ const (
 	threadParticipantRoomPrefix       = "thread_participant:"
 	listAgentsPageSize          int32 = 100
 	defaultRoomRefreshInterval        = 30 * time.Second
+	streamErrorSummaryInterval        = time.Minute
+	roomSnapshotSampleSize            = 3
+	agentsServiceName                 = "agents"
+	notificationsServiceName          = "notifications"
 )
 
 type roomSnapshot struct {
@@ -34,6 +43,9 @@ type Subscriber struct {
 	agents              agentsv1.AgentsServiceClient
 	wake                chan struct{}
 	roomRefreshInterval time.Duration
+	notificationsTarget string
+	agentsTarget        string
+	streamErrors        *repeatedErrorLimiter
 }
 
 func New(client notificationsv1.NotificationsServiceClient, agents agentsv1.AgentsServiceClient) *Subscriber {
@@ -42,7 +54,17 @@ func New(client notificationsv1.NotificationsServiceClient, agents agentsv1.Agen
 		agents:              agents,
 		wake:                make(chan struct{}, 1),
 		roomRefreshInterval: defaultRoomRefreshInterval,
+		streamErrors:        newRepeatedErrorLimiter(streamErrorSummaryInterval),
 	}
+}
+
+func (s *Subscriber) Wake() <-chan struct{} {
+	return s.wake
+}
+
+func (s *Subscriber) SetServiceTargets(notificationsTarget, agentsTarget string) {
+	s.notificationsTarget = strings.TrimSpace(notificationsTarget)
+	s.agentsTarget = strings.TrimSpace(agentsTarget)
 }
 
 func (s *Subscriber) Run(ctx context.Context) error {
@@ -53,7 +75,12 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		}
 		snapshot, err := s.buildRoomSnapshot(ctx)
 		if err != nil {
-			log.Printf("subscriber: build rooms failed: %v", err)
+			log.Printf(
+				"subscriber: rooms build failed phase=rooms.build %s backoff=%s err=%v",
+				formatServiceTarget(agentsServiceName, s.agentsTarget),
+				backoff,
+				err,
+			)
 			if err := waitWithBackoff(ctx, backoff); err != nil {
 				return err
 			}
@@ -64,7 +91,7 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		stream, err := s.client.Subscribe(streamCtx, &notificationsv1.SubscribeRequest{Rooms: snapshot.rooms})
 		if err != nil {
 			cancel()
-			log.Printf("subscriber: subscribe failed: %v", err)
+			s.logStreamError("Subscribe", snapshot, backoff, err)
 			if err := waitWithBackoff(ctx, backoff); err != nil {
 				return err
 			}
@@ -87,7 +114,11 @@ func (s *Subscriber) Run(ctx context.Context) error {
 				roomsChanged := false
 				select {
 				case <-roomsUpdated:
-					log.Printf("subscriber: agent rooms changed, resubscribing")
+					log.Printf(
+						"subscriber: rooms changed, resubscribing phase=rooms.refresh %s previous_%s",
+						formatServiceTarget(agentsServiceName, s.agentsTarget),
+						formatRoomSnapshot(snapshot),
+					)
 					roomsChanged = true
 				default:
 				}
@@ -95,9 +126,14 @@ func (s *Subscriber) Run(ctx context.Context) error {
 					break
 				}
 				if errors.Is(err, io.EOF) {
-					log.Printf("subscriber: stream closed")
+					log.Printf(
+						"subscriber: stream closed phase=Recv %s %s backoff=%s",
+						formatServiceTarget(notificationsServiceName, s.notificationsTarget),
+						formatRoomSnapshot(snapshot),
+						backoff,
+					)
 				} else {
-					log.Printf("subscriber: stream recv failed: %v", err)
+					s.logStreamError("Recv", snapshot, backoff, err)
 				}
 				if err := waitWithBackoff(ctx, backoff); err != nil {
 					return err
@@ -166,7 +202,7 @@ func (s *Subscriber) buildRoomSnapshot(ctx context.Context) (roomSnapshot, error
 	sort.Strings(ordered)
 	return roomSnapshot{
 		rooms:       ordered,
-		fingerprint: strings.Join(ordered, "|"),
+		fingerprint: fingerprintRooms(ordered),
 	}, nil
 }
 
@@ -183,20 +219,27 @@ func (s *Subscriber) watchRooms(ctx context.Context, snapshot roomSnapshot, upda
 		case <-ticker.C:
 			next, err := s.buildRoomSnapshot(ctx)
 			if err != nil {
-				log.Printf("subscriber: refresh rooms failed: %v", err)
+				log.Printf(
+					"subscriber: rooms refresh failed phase=rooms.refresh %s previous_%s err=%v",
+					formatServiceTarget(agentsServiceName, s.agentsTarget),
+					formatRoomSnapshot(snapshot),
+					err,
+				)
 				continue
 			}
 			if next.fingerprint != snapshot.fingerprint {
+				log.Printf(
+					"subscriber: rooms refresh detected change phase=rooms.refresh %s previous_%s current_%s",
+					formatServiceTarget(agentsServiceName, s.agentsTarget),
+					formatRoomSnapshot(snapshot),
+					formatRoomSnapshot(next),
+				)
 				close(updated)
 				cancel()
 				return
 			}
 		}
 	}
-}
-
-func (s *Subscriber) Wake() <-chan struct{} {
-	return s.wake
 }
 
 func waitWithBackoff(ctx context.Context, delay time.Duration) error {
@@ -222,4 +265,137 @@ func nextBackoff(current time.Duration) time.Duration {
 		return 30 * time.Second
 	}
 	return next
+}
+
+func (s *Subscriber) logStreamError(phase string, snapshot roomSnapshot, backoff time.Duration, err error) {
+	code, desc := grpcErrorDetails(err)
+	key := strings.Join([]string{phase, notificationsServiceName, s.notificationsTarget, snapshot.fingerprint, code, desc}, "\x00")
+	decision := s.streamErrors.Record(key)
+	if decision.First {
+		log.Printf(
+			"subscriber: stream error phase=%s %s %s grpc_code=%s grpc_desc=%q backoff=%s err=%v",
+			phase,
+			formatServiceTarget(notificationsServiceName, s.notificationsTarget),
+			formatRoomSnapshot(snapshot),
+			code,
+			desc,
+			backoff,
+			err,
+		)
+		return
+	}
+	if decision.Summary {
+		log.Printf(
+			"subscriber: stream error repeated phase=%s %s %s grpc_code=%s grpc_desc=%q backoff=%s suppressed=%d",
+			phase,
+			formatServiceTarget(notificationsServiceName, s.notificationsTarget),
+			formatRoomSnapshot(snapshot),
+			code,
+			desc,
+			backoff,
+			decision.Suppressed,
+		)
+	}
+}
+
+func grpcErrorDetails(err error) (string, string) {
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		return "NonGRPC", err.Error()
+	}
+	code := statusErr.Code()
+	if code == codes.OK {
+		return "NonGRPC", err.Error()
+	}
+	return code.String(), statusErr.Message()
+}
+
+func formatServiceTarget(serviceName, target string) string {
+	if target == "" {
+		return fmt.Sprintf("service=%s target=unknown", serviceName)
+	}
+	return fmt.Sprintf("service=%s target=%s", serviceName, target)
+}
+
+func formatRoomSnapshot(snapshot roomSnapshot) string {
+	agentRooms := 0
+	threadParticipantRooms := 0
+	for _, room := range snapshot.rooms {
+		switch {
+		case strings.HasPrefix(room, agentRoomPrefix):
+			agentRooms++
+		case strings.HasPrefix(room, threadParticipantRoomPrefix):
+			threadParticipantRooms++
+		}
+	}
+	otherRooms := len(snapshot.rooms) - agentRooms - threadParticipantRooms
+	sampleLimit := roomSnapshotSampleSize
+	if len(snapshot.rooms) < sampleLimit {
+		sampleLimit = len(snapshot.rooms)
+	}
+	return fmt.Sprintf(
+		"rooms_count=%d agent_rooms=%d thread_participant_rooms=%d other_rooms=%d fingerprint=%s sample=%q",
+		len(snapshot.rooms),
+		agentRooms,
+		threadParticipantRooms,
+		otherRooms,
+		snapshot.fingerprint,
+		snapshot.rooms[:sampleLimit],
+	)
+}
+
+func fingerprintRooms(rooms []string) string {
+	hash := sha256.New()
+	for _, room := range rooms {
+		_, _ = hash.Write([]byte(room))
+		_, _ = hash.Write([]byte{0})
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
+}
+
+type repeatedErrorLimiter struct {
+	mu       sync.Mutex
+	interval time.Duration
+	now      func() time.Time
+	entries  map[string]repeatedErrorEntry
+}
+
+type repeatedErrorEntry struct {
+	lastLogged time.Time
+	suppressed int
+}
+
+type repeatedErrorDecision struct {
+	First      bool
+	Summary    bool
+	Suppressed int
+}
+
+func newRepeatedErrorLimiter(interval time.Duration) *repeatedErrorLimiter {
+	return &repeatedErrorLimiter{
+		interval: interval,
+		now:      time.Now,
+		entries:  make(map[string]repeatedErrorEntry),
+	}
+}
+
+func (l *repeatedErrorLimiter) Record(key string) repeatedErrorDecision {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	entry, ok := l.entries[key]
+	if !ok {
+		l.entries[key] = repeatedErrorEntry{lastLogged: now}
+		return repeatedErrorDecision{First: true}
+	}
+	entry.suppressed++
+	if now.Sub(entry.lastLogged) >= l.interval {
+		decision := repeatedErrorDecision{Summary: true, Suppressed: entry.suppressed}
+		entry.lastLogged = now
+		entry.suppressed = 0
+		l.entries[key] = entry
+		return decision
+	}
+	l.entries[key] = entry
+	return repeatedErrorDecision{}
 }
