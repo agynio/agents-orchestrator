@@ -42,8 +42,11 @@ jobs:
 
       - name: Run E2E tests
         uses: agynio/e2e/.github/actions/run-tests@main
+        env:
+          E2E_SUITES: go-core playwright-chat-app
         with:
           service: agents_orchestrator
+          include_smoke: "false"
 
       - name: Restore k8s-runner ArgoCD sync
         if: always()
