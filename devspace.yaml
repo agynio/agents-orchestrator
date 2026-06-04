@@ -67,7 +67,7 @@ functions:
                 - -c
                 - |
                   set -eu
-                  required_files="go.mod go.sum buf.yaml buf.lock buf.gen.yaml cmd/orchestrator/main.go"
+                  required_files="go.mod go.sum buf.yaml buf.lock buf.gen.yaml cmd/orchestrator/main.go internal/config/config.go internal/assembler/assembler.go internal/reconciler/reconciler.go internal/subscriber/subscriber.go"
                   elapsed=0
                   while :; do
                     missing_files=""
