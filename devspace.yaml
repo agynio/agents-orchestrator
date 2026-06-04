@@ -198,16 +198,19 @@ dev:
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
             uploadExcludePaths:
               - .git/
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
             downloadExcludePaths:
               - .git/
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
         logs:
           enabled: true
           lastLines: 200
@@ -229,13 +232,16 @@ dev:
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
             uploadExcludePaths:
               - .git/
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
             downloadExcludePaths:
               - .git/
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
