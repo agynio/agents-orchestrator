@@ -1,5 +1,5 @@
 nameOverride: ""
-fullnameOverride: ""
+fullnameOverride: "agents-orchestrator"
 
 global:
   imageRegistry: ""
@@ -67,15 +67,15 @@ command: []
 args: []
 env:
   - name: THREADS_ADDRESS
-    value: ""
+    value: "threads:50051"
   - name: NOTIFICATIONS_ADDRESS
-    value: ""
+    value: "notifications:50051"
   - name: AGENTS_ADDRESS
-    value: ""
+    value: "agents:50051"
   - name: SECRETS_ADDRESS
-    value: ""
+    value: "secrets:50051"
   - name: RUNNERS_ADDRESS
-    value: ""
+    value: "runners:50051"
   - name: METERING_SERVICE_ADDRESS
     value: ""
   - name: METERING_SAMPLE_INTERVAL
@@ -87,7 +87,7 @@ env:
   - name: ZITI_ENROLLMENT_TIMEOUT
     value: "2m"
   - name: ZITI_MANAGEMENT_ADDRESS
-    value: ""
+    value: "ziti-management:50051"
   # Upstream DNS resolver used for Ziti-enabled workload pods.
   - name: WORKLOAD_DNS_UPSTREAM
     value: ""
@@ -95,13 +95,13 @@ env:
   - name: CLUSTER_DNS
     value: ""
   - name: AGENT_GATEWAY_ADDRESS
-    value: ""
+    value: "gateway:8080"
   - name: AGENT_TRACING_ADDRESS
-    value: ""
+    value: "tracing:50051"
   - name: POLL_INTERVAL
-    value: ""
+    value: "5s"
   - name: IDLE_TIMEOUT
-    value: ""
+    value: "30s"
   - name: STOP_TIMEOUT_SEC
     value: ""
   - name: LEASE_NAME
