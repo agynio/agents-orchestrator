@@ -151,8 +151,12 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetInstanceId() != workloadID {
 				return nil, errors.New("unexpected instance id")
 			}
-			if len(req.GetContainers()) != 0 {
-				return nil, errors.New("unexpected containers")
+			containers := req.GetContainers()
+			if len(containers) != 1 {
+				return nil, errors.New("expected main container")
+			}
+			if containers[0].GetContainerId() != mainContainerID {
+				return nil, errors.New("unexpected main container id")
 			}
 			return &runnersv1.UpdateWorkloadResponse{}, nil
 		},
@@ -262,8 +266,12 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			if req.GetInstanceId() != workloadID {
 				return nil, errors.New("unexpected instance id")
 			}
-			if len(req.GetContainers()) != 0 {
-				return nil, errors.New("unexpected containers")
+			containers := req.GetContainers()
+			if len(containers) != 1 {
+				return nil, errors.New("expected main container")
+			}
+			if containers[0].GetContainerId() != mainContainerID {
+				return nil, errors.New("unexpected main container id")
 			}
 			return &runnersv1.UpdateWorkloadResponse{}, nil
 		},

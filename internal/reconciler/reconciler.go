@@ -330,6 +330,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 	updateReq := &runnersv1.UpdateWorkloadRequest{
 		Id:         workloadIDValue,
 		InstanceId: stringPtr(instanceID),
+		Containers: containers,
 	}
 	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), updateReq); err != nil {
 		log.Printf("reconciler: update workload record %s after start: %v", workloadIDValue, err)
