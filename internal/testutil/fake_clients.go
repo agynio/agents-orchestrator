@@ -252,6 +252,7 @@ func (f *FakeAgentsClient) ListInitScripts(ctx context.Context, req *agentsv1.Li
 
 type FakeSecretsClient struct {
 	ResolveSecretFunc          func(context.Context, *secretsv1.ResolveSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretResponse, error)
+	ResolveSecretExistsFunc    func(context.Context, *secretsv1.ResolveSecretExistsRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretExistsResponse, error)
 	ResolveImagePullSecretFunc func(context.Context, *secretsv1.ResolveImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error)
 }
 
@@ -325,6 +326,13 @@ func (f *FakeSecretsClient) ListSecrets(context.Context, *secretsv1.ListSecretsR
 func (f *FakeSecretsClient) ResolveSecret(ctx context.Context, req *secretsv1.ResolveSecretRequest, opts ...grpc.CallOption) (*secretsv1.ResolveSecretResponse, error) {
 	if f.ResolveSecretFunc != nil {
 		return f.ResolveSecretFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeSecretsClient) ResolveSecretExists(ctx context.Context, req *secretsv1.ResolveSecretExistsRequest, opts ...grpc.CallOption) (*secretsv1.ResolveSecretExistsResponse, error) {
+	if f.ResolveSecretExistsFunc != nil {
+		return f.ResolveSecretExistsFunc(ctx, req, opts...)
 	}
 	return nil, ErrNotImplemented
 }
