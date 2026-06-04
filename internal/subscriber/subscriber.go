@@ -13,6 +13,8 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
+	"github.com/google/uuid"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -20,13 +22,14 @@ const (
 	agentUpdatedEvent                 = "agent.updated"
 	agentRoomPrefix                   = "agent:"
 	threadParticipantRoomPrefix       = "thread_participant:"
+	identityMetadataKey               = "x-identity-id"
 	listAgentsPageSize          int32 = 100
 	defaultRoomRefreshInterval        = 30 * time.Second
 )
 
-type roomSnapshot struct {
-	rooms       []string
-	fingerprint string
+type roomSubscription struct {
+	identityID uuid.UUID
+	rooms      []string
 }
 
 type Subscriber struct {
@@ -51,7 +54,7 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		snapshot, err := s.buildRoomSnapshot(ctx)
+		subscriptions, fingerprint, err := s.buildRoomSubscriptions(ctx)
 		if err != nil {
 			log.Printf("subscriber: build rooms failed: %v", err)
 			if err := waitWithBackoff(ctx, backoff); err != nil {
@@ -60,11 +63,23 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			backoff = nextBackoff(backoff)
 			continue
 		}
-		streamCtx, cancel := context.WithCancel(ctx)
-		stream, err := s.client.Subscribe(streamCtx, &notificationsv1.SubscribeRequest{Rooms: snapshot.rooms})
+
+		runCtx, cancel := context.WithCancel(ctx)
+		roomsUpdated := make(chan struct{})
+		go s.watchRooms(runCtx, fingerprint, roomsUpdated, cancel)
+
+		err = s.runSubscriptions(runCtx, subscriptions, roomsUpdated)
+		cancel()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, errRoomsChanged) {
+			log.Printf("subscriber: agent rooms changed, resubscribing")
+			backoff = time.Second
+			continue
+		}
 		if err != nil {
-			cancel()
-			log.Printf("subscriber: subscribe failed: %v", err)
+			log.Printf("subscriber: subscriptions failed: %v", err)
 			if err := waitWithBackoff(ctx, backoff); err != nil {
 				return err
 			}
@@ -72,59 +87,75 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			continue
 		}
 		backoff = time.Second
+	}
+}
 
-		roomsUpdated := make(chan struct{})
-		watchCtx, watchCancel := context.WithCancel(streamCtx)
-		go s.watchRooms(watchCtx, snapshot, roomsUpdated, cancel)
+var errRoomsChanged = errors.New("rooms changed")
 
-		for {
-			resp, err := stream.Recv()
+func (s *Subscriber) runSubscriptions(ctx context.Context, subscriptions []roomSubscription, roomsUpdated <-chan struct{}) error {
+	errCh := make(chan error, len(subscriptions))
+	for _, subscription := range subscriptions {
+		subscription := subscription
+		go func() {
+			errCh <- s.runSubscription(ctx, subscription)
+		}()
+	}
+
+	remaining := len(subscriptions)
+	for remaining > 0 {
+		select {
+		case <-roomsUpdated:
+			return errRoomsChanged
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-errCh:
+			remaining--
 			if err != nil {
-				watchCancel()
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				roomsChanged := false
-				select {
-				case <-roomsUpdated:
-					log.Printf("subscriber: agent rooms changed, resubscribing")
-					roomsChanged = true
-				default:
-				}
-				if roomsChanged {
-					break
-				}
-				if errors.Is(err, io.EOF) {
-					log.Printf("subscriber: stream closed")
-				} else {
-					log.Printf("subscriber: stream recv failed: %v", err)
-				}
-				if err := waitWithBackoff(ctx, backoff); err != nil {
-					return err
-				}
-				backoff = nextBackoff(backoff)
-				break
+				return err
 			}
-			envelope := resp.GetEnvelope()
-			if envelope == nil {
-				continue
+		}
+	}
+	return nil
+}
+
+func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubscription) error {
+	streamCtx := metadata.AppendToOutgoingContext(ctx, identityMetadataKey, subscription.identityID.String())
+	stream, err := s.client.Subscribe(streamCtx, &notificationsv1.SubscribeRequest{Rooms: subscription.rooms})
+	if err != nil {
+		return fmt.Errorf("subscribe as agent %s: %w", subscription.identityID.String(), err)
+	}
+
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				log.Printf("subscriber: stream closed")
+				return nil
 			}
-			switch envelope.GetEvent() {
-			case messageCreatedEvent, agentUpdatedEvent:
-				select {
-				case s.wake <- struct{}{}:
-				default:
-				}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("stream recv for agent %s: %w", subscription.identityID.String(), err)
+		}
+		envelope := resp.GetEnvelope()
+		if envelope == nil {
+			continue
+		}
+		switch envelope.GetEvent() {
+		case messageCreatedEvent, agentUpdatedEvent:
+			select {
+			case s.wake <- struct{}{}:
+			default:
 			}
 		}
 	}
 }
 
-func (s *Subscriber) buildRoomSnapshot(ctx context.Context) (roomSnapshot, error) {
+func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscription, string, error) {
 	if s.agents == nil {
-		return roomSnapshot{}, errors.New("agents client not configured")
+		return nil, "", errors.New("agents client not configured")
 	}
-	rooms := make(map[string]struct{})
+	roomsByIdentity := map[uuid.UUID]map[string]struct{}{}
 	pageToken := ""
 	for {
 		resp, err := s.agents.ListAgents(ctx, &agentsv1.ListAgentsRequest{
@@ -132,20 +163,25 @@ func (s *Subscriber) buildRoomSnapshot(ctx context.Context) (roomSnapshot, error
 			PageToken: pageToken,
 		})
 		if err != nil {
-			return roomSnapshot{}, fmt.Errorf("list agents: %w", err)
+			return nil, "", fmt.Errorf("list agents: %w", err)
 		}
 		for _, agent := range resp.GetAgents() {
 			if agent == nil {
-				return roomSnapshot{}, fmt.Errorf("agent is nil")
+				return nil, "", fmt.Errorf("agent is nil")
 			}
 			meta := agent.GetMeta()
 			if meta == nil {
-				return roomSnapshot{}, fmt.Errorf("agent meta missing")
+				return nil, "", fmt.Errorf("agent meta missing")
 			}
 			agentID := strings.TrimSpace(meta.GetId())
 			parsedAgentID, err := uuidutil.ParseUUID(agentID, "agent.meta.id")
 			if err != nil {
-				return roomSnapshot{}, err
+				return nil, "", err
+			}
+			rooms := roomsByIdentity[parsedAgentID]
+			if rooms == nil {
+				rooms = map[string]struct{}{}
+				roomsByIdentity[parsedAgentID] = rooms
 			}
 			agentID = parsedAgentID.String()
 			rooms[agentRoomPrefix+agentID] = struct{}{}
@@ -156,21 +192,40 @@ func (s *Subscriber) buildRoomSnapshot(ctx context.Context) (roomSnapshot, error
 			break
 		}
 	}
-	if len(rooms) == 0 {
-		return roomSnapshot{}, fmt.Errorf("no agent rooms available")
+	if len(roomsByIdentity) == 0 {
+		return nil, "", fmt.Errorf("no agent rooms available")
 	}
+
+	identityIDs := make([]uuid.UUID, 0, len(roomsByIdentity))
+	for identityID := range roomsByIdentity {
+		identityIDs = append(identityIDs, identityID)
+	}
+	sort.Slice(identityIDs, func(i, j int) bool { return identityIDs[i].String() < identityIDs[j].String() })
+
+	subscriptions := make([]roomSubscription, 0, len(identityIDs))
+	fingerprints := make([]string, 0, len(identityIDs))
+	for _, identityID := range identityIDs {
+		rooms := sortedRooms(roomsByIdentity[identityID])
+		fingerprint := identityID.String() + ":" + strings.Join(rooms, ",")
+		subscriptions = append(subscriptions, roomSubscription{
+			identityID: identityID,
+			rooms:      rooms,
+		})
+		fingerprints = append(fingerprints, fingerprint)
+	}
+	return subscriptions, strings.Join(fingerprints, "|"), nil
+}
+
+func sortedRooms(rooms map[string]struct{}) []string {
 	ordered := make([]string, 0, len(rooms))
 	for room := range rooms {
 		ordered = append(ordered, room)
 	}
 	sort.Strings(ordered)
-	return roomSnapshot{
-		rooms:       ordered,
-		fingerprint: strings.Join(ordered, "|"),
-	}, nil
+	return ordered
 }
 
-func (s *Subscriber) watchRooms(ctx context.Context, snapshot roomSnapshot, updated chan<- struct{}, cancel context.CancelFunc) {
+func (s *Subscriber) watchRooms(ctx context.Context, fingerprint string, updated chan<- struct{}, cancel context.CancelFunc) {
 	if s.roomRefreshInterval <= 0 {
 		return
 	}
@@ -181,12 +236,12 @@ func (s *Subscriber) watchRooms(ctx context.Context, snapshot roomSnapshot, upda
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			next, err := s.buildRoomSnapshot(ctx)
+			_, nextFingerprint, err := s.buildRoomSubscriptions(ctx)
 			if err != nil {
 				log.Printf("subscriber: refresh rooms failed: %v", err)
 				continue
 			}
-			if next.fingerprint != snapshot.fingerprint {
+			if nextFingerprint != fingerprint {
 				close(updated)
 				cancel()
 				return
