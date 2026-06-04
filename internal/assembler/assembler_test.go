@@ -333,7 +333,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if request.DnsConfig == nil {
 		t.Fatal("expected dns config")
 	}
-	expectedNameservers := []string{zitiDNSNameserver, cfg.WorkloadDNSUpstream}
+	expectedNameservers := []string{zitiDNSNameserver}
 	if !equalStringSlice(request.DnsConfig.Nameservers, expectedNameservers) {
 		t.Fatalf("expected dns nameservers %+v, got %+v", expectedNameservers, request.DnsConfig.Nameservers)
 	}

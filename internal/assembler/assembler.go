@@ -285,7 +285,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 	if a.cfg.ZitiEnabled {
 		request.DnsConfig = &runnerv1.DnsConfig{
-			Nameservers: []string{zitiDNSNameserver, a.cfg.WorkloadDNSUpstream},
+			Nameservers: []string{zitiDNSNameserver},
 			Searches:    []string{zitiDNSSearchService, zitiDNSSearchCluster},
 		}
 	}
