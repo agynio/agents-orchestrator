@@ -314,7 +314,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 		ZitiEnabled:         true,
 		ZitiSidecarImage:    "ziti-image",
-		ClusterDNS:          "10.43.0.10",
+		WorkloadDNSUpstream: "10.43.0.10",
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
@@ -332,7 +332,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if request.DnsConfig == nil {
 		t.Fatal("expected dns config")
 	}
-	expectedNameservers := []string{zitiDNSNameserver, cfg.ClusterDNS}
+	expectedNameservers := []string{zitiDNSNameserver, cfg.WorkloadDNSUpstream}
 	if !equalStringSlice(request.DnsConfig.Nameservers, expectedNameservers) {
 		t.Fatalf("expected dns nameservers %+v, got %+v", expectedNameservers, request.DnsConfig.Nameservers)
 	}
@@ -366,7 +366,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiSidecar.Image)
 	}
-	expectedCmd := []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", cfg.ClusterDNS)}
+	expectedCmd := []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", cfg.WorkloadDNSUpstream)}
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
 	}
@@ -439,6 +439,7 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	t.Setenv("ZITI_MANAGEMENT_ADDRESS", "")
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
+	t.Setenv("WORKLOAD_DNS_UPSTREAM", "")
 	t.Setenv("CLUSTER_DNS", "")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")

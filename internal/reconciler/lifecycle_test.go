@@ -1356,7 +1356,7 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 		ZitiEnabled:         zitiEnabled,
 		ZitiSidecarImage:    "ziti-sidecar-image",
-		ClusterDNS:          "10.43.0.10",
+		WorkloadDNSUpstream: "10.43.0.10",
 	}
 	return assembler.New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
 }

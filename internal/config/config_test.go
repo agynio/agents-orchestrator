@@ -68,6 +68,50 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
 		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
 	}
+	if cfg.WorkloadDNSUpstream != "10.43.0.10" {
+		t.Fatalf("expected workload DNS upstream %q, got %q", "10.43.0.10", cfg.WorkloadDNSUpstream)
+	}
+}
+
+func TestFromEnvWorkloadDNSUpstream(t *testing.T) {
+	tests := []struct {
+		name        string
+		workloadDNS string
+		clusterDNS  string
+		expected    string
+	}{
+		{
+			name:     "default",
+			expected: "10.43.0.10",
+		},
+		{
+			name:       "deprecated cluster dns fallback",
+			clusterDNS: "10.43.0.20",
+			expected:   "10.43.0.20",
+		},
+		{
+			name:        "workload dns upstream takes precedence",
+			workloadDNS: "10.43.0.30",
+			clusterDNS:  "10.43.0.20",
+			expected:    "10.43.0.30",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setBaseEnv(t)
+			t.Setenv("WORKLOAD_DNS_UPSTREAM", tt.workloadDNS)
+			t.Setenv("CLUSTER_DNS", tt.clusterDNS)
+
+			cfg, err := FromEnv()
+			if err != nil {
+				t.Fatalf("FromEnv: %v", err)
+			}
+			if cfg.WorkloadDNSUpstream != tt.expected {
+				t.Fatalf("expected workload DNS upstream %q, got %q", tt.expected, cfg.WorkloadDNSUpstream)
+			}
+		})
+	}
 }
 
 func TestFromEnvAgentTracingAddress(t *testing.T) {
@@ -98,6 +142,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
 	t.Setenv("ZITI_ENROLLMENT_TIMEOUT", "")
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
+	t.Setenv("WORKLOAD_DNS_UPSTREAM", "")
 	t.Setenv("CLUSTER_DNS", "")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_TRACING_ADDRESS", "")
