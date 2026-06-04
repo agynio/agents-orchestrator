@@ -88,6 +88,12 @@ env:
     value: "2m"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: ""
+  # Upstream DNS resolver used for Ziti-enabled workload pods.
+  - name: WORKLOAD_DNS_UPSTREAM
+    value: ""
+  # Deprecated: use WORKLOAD_DNS_UPSTREAM instead.
+  - name: CLUSTER_DNS
+    value: ""
   - name: AGENT_GATEWAY_ADDRESS
     value: ""
   - name: AGENT_TRACING_ADDRESS

@@ -21,7 +21,7 @@ type Config struct {
 	ZitiLeaseRenewalInterval  time.Duration
 	ZitiEnrollmentTimeout     time.Duration
 	ZitiSidecarImage          string
-	ClusterDNS                string
+	WorkloadDNSUpstream       string
 	AgentGatewayAddress       string
 	AgentTracingAddress       string
 	AgentLLMBaseURL           string
@@ -142,9 +142,12 @@ func FromEnv() (Config, error) {
 	if cfg.ZitiSidecarImage == "" {
 		cfg.ZitiSidecarImage = "openziti/ziti-tunnel:2.0.0-pre8"
 	}
-	cfg.ClusterDNS = os.Getenv("CLUSTER_DNS")
-	if cfg.ClusterDNS == "" {
-		cfg.ClusterDNS = "10.43.0.10"
+	cfg.WorkloadDNSUpstream = os.Getenv("WORKLOAD_DNS_UPSTREAM")
+	if cfg.WorkloadDNSUpstream == "" {
+		cfg.WorkloadDNSUpstream = os.Getenv("CLUSTER_DNS")
+	}
+	if cfg.WorkloadDNSUpstream == "" {
+		cfg.WorkloadDNSUpstream = "10.43.0.10"
 	}
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {
