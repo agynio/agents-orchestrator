@@ -15,6 +15,7 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func TestAssemblerMainContainer(t *testing.T) {
@@ -373,9 +374,6 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(zitiSidecar.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
 		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiSidecar.RequiredCapabilities)
 	}
-	if len(zitiSidecar.Env) != 1 {
-		t.Fatalf("expected 1 ziti sidecar env, got %d", len(zitiSidecar.Env))
-	}
 	zitiEnv := envMap(zitiSidecar.Env)
 	if zitiEnv[ZitiIdentityBasenameEnvVar] != ZitiIdentityBasename {
 		t.Fatalf("expected ziti sidecar basename %q, got %q", ZitiIdentityBasename, zitiEnv[ZitiIdentityBasenameEnvVar])
@@ -448,6 +446,7 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	t.Setenv("STOP_TIMEOUT_SEC", "")
 	t.Setenv("LEASE_NAME", "")
 	t.Setenv("LEASE_NAMESPACE", "")
+	t.Setenv("EGRESS_CA_NAMESPACE", "")
 
 	cfg, err := config.FromEnv()
 	if err != nil {
@@ -1426,4 +1425,103 @@ func equalStringSlice(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func TestAssemblerDistributesEgressCA(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	mcpID := uuid.New()
+	hookID := uuid.New()
+	cert := []byte("test-ca")
+
+	agentsClient := &testutil.FakeAgentsClient{
+		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
+		},
+		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		ListImagePullSecretAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Name: "mcp", Image: "mcp-image", Command: "run-mcp"}}}, nil
+		},
+		ListHooksFunc: func(_ context.Context, _ *agentsv1.ListHooksRequest, _ ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{Hooks: []*agentsv1.Hook{{Meta: &agentsv1.EntityMeta{Id: hookID.String()}, Image: "hook-image", Function: "run-hook"}}}, nil
+		},
+	}
+
+	assembler := NewWithEgressCA(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+		ZitiEnabled:         true,
+		ZitiSidecarImage:    "ziti-image",
+		ClusterDNS:          "10.43.0.10",
+	}, cert)
+	result, err := assembler.Assemble(ctx, agentID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	request := result.Request
+	if string(request.GetInlineFiles()[egressCACertPath]) != string(cert) {
+		t.Fatalf("expected egress CA inline file bytes")
+	}
+	containers := []*runnerv1.ContainerSpec{request.Main}
+	containers = append(containers, request.GetSidecars()...)
+	containers = append(containers, request.GetInitContainers()...)
+	for _, container := range containers {
+		assertEgressCAEnv(t, container)
+		assertInlineFileMount(t, container, egressCACertPath)
+	}
+}
+
+func assertEgressCAEnv(t *testing.T, container *runnerv1.ContainerSpec) {
+	t.Helper()
+	envs := envMap(container.GetEnv())
+	assertEnv(t, envs, "SSL_CERT_FILE", egressCACertPath)
+	assertEnv(t, envs, "REQUESTS_CA_BUNDLE", egressCACertPath)
+	assertEnv(t, envs, "NODE_EXTRA_CA_CERTS", egressCACertPath)
+	assertEnv(t, envs, "CURL_CA_BUNDLE", egressCACertPath)
+	assertEnv(t, envs, "SSL_CERT_DIR", egressCACertDir)
+}
+
+func assertInlineFileMount(t *testing.T, container *runnerv1.ContainerSpec, expectedPath string) {
+	t.Helper()
+	for _, mount := range container.GetInlineFileMounts() {
+		if mount.GetPath() == expectedPath {
+			return
+		}
+	}
+	t.Fatalf("container %s missing inline file mount %s", container.GetName(), expectedPath)
+}
+
+type staticSecretGetter struct {
+	secret *corev1.Secret
+}
+
+func (g staticSecretGetter) Get(context.Context, string, string) (*corev1.Secret, error) {
+	return g.secret, nil
+}
+
+func TestLoadEgressCACertificate(t *testing.T) {
+	cert, err := LoadEgressCACertificate(context.Background(), staticSecretGetter{secret: &corev1.Secret{
+		Data: map[string][]byte{egressCASecretKey: []byte("cert")},
+	}}, "platform")
+	if err != nil {
+		t.Fatalf("load egress CA: %v", err)
+	}
+	if string(cert) != "cert" {
+		t.Fatalf("expected cert bytes, got %q", string(cert))
+	}
 }

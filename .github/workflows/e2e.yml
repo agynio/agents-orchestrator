@@ -15,7 +15,7 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout service
         uses: actions/checkout@v4
@@ -26,13 +26,32 @@ jobs:
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@main
 
+      - name: Checkout k8s-runner
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/k8s-runner
+          ref: main
+          path: .e2e-deps/k8s-runner
+
+      - name: Deploy k8s-runner from source
+        working-directory: .e2e-deps/k8s-runner
+        run: devspace run deploy
+
       - name: Deploy orchestrator from source
         run: devspace run deploy
 
       - name: Run E2E tests
         uses: agynio/e2e/.github/actions/run-tests@main
+        env:
+          E2E_SUITES: go-core playwright-chat-app
         with:
           service: agents_orchestrator
+          include_smoke: "false"
+
+      - name: Restore k8s-runner ArgoCD sync
+        if: always()
+        working-directory: .e2e-deps/k8s-runner
+        run: devspace run restore-argocd
 
       - name: Restore ArgoCD sync
         if: always()

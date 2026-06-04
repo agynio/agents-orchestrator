@@ -1,0 +1,31 @@
+{{- if .Values.egressCA.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "service-base.fullname" . }}-egress-ca
+  namespace: {{ default .Release.Namespace .Values.egressCA.namespace | quote }}
+  labels:
+{{ include "service-base.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ .Values.egressCA.secretName | quote }}
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "service-base.fullname" . }}-egress-ca
+  namespace: {{ default .Release.Namespace .Values.egressCA.namespace | quote }}
+  labels:
+{{ include "service-base.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "service-base.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "service-base.fullname" . }}-egress-ca
+{{- end }}

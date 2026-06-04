@@ -251,6 +251,7 @@ func (f *FakeAgentsClient) ListInitScripts(ctx context.Context, req *agentsv1.Li
 }
 
 type FakeSecretsClient struct {
+	ResolveSecretExistsFunc    func(context.Context, *secretsv1.ResolveSecretExistsRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretExistsResponse, error)
 	ResolveSecretFunc          func(context.Context, *secretsv1.ResolveSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretResponse, error)
 	ResolveSecretExistsFunc    func(context.Context, *secretsv1.ResolveSecretExistsRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretExistsResponse, error)
 	ResolveImagePullSecretFunc func(context.Context, *secretsv1.ResolveImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error)

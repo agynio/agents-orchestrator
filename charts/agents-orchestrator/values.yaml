@@ -106,6 +106,8 @@ env:
     value: ""
   - name: LEASE_NAME
     value: ""
+  - name: EGRESS_CA_NAMESPACE
+    value: ""
 envFrom: []
 extraEnvVars: []
 extraEnvVarsCM: ""
@@ -170,3 +172,9 @@ metrics:
     relabelings: []
     metricRelabelings: []
     endpoints: []
+
+egressCA:
+  namespace: ""
+  secretName: egress-ca
+  rbac:
+    create: true

@@ -31,6 +31,7 @@ type Config struct {
 	StopTimeoutSec            uint32
 	LeaseName                 string
 	LeaseNamespace            string
+	EgressCANamespace         string
 }
 
 func FromEnv() (Config, error) {
@@ -201,5 +202,6 @@ func FromEnv() (Config, error) {
 		cfg.LeaseName = "agents-orchestrator"
 	}
 	cfg.LeaseNamespace = os.Getenv("LEASE_NAMESPACE")
+	cfg.EgressCANamespace = os.Getenv("EGRESS_CA_NAMESPACE")
 	return cfg, nil
 }

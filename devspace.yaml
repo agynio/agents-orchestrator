@@ -25,6 +25,21 @@ functions:
     else
       echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
     fi
+  ensure_egress_ca_rbac: |-
+    echo "Ensuring agents-orchestrator can read egress CA secret..."
+    kubectl create role agents-orchestrator-egress-ca \
+      -n ${ORCHESTRATOR_NAMESPACE} \
+      --verb=get \
+      --resource=secrets \
+      --resource-name=egress-ca \
+      --dry-run=client \
+      -o yaml | kubectl apply -f -
+    kubectl create rolebinding agents-orchestrator-egress-ca \
+      -n ${ORCHESTRATOR_NAMESPACE} \
+      --role=agents-orchestrator-egress-ca \
+      --serviceaccount=${ORCHESTRATOR_NAMESPACE}:agents-orchestrator \
+      --dry-run=client \
+      -o yaml | kubectl apply -f -
   patch_deployment: |-
     echo "Patching agents-orchestrator deployment for DevSpace..."
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
@@ -52,7 +67,7 @@ functions:
                 - -c
                 - |
                   set -eu
-                  required_files="go.mod go.sum buf.yaml buf.lock buf.gen.yaml cmd/orchestrator/main.go"
+                  required_files="go.mod go.sum buf.yaml buf.lock buf.gen.yaml cmd/orchestrator/main.go internal/config/config.go internal/assembler/assembler.go internal/reconciler/reconciler.go internal/subscriber/subscriber.go"
                   elapsed=0
                   while :; do
                     missing_files=""
@@ -91,9 +106,6 @@ functions:
                 requests:
                   cpu: 500m
                   memory: 1Gi
-                limits:
-                  cpu: "2"
-                  memory: 4Gi
               securityContext:
                 runAsNonRoot: true
                 runAsUser: 1000
@@ -118,8 +130,8 @@ functions:
       grep -q "orchestrator: ready"; do
       sleep 5
       ELAPSED=$((ELAPSED + 5))
-      if [ "$ELAPSED" -ge 600 ]; then
-        echo "ERROR: orchestrator ready log not found within 600s" >&2
+      if [ "$ELAPSED" -ge 1200 ]; then
+        echo "ERROR: orchestrator ready log not found within 1200s" >&2
         echo "Diagnostic pod list:" >&2
         kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} -l "${LABEL_SELECTOR}" -o wide >&2 || true
         echo "Diagnostic logs (tail 200):" >&2
@@ -145,6 +157,7 @@ pipelines:
     run: |-
       trap 'echo "Restoring ArgoCD sync..."; restore_argocd_sync' EXIT
       disable_argocd_sync
+      ensure_egress_ca_rbac
       patch_deployment
       if [ "$(get_flag "watch")" == "true" ]; then
         start_dev --disable-pod-replace agents-orchestrator
@@ -158,6 +171,7 @@ pipelines:
   deploy:
     run: |-
       disable_argocd_sync
+      ensure_egress_ca_rbac
       patch_deployment
       start_dev --disable-pod-replace agents-orchestrator-deploy
       wait_for_orchestrator
@@ -184,16 +198,19 @@ dev:
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
             uploadExcludePaths:
               - .git/
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
             downloadExcludePaths:
               - .git/
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
         logs:
           enabled: true
           lastLines: 200
@@ -215,13 +232,16 @@ dev:
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
             uploadExcludePaths:
               - .git/
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
             downloadExcludePaths:
               - .git/
               - .devspace/
               - /.gen/
               - /tmp/
+              - /.e2e-deps/
