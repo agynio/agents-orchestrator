@@ -1555,34 +1555,33 @@ func TestLoadEgressCACertificate(t *testing.T) {
 func TestZitiSidecarResolverOverrideRestoresAfterEnrollment(t *testing.T) {
 	t.Parallel()
 	workDir := t.TempDir()
+	identityDir := filepath.Join(workDir, "netfoundry")
+	if err := os.Mkdir(identityDir, 0o700); err != nil {
+		t.Fatalf("create identity dir: %v", err)
+	}
 	resolvPath := filepath.Join(workDir, "resolv.conf")
 	originalResolv := "nameserver 127.0.0.1\nsearch svc.cluster.local cluster.local\n"
 	if err := os.WriteFile(resolvPath, []byte(originalResolv), 0o600); err != nil {
 		t.Fatalf("write resolv: %v", err)
 	}
 	zitiLogPath := filepath.Join(workDir, "ziti.log")
-	zitiPath := writeExecutable(t, workDir, "real-ziti", fmt.Sprintf(`#!/usr/bin/env bash
+	entrypointPath := writeExecutable(t, workDir, "entrypoint", fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
-if [[ "$1" == "edge" && "$2" == "enroll" ]]; then
-  printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
-  exit 0
-fi
-if [[ "$1" == "tunnel" ]]; then
-  printf 'tunnel_resolv=%%s\n' "$(cat %q)" >> %q
-  exit 0
-fi
-exit 9
-`, resolvPath, zitiLogPath, resolvPath, zitiLogPath))
-	entrypointPath := writeExecutable(t, workDir, "entrypoint", `#!/usr/bin/env bash
-set -euo pipefail
-ziti edge enroll --jwt /netfoundry/agent.jwt --out /netfoundry/agent.json
-ziti tunnel "$@"
-`)
+printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
+printf '{}\n' > %q
+while true; do
+  if grep -q '^nameserver 127[.]0[.]0[.]1$' %q; then
+    printf 'tunnel_resolv=%%s\n' "$(cat %q)" >> %q
+    exit 0
+  fi
+  sleep 0.1
+done
+`, resolvPath, zitiLogPath, filepath.Join(identityDir, "agent.json"), resolvPath, resolvPath, zitiLogPath))
 
 	cmd := exec.Command(zitiSidecarEntrypoint, buildZitiSidecarCommand("10.43.0.10")...)
 	cmd.Env = append(os.Environ(),
-		"ZITI_BINARY="+zitiPath,
 		"ZITI_ENTRYPOINT="+entrypointPath,
+		"ZITI_IDENTITY_FILE="+filepath.Join(identityDir, "agent.json"),
 		"ZITI_RESOLV_CONF="+resolvPath,
 	)
 	output, err := cmd.CombinedOutput()
@@ -1612,20 +1611,13 @@ func TestZitiSidecarResolverOverrideRestoresAfterEnrollmentFailure(t *testing.T)
 	if err := os.WriteFile(resolvPath, []byte(originalResolv), 0o600); err != nil {
 		t.Fatalf("write resolv: %v", err)
 	}
-	zitiLogPath := filepath.Join(workDir, "ziti.log")
-	zitiPath := writeExecutable(t, workDir, "real-ziti", fmt.Sprintf(`#!/usr/bin/env bash
-set -euo pipefail
-printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
-exit 7
-`, resolvPath, zitiLogPath))
 	entrypointPath := writeExecutable(t, workDir, "entrypoint", `#!/usr/bin/env bash
 set -euo pipefail
-ziti edge enroll --jwt /netfoundry/agent.jwt --out /netfoundry/agent.json
+exit 7
 `)
 
 	cmd := exec.Command(zitiSidecarEntrypoint, buildZitiSidecarCommand("10.43.0.10")...)
 	cmd.Env = append(os.Environ(),
-		"ZITI_BINARY="+zitiPath,
 		"ZITI_ENTRYPOINT="+entrypointPath,
 		"ZITI_RESOLV_CONF="+resolvPath,
 	)
@@ -1635,13 +1627,6 @@ ziti edge enroll --jwt /netfoundry/agent.jwt --out /netfoundry/agent.json
 	}
 
 	assertFileEquals(t, resolvPath, originalResolv)
-	logBytes, err := os.ReadFile(zitiLogPath)
-	if err != nil {
-		t.Fatalf("read ziti log: %v", err)
-	}
-	if !strings.Contains(string(logBytes), "enroll_resolv=nameserver 10.43.0.10") {
-		t.Fatalf("expected enrollment to use upstream resolver, got log:\n%s", string(logBytes))
-	}
 }
 
 func writeExecutable(t *testing.T, dir, name, content string) string {

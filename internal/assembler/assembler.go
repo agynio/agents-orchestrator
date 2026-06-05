@@ -39,37 +39,28 @@ const (
 	zitiSidecarEntrypointScript       = `workload_dns_upstream="$1"
 shift
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
-real_ziti_binary="${ZITI_BINARY:-/usr/local/bin/ziti}"
 entrypoint="${ZITI_ENTRYPOINT:-/entrypoint.sh}"
+identity_file="${ZITI_IDENTITY_FILE:-/netfoundry/agent.json}"
 original_resolv="$(mktemp)"
-wrapper_dir="$(mktemp -d)"
 cp "${resolv_file}" "${original_resolv}"
-cat > "${wrapper_dir}/ziti" <<'ZITI_WRAPPER'
-#!/usr/bin/env bash
-set -o nounset -o pipefail
 restore_resolv() {
-  if [[ -f "${ZITI_ORIGINAL_RESOLV}" ]]; then
-    cp "${ZITI_ORIGINAL_RESOLV}" "${ZITI_RESOLV_CONF}"
+  if [[ -f "${original_resolv}" ]]; then
+    cp "${original_resolv}" "${resolv_file}"
   fi
 }
-if [[ "${1:-}" == "edge" && "${2:-}" == "enroll" ]]; then
-  "${ZITI_BINARY}" "$@"
-  status="$?"
-  restore_resolv
-  exit "${status}"
-fi
-if [[ "${1:-}" == "tunnel" ]]; then
-  restore_resolv
-fi
-exec "${ZITI_BINARY}" "$@"
-ZITI_WRAPPER
-chmod +x "${wrapper_dir}/ziti"
-export ZITI_BINARY="${real_ziti_binary}"
-export ZITI_ORIGINAL_RESOLV="${original_resolv}"
-export ZITI_RESOLV_CONF="${resolv_file}"
-export PATH="${wrapper_dir}:${PATH}"
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
-exec "${entrypoint}" "$@"`
+{
+  while true; do
+    if [[ -s "${identity_file}" ]]; then
+      restore_resolv
+      break
+    fi
+    sleep 0.1
+  done
+} &
+resolver_restore_pid="$!"
+trap 'restore_resolv; kill "${resolver_restore_pid}" 2>/dev/null || true' EXIT
+"${entrypoint}" "$@"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
