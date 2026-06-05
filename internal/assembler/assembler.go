@@ -40,8 +40,8 @@ const (
 shift
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 entrypoint="${ZITI_ENTRYPOINT:-/entrypoint.sh}"
-identity_file="${ZITI_IDENTITY_FILE:-/netfoundry/agent.json}"
 original_resolv="$(mktemp)"
+bash_env="$(mktemp)"
 cp "${resolv_file}" "${original_resolv}"
 restore_resolv() {
   if [[ -f "${original_resolv}" ]]; then
@@ -49,18 +49,19 @@ restore_resolv() {
   fi
 }
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
-{
-  while true; do
-    if [[ -s "${identity_file}" ]]; then
-      restore_resolv
-      break
-    fi
-    sleep 0.1
-  done
-} &
-resolver_restore_pid="$!"
-trap 'restore_resolv; kill "${resolver_restore_pid}" 2>/dev/null || true' EXIT
-"${entrypoint}" "$@"`
+cat > "${bash_env}" <<'ZITI_BASH_ENV'
+restore_resolv_before_ziti_tunnel() {
+  if [[ "${BASH_COMMAND}" == ziti\ tunnel* ]]; then
+    cp "${ZITI_ORIGINAL_RESOLV}" "${ZITI_RESOLV_CONF}"
+    trap - DEBUG
+  fi
+}
+trap restore_resolv_before_ziti_tunnel DEBUG
+ZITI_BASH_ENV
+export ZITI_ORIGINAL_RESOLV="${original_resolv}"
+export ZITI_RESOLV_CONF="${resolv_file}"
+trap restore_resolv EXIT
+BASH_ENV="${bash_env}" "${entrypoint}" "$@"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"

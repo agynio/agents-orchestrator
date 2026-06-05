@@ -1569,21 +1569,24 @@ func TestZitiSidecarResolverOverrideRestoresAfterEnrollment(t *testing.T) {
 set -euo pipefail
 printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
 printf '{}\n' > %q
-while true; do
-  if grep -q '^nameserver 127[.]0[.]0[.]1$' %q; then
-    printf 'tunnel_resolv=%%s\n' "$(cat %q)" >> %q
-    exit 0
-  fi
-  sleep 0.1
-done
-`, resolvPath, zitiLogPath, filepath.Join(identityDir, "agent.json"), resolvPath, resolvPath, zitiLogPath))
+ziti tunnel tproxy
+`, resolvPath, zitiLogPath, filepath.Join(identityDir, "agent.json")))
+	zitiPath := writeExecutable(t, workDir, "ziti", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "tunnel" ]]; then
+  printf 'tunnel_resolv=%%s\n' "$(cat %q)" >> %q
+  exit 0
+fi
+exit 9
+`, resolvPath, zitiLogPath))
 
 	cmd := exec.Command(zitiSidecarEntrypoint, buildZitiSidecarCommand("10.43.0.10")...)
 	cmd.Env = append(os.Environ(),
+		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"ZITI_ENTRYPOINT="+entrypointPath,
-		"ZITI_IDENTITY_FILE="+filepath.Join(identityDir, "agent.json"),
 		"ZITI_RESOLV_CONF="+resolvPath,
 	)
+	_ = zitiPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run ziti sidecar wrapper: %v\n%s", err, string(output))
