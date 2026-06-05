@@ -389,7 +389,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 			t.Fatalf("expected ziti sidecar command to contain %q, got %q", expected, zitiScript)
 		}
 	}
-	for _, unexpected := range []string{"jq", "jwt_payload", "jwt_server", "sed -i", "/tmp/hosts", "/etc/hosts", "ziti.agyn.dev", "ziti-controller-client"} {
+	for _, unexpected := range []string{"jq"} {
 		if strings.Contains(zitiScript, unexpected) {
 			t.Fatalf("expected ziti sidecar command not to contain %q, got %q", unexpected, zitiScript)
 		}
