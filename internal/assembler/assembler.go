@@ -34,7 +34,10 @@ const (
 	egressCACertPath                     = "/etc/agyn/egress-ca/ca.crt"
 	egressCACertDir                      = "/etc/agyn/egress-ca"
 	zitiDNSNameserver                    = "127.0.0.1"
+	zitiSidecarEntrypoint                = "/bin/sh"
 	zitiSidecarCommand                   = "tproxy"
+	zitiIdentityFile                     = zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".json"
+	zitiEnrollmentTokenFile              = zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".jwt"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
 	zitiRestartPolicyKey                 = "restart_policy"
 	zitiRestartPolicyAlways              = "Always"
@@ -170,7 +173,8 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiSidecar := &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
-			Cmd:                  []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", a.cfg.WorkloadDNSUpstream)},
+			Entrypoint:           zitiSidecarEntrypoint,
+			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream),
 			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
@@ -591,6 +595,27 @@ func gatewayHost(address string) (string, error) {
 		return "", fmt.Errorf("gateway host missing from %q", address)
 	}
 	return host, nil
+}
+
+func buildZitiSidecarCommand(dnsUpstream string) []string {
+	dnsArg := fmt.Sprintf("udp://%s:53", dnsUpstream)
+	script := strings.Join([]string{
+		"set -eu",
+		fmt.Sprintf("identity_file=%q", zitiIdentityFile),
+		fmt.Sprintf("token_file=%q", zitiEnrollmentTokenFile),
+		`if [ ! -s "$identity_file" ]; then`,
+		fmt.Sprintf(`  if [ -n "${%s:-}" ]; then`, ZitiEnrollmentTokenEnvVar),
+		fmt.Sprintf(`    printf '%%s' "$%s" > "$token_file"`, ZitiEnrollmentTokenEnvVar),
+		"  fi",
+		`  if [ ! -s "$token_file" ]; then`,
+		`    echo "missing Ziti identity and enrollment token" >&2`,
+		"    exit 1",
+		"  fi",
+		`  ziti edge enroll "$token_file" --out "$identity_file"`,
+		"fi",
+		fmt.Sprintf(`exec ziti tunnel %s --identity "$identity_file" --dnsUpstream %q`, zitiSidecarCommand, dnsArg),
+	}, "\n")
+	return []string{"-c", script}
 }
 
 func buildZitiGatewayWaitCommand(host string) []string {
