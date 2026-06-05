@@ -363,6 +363,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if len(request.Sidecars) != 0 {
 		t.Fatalf("expected 0 sidecars, got %d", len(request.Sidecars))
 	}
+	if testutil.FindContainer(request.Sidecars, ZitiSidecarContainerName) != nil {
+		t.Fatalf("expected %s to use runner restartable init contract, not sidecars", ZitiSidecarContainerName)
+	}
 	zitiEnroll := testutil.FindInitContainer(request.InitContainers, ZitiEnrollContainerName)
 	if zitiEnroll == nil {
 		t.Fatal("expected ziti-enroll init container")
@@ -436,6 +439,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	expectedProperties := map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways}
 	if !equalStringMap(zitiSidecar.AdditionalProperties, expectedProperties) {
 		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiSidecar.AdditionalProperties)
+	}
+	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName || request.InitContainers[3].GetName() != "agent-init" {
+		t.Fatalf("expected restartable ziti sidecar init to be followed by later init containers, got %s then %s", request.InitContainers[2].GetName(), request.InitContainers[3].GetName())
 	}
 	assertSameZitiIdentityMount(t, zitiSidecar)
 	zitiGatewayWait := testutil.FindInitContainer(request.InitContainers, zitiGatewayWaitContainerName)

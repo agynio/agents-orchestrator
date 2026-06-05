@@ -208,6 +208,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Env:                  zitiEnvVars(),
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
+			// k8s-runner maps restart_policy=Always on init containers to
+			// Kubernetes restartable init containers. This lets the tunnel stay
+			// up while Kubernetes continues to later init containers and main.
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		}
 		zitiGatewayWait := &runnerv1.ContainerSpec{
