@@ -75,16 +75,23 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if mainEnvs["WORKLOAD_ID"] != workloadID {
 				return nil, errors.New("missing WORKLOAD_ID")
 			}
-			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarContainerName)
-			if zitiContainer == nil {
-				return nil, errors.New("missing ziti sidecar container")
+			zitiEnroll := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiEnrollContainerName)
+			if zitiEnroll == nil {
+				return nil, errors.New("missing ziti enroll container")
 			}
-			envs := envMap(zitiContainer.GetEnv())
+			envs := envMap(zitiEnroll.GetEnv())
 			if envs[assembler.ZitiEnrollmentTokenEnvVar] != jwt {
 				return nil, errors.New("missing ZITI_ENROLL_TOKEN")
 			}
 			if envs[assembler.ZitiIdentityBasenameEnvVar] != assembler.ZitiIdentityBasename {
 				return nil, errors.New("missing ZITI_IDENTITY_BASENAME")
+			}
+			zitiSidecar := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarContainerName)
+			if zitiSidecar == nil {
+				return nil, errors.New("missing ziti sidecar container")
+			}
+			if _, ok := envMap(zitiSidecar.GetEnv())[assembler.ZitiEnrollmentTokenEnvVar]; ok {
+				return nil, errors.New("unexpected sidecar ZITI_ENROLL_TOKEN")
 			}
 			return &runnerv1.StartWorkloadResponse{
 				Id:     workloadID,
@@ -208,9 +215,9 @@ func TestStartWorkloadSkipsIdentityWhenZitiMgmtNil(t *testing.T) {
 			if mainEnvs["WORKLOAD_ID"] != workloadID {
 				return nil, errors.New("missing WORKLOAD_ID")
 			}
-			zitiContainer := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarContainerName)
-			if zitiContainer != nil {
-				envs := envMap(zitiContainer.GetEnv())
+			zitiEnroll := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiEnrollContainerName)
+			if zitiEnroll != nil {
+				envs := envMap(zitiEnroll.GetEnv())
 				if _, ok := envs[assembler.ZitiEnrollmentTokenEnvVar]; ok {
 					return nil, errors.New("unexpected ZITI_ENROLL_TOKEN")
 				}

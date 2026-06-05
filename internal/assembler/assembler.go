@@ -19,33 +19,77 @@ import (
 )
 
 const (
-	listPageSize                   int32 = 100
-	rpcTimeout                           = 10 * time.Second
-	agynBinVolumeName                    = "agyn-bin"
-	agynBinMountPath                     = "/agyn-bin"
-	agynBinBinaryPath                    = "/agyn-bin/agynd"
-	mcpBasePort                          = 8100
-	ZitiSidecarContainerName             = "ziti-sidecar"
-	zitiIdentityVolumeName               = "ziti-identity"
-	zitiIdentityMountPath                = "/netfoundry"
-	ZitiIdentityBasename                 = "agent"
-	ZitiEnrollmentTokenEnvVar            = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar           = "ZITI_IDENTITY_BASENAME"
-	egressCACertPath                     = "/etc/agyn/egress-ca/ca.crt"
-	egressCACertDir                      = "/etc/agyn/egress-ca"
-	zitiDNSNameserver                    = "127.0.0.1"
-	zitiSidecarEntrypoint                = "/bin/sh"
-	zitiSidecarCommand                   = "tproxy"
-	zitiIdentityFile                     = zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".json"
-	zitiEnrollmentTokenFile              = zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".jwt"
-	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
-	zitiRestartPolicyKey                 = "restart_policy"
-	zitiRestartPolicyAlways              = "Always"
-	zitiDNSSearchService                 = "svc.cluster.local"
-	zitiDNSSearchCluster                 = "cluster.local"
-	zitiGatewayWaitContainerName         = "ziti-gateway-wait"
-	zitiGatewayWaitImage                 = "busybox:1.37.0"
-	zitiGatewayWaitTimeoutSeconds        = 60
+	listPageSize               int32 = 100
+	rpcTimeout                       = 10 * time.Second
+	agynBinVolumeName                = "agyn-bin"
+	agynBinMountPath                 = "/agyn-bin"
+	agynBinBinaryPath                = "/agyn-bin/agynd"
+	mcpBasePort                      = 8100
+	ZitiEnrollContainerName          = "ziti-enroll"
+	ZitiSidecarContainerName         = "ziti-sidecar"
+	zitiIdentityVolumeName           = "ziti-identity"
+	zitiIdentityMountPath            = "/netfoundry"
+	ZitiIdentityBasename             = "agent"
+	ZitiEnrollmentTokenEnvVar        = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar       = "ZITI_IDENTITY_BASENAME"
+	ZitiIdentityDirEnvVar            = "ZITI_IDENTITY_DIR"
+	egressCACertPath                 = "/etc/agyn/egress-ca/ca.crt"
+	egressCACertDir                  = "/etc/agyn/egress-ca"
+	zitiDNSNameserver                = "127.0.0.1"
+	zitiEnrollEntrypoint             = "/usr/bin/bash"
+	zitiSidecarCommand               = "tproxy"
+	zitiEnrollScript                 = `workload_dns_upstream="$1"
+workload_dns_nameserver="$2"
+identity_dir="${ZITI_IDENTITY_DIR}"
+identity_basename="${ZITI_IDENTITY_BASENAME}"
+identity_file="${identity_dir}/${identity_basename}.json"
+jwt_file="${identity_dir}/${identity_basename}.jwt"
+resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
+hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
+
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+mkdir -p "${identity_dir}"
+
+if [[ ! -s "${identity_file}" ]]; then
+  if [[ -z "${ZITI_ENROLL_TOKEN}" ]]; then
+    echo "ZITI_ENROLL_TOKEN is required" >&2
+    exit 1
+  fi
+  printf '%s\n' "${ZITI_ENROLL_TOKEN}" > "${jwt_file}"
+
+  jwt_payload="${ZITI_ENROLL_TOKEN#*.}"
+  jwt_payload="${jwt_payload%%.*}"
+  jwt_payload="$(printf '%s' "${jwt_payload}" | tr '_-' '/+')"
+  case $(( ${#jwt_payload} % 4 )) in
+    2) jwt_payload="${jwt_payload}==" ;;
+    3) jwt_payload="${jwt_payload}=" ;;
+  esac
+  jwt_payload_json="$(printf '%s' "${jwt_payload}" | base64 -d 2>/dev/null || true)"
+  ziti_controller_host="$(printf '%s' "${jwt_payload_json}" | sed -nE 's/.*"iss"[[:space:]]*:[[:space:]]*"https?:\/\/([^"\/:]+).*/\1/p' | head -n 1)"
+  if [[ -n "${ziti_controller_host}" ]]; then
+    awk -v host="${ziti_controller_host}" '($1 ~ /^(127\.|::1$)/) { for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${hosts_file}" > "${hosts_file}.tmp"
+    cat "${hosts_file}.tmp" > "${hosts_file}"
+    rm -f "${hosts_file}.tmp"
+  fi
+  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+
+  ziti edge enroll --jwt "${jwt_file}" --out "${identity_file}"
+fi
+
+if [[ ! -s "${identity_file}" ]]; then
+  echo "expected identity file ${identity_file}" >&2
+  exit 1
+fi
+
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
+	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
+	zitiRestartPolicyKey           = "restart_policy"
+	zitiRestartPolicyAlways        = "Always"
+	zitiDNSSearchService           = "svc.cluster.local"
+	zitiDNSSearchCluster           = "cluster.local"
+	zitiGatewayWaitContainerName   = "ziti-gateway-wait"
+	zitiGatewayWaitImage           = "busybox:1.37.0"
+	zitiGatewayWaitTimeoutSeconds  = 60
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -70,6 +114,7 @@ var reservedEnvNames = map[string]struct{}{
 	"MCP_PORT":                    {},
 	ZitiEnrollmentTokenEnvVar:     {},
 	ZitiIdentityBasenameEnvVar:    {},
+	ZitiIdentityDirEnvVar:         {},
 }
 
 type Assembler struct {
@@ -170,14 +215,24 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		if err != nil {
 			return nil, err
 		}
+		zitiEnroll := &runnerv1.ContainerSpec{
+			Image:      a.cfg.ZitiSidecarImage,
+			Name:       ZitiEnrollContainerName,
+			Cmd:        buildZitiEnrollCommand(a.cfg.WorkloadDNSUpstream),
+			Entrypoint: zitiEnrollEntrypoint,
+			Env:        zitiEnvVars(),
+			Mounts:     []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
+		}
 		zitiSidecar := &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
-			Entrypoint:           zitiSidecarEntrypoint,
 			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream),
-			Env:                  []*runnerv1.EnvVar{{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename}},
+			Env:                  zitiEnvVars(),
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
+			// k8s-runner maps restart_policy=Always on init containers to
+			// Kubernetes restartable init containers. This lets the tunnel stay
+			// up while Kubernetes continues to later init containers and main.
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		}
 		zitiGatewayWait := &runnerv1.ContainerSpec{
@@ -185,9 +240,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Name:  zitiGatewayWaitContainerName,
 			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
 		}
+		applyEgressCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
 		applyEgressCA(zitiGatewayWait, a.egressCACert)
-		initContainers = []*runnerv1.ContainerSpec{zitiSidecar, zitiGatewayWait, initContainer}
+		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, initContainer}
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -285,7 +341,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 	if a.cfg.ZitiEnabled {
 		request.DnsConfig = &runnerv1.DnsConfig{
-			Nameservers: []string{zitiDNSNameserver, a.cfg.WorkloadDNSUpstream},
+			Nameservers: []string{zitiDNSNameserver},
 			Searches:    []string{zitiDNSSearchService, zitiDNSSearchCluster},
 		}
 	}
@@ -301,6 +357,31 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		AllocatedCPUMillicores: allocatedCPU,
 		AllocatedRAMBytes:      allocatedRAM,
 	}, nil
+}
+
+func zitiEnvVars() []*runnerv1.EnvVar {
+	return []*runnerv1.EnvVar{
+		{Name: ZitiIdentityBasenameEnvVar, Value: ZitiIdentityBasename},
+		{Name: ZitiIdentityDirEnvVar, Value: zitiIdentityMountPath},
+	}
+}
+
+func buildZitiEnrollCommand(workloadDNSUpstream string) []string {
+	return []string{
+		"-ec",
+		zitiEnrollScript,
+		ZitiEnrollContainerName,
+		workloadDNSUpstream,
+		zitiDNSNameserver,
+	}
+}
+
+func buildZitiSidecarCommand(workloadDNSUpstream string) []string {
+	return []string{
+		zitiSidecarCommand,
+		"--dnsUpstream",
+		fmt.Sprintf("udp://%s:53", workloadDNSUpstream),
+	}
 }
 
 func agentRunnerLabels(agent *agentsv1.Agent) map[string]string {
@@ -595,27 +676,6 @@ func gatewayHost(address string) (string, error) {
 		return "", fmt.Errorf("gateway host missing from %q", address)
 	}
 	return host, nil
-}
-
-func buildZitiSidecarCommand(dnsUpstream string) []string {
-	dnsArg := fmt.Sprintf("udp://%s:53", dnsUpstream)
-	script := strings.Join([]string{
-		"set -eu",
-		fmt.Sprintf("identity_file=%q", zitiIdentityFile),
-		fmt.Sprintf("token_file=%q", zitiEnrollmentTokenFile),
-		`if [ ! -s "$identity_file" ]; then`,
-		fmt.Sprintf(`  if [ -n "${%s:-}" ]; then`, ZitiEnrollmentTokenEnvVar),
-		fmt.Sprintf(`    printf '%%s' "$%s" > "$token_file"`, ZitiEnrollmentTokenEnvVar),
-		"  fi",
-		`  if [ ! -s "$token_file" ]; then`,
-		`    echo "missing Ziti identity and enrollment token" >&2`,
-		"    exit 1",
-		"  fi",
-		`  ziti edge enroll "$token_file" --out "$identity_file"`,
-		"fi",
-		fmt.Sprintf(`exec ziti tunnel %s --identity "$identity_file" --dnsUpstream %q`, zitiSidecarCommand, dnsArg),
-	}, "\n")
-	return []string{"-c", script}
 }
 
 func buildZitiGatewayWaitCommand(host string) []string {
