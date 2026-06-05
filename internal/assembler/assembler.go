@@ -70,6 +70,7 @@ if [[ ! -s "${identity_file}" ]]; then
     cat "${hosts_file}.tmp" > "${hosts_file}"
     rm -f "${hosts_file}.tmp"
   fi
+  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 
   ziti edge enroll --jwt "${jwt_file}" --out "${identity_file}"
 fi
