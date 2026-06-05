@@ -38,6 +38,8 @@ const (
 	zitiSidecarCommand                   = "tproxy"
 	zitiIdentityFile                     = zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".json"
 	zitiEnrollmentTokenFile              = zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".jwt"
+	zitiIngressHostAlias                 = "ziti.agyn.dev"
+	zitiIngressServiceName               = "ziti-controller-client.ziti.svc.cluster.local"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
 	zitiRestartPolicyKey                 = "restart_policy"
 	zitiRestartPolicyAlways              = "Always"
@@ -610,6 +612,15 @@ func buildZitiSidecarCommand(dnsUpstream string) []string {
 		`  if [ ! -s "$token_file" ]; then`,
 		`    echo "missing Ziti identity and enrollment token" >&2`,
 		"    exit 1",
+		"  fi",
+		`  jwt_payload=$(cut -d. -f2 "$token_file")`,
+		`  jwt_payload="$jwt_payload$(case $((${#jwt_payload} % 4)) in 2) printf '==';; 3) printf '=';; 0) printf '';; *) printf '===';; esac)"`,
+		`  jwt_server=$(printf '%s' "$jwt_payload" | tr '_-' '/+' | base64 -d 2>/dev/null | jq -r '([.iss, .em, .url, .ctrl, .controller] | map(select(type == "string" and startswith("https://"))) | .[0] // "")' | cut -d/ -f3 | cut -d: -f1 || true)`,
+		fmt.Sprintf(`  if [ "$jwt_server" = %q ]; then`, zitiIngressHostAlias),
+		fmt.Sprintf(`    service_ip=$(getent hosts %s | awk '{print $1; exit}')`, zitiIngressServiceName),
+		`    if [ -n "$service_ip" ] && ! grep -q "[[:space:]]$jwt_server\([[:space:]]\|$\)" /etc/hosts; then`,
+		`      printf '\n%s %s\n' "$service_ip" "$jwt_server" >> /etc/hosts`,
+		"    fi",
 		"  fi",
 		`  ziti edge enroll "$token_file" --out "$identity_file"`,
 		"fi",

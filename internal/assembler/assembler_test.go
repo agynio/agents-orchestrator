@@ -382,6 +382,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		fmt.Sprintf("identity_file=\"%s\"", zitiIdentityFile),
 		fmt.Sprintf("token_file=\"%s\"", zitiEnrollmentTokenFile),
 		ZitiEnrollmentTokenEnvVar,
+		zitiIngressHostAlias,
+		zitiIngressServiceName,
+		`printf '\n%s %s\n' "$service_ip" "$jwt_server" >> /etc/hosts`,
 		`ziti edge enroll "$token_file" --out "$identity_file"`,
 		fmt.Sprintf(`exec ziti tunnel %s --identity "$identity_file" --dnsUpstream "udp://%s:53"`, zitiSidecarCommand, cfg.WorkloadDNSUpstream),
 	} {
