@@ -43,8 +43,18 @@ identity_dir="${ZITI_IDENTITY_DIR}"
 identity_basename="${ZITI_IDENTITY_BASENAME}"
 identity_file="${identity_dir}/${identity_basename}.json"
 jwt_file="${identity_dir}/${identity_basename}.jwt"
+hosts_file="/etc/hosts"
+ziti_controller_host="ziti.agyn.dev"
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > /etc/resolv.conf
+awk -v host="${ziti_controller_host}" '$0 !~ "(^|[[:space:]])" host "([[:space:]]|$)" { print }' "${hosts_file}" > "${hosts_file}.tmp"
+cat "${hosts_file}.tmp" > "${hosts_file}"
+rm -f "${hosts_file}.tmp"
+ziti_controller_ip="$(getent hosts "${ziti_controller_host}" | awk '{ print $1; exit }')"
+if [[ -z "${ziti_controller_ip}" || "${ziti_controller_ip}" == 127.* || "${ziti_controller_ip}" == ::1 ]]; then
+  echo "failed to resolve ${ziti_controller_host} through workload DNS upstream ${workload_dns_upstream}" >&2
+  exit 1
+fi
 mkdir -p "${identity_dir}"
 
 if [[ ! -s "${identity_file}" ]]; then

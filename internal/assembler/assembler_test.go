@@ -386,6 +386,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], "ziti edge enroll --jwt") {
 		t.Fatalf("expected ziti enroll script to run ziti edge enroll, got %q", zitiEnroll.Cmd[1])
 	}
+	if !strings.Contains(zitiEnroll.Cmd[1], "getent hosts") || !strings.Contains(zitiEnroll.Cmd[1], "ziti.agyn.dev") {
+		t.Fatalf("expected ziti enroll script to verify ziti.agyn.dev through workload DNS upstream, got %q", zitiEnroll.Cmd[1])
+	}
 	if zitiEnroll.Cmd[3] != cfg.WorkloadDNSUpstream {
 		t.Fatalf("expected ziti enroll upstream arg %q, got %q", cfg.WorkloadDNSUpstream, zitiEnroll.Cmd[3])
 	}
