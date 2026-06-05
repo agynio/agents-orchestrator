@@ -384,12 +384,17 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		ZitiEnrollmentTokenEnvVar,
 		zitiIngressHostAlias,
 		zitiIngressServiceName,
-		`printf '\n%s %s\n' "$service_ip" "$jwt_server" >> /etc/hosts`,
+		fmt.Sprintf(`printf '\n%%s %s\n' "$service_ip" >> /etc/hosts`, zitiIngressHostAlias),
 		`ziti edge enroll "$token_file" --out "$identity_file"`,
 		fmt.Sprintf(`exec ziti tunnel %s --identity "$identity_file" --dnsUpstream "udp://%s:53"`, zitiSidecarCommand, cfg.WorkloadDNSUpstream),
 	} {
 		if !strings.Contains(zitiScript, expected) {
 			t.Fatalf("expected ziti sidecar command to contain %q, got %q", expected, zitiScript)
+		}
+	}
+	for _, unexpected := range []string{"jq", "jwt_payload", "jwt_server"} {
+		if strings.Contains(zitiScript, unexpected) {
+			t.Fatalf("expected ziti sidecar command not to contain %q, got %q", unexpected, zitiScript)
 		}
 	}
 	if !equalStringSlice(zitiSidecar.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
