@@ -38,8 +38,6 @@ const (
 	zitiSidecarCommand                   = "tproxy"
 	zitiIdentityFile                     = zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".json"
 	zitiEnrollmentTokenFile              = zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".jwt"
-	zitiIngressHostAlias                 = "ziti.agyn.dev"
-	zitiIngressServiceName               = "ziti-controller-client.ziti.svc.cluster.local"
 	zitiRequiredCapabilityNetAdmin       = "NET_ADMIN"
 	zitiRestartPolicyKey                 = "restart_policy"
 	zitiRestartPolicyAlways              = "Always"
@@ -612,15 +610,6 @@ func buildZitiSidecarCommand(dnsUpstream string) []string {
 		`  if [ ! -s "$token_file" ]; then`,
 		`    echo "missing Ziti identity and enrollment token" >&2`,
 		"    exit 1",
-		"  fi",
-		fmt.Sprintf(`  service_ip=$(getent hosts %s | awk '{print $1; exit}')`, zitiIngressServiceName),
-		`  if [ -z "$service_ip" ]; then`,
-		fmt.Sprintf(`    echo "failed to resolve %s" >&2`, zitiIngressServiceName),
-		"    exit 1",
-		"  fi",
-		fmt.Sprintf(`  if ! grep -q "[[:space:]]%s\([[:space:]]\|$\)" /etc/hosts; then`, zitiIngressHostAlias),
-		fmt.Sprintf(`    printf '\n%%s %s\n' "$service_ip" >> /etc/hosts`, zitiIngressHostAlias),
-		fmt.Sprintf(`    echo "routed %s to $service_ip for enrollment"`, zitiIngressHostAlias),
 		"  fi",
 		`  ziti edge enroll "$token_file" --out "$identity_file"`,
 		"fi",

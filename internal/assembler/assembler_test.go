@@ -382,13 +382,6 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		fmt.Sprintf("identity_file=\"%s\"", zitiIdentityFile),
 		fmt.Sprintf("token_file=\"%s\"", zitiEnrollmentTokenFile),
 		ZitiEnrollmentTokenEnvVar,
-		zitiIngressHostAlias,
-		zitiIngressServiceName,
-		`if [ -z "$service_ip" ]; then`,
-		fmt.Sprintf(`echo "failed to resolve %s" >&2`, zitiIngressServiceName),
-		fmt.Sprintf(`if ! grep -q "[[:space:]]%s\([[:space:]]\|$\)" /etc/hosts; then`, zitiIngressHostAlias),
-		fmt.Sprintf(`printf '\n%%s %s\n' "$service_ip" >> /etc/hosts`, zitiIngressHostAlias),
-		fmt.Sprintf(`echo "routed %s to $service_ip for enrollment"`, zitiIngressHostAlias),
 		`ziti edge enroll "$token_file" --out "$identity_file"`,
 		fmt.Sprintf(`exec ziti tunnel %s --identity "$identity_file" --dnsUpstream "udp://%s:53"`, zitiSidecarCommand, cfg.WorkloadDNSUpstream),
 	} {
@@ -396,7 +389,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 			t.Fatalf("expected ziti sidecar command to contain %q, got %q", expected, zitiScript)
 		}
 	}
-	for _, unexpected := range []string{"jq", "jwt_payload", "jwt_server", "sed -i", "/tmp/hosts"} {
+	for _, unexpected := range []string{"jq", "jwt_payload", "jwt_server", "sed -i", "/tmp/hosts", "/etc/hosts", "ziti.agyn.dev", "ziti-controller-client"} {
 		if strings.Contains(zitiScript, unexpected) {
 			t.Fatalf("expected ziti sidecar command not to contain %q, got %q", unexpected, zitiScript)
 		}
