@@ -386,7 +386,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		zitiIngressServiceName,
 		`if [ -z "$service_ip" ]; then`,
 		fmt.Sprintf(`echo "failed to resolve %s" >&2`, zitiIngressServiceName),
-		fmt.Sprintf(`sed -i "s/[[:space:]]%s\([[:space:]]\|$\)/\1/g" /etc/hosts`, zitiIngressHostAlias),
+		fmt.Sprintf(`if ! grep -q "[[:space:]]%s\([[:space:]]\|$\)" /etc/hosts; then`, zitiIngressHostAlias),
 		fmt.Sprintf(`printf '\n%%s %s\n' "$service_ip" >> /etc/hosts`, zitiIngressHostAlias),
 		fmt.Sprintf(`echo "routed %s to $service_ip for enrollment"`, zitiIngressHostAlias),
 		`ziti edge enroll "$token_file" --out "$identity_file"`,
@@ -396,7 +396,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 			t.Fatalf("expected ziti sidecar command to contain %q, got %q", expected, zitiScript)
 		}
 	}
-	for _, unexpected := range []string{"jq", "jwt_payload", "jwt_server"} {
+	for _, unexpected := range []string{"jq", "jwt_payload", "jwt_server", "sed -i", "/tmp/hosts"} {
 		if strings.Contains(zitiScript, unexpected) {
 			t.Fatalf("expected ziti sidecar command not to contain %q, got %q", unexpected, zitiScript)
 		}
