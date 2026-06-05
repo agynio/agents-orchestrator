@@ -367,9 +367,32 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiSidecar.Image)
 	}
-	expectedCmd := []string{zitiSidecarCommand, "--dnsUpstream", fmt.Sprintf("udp://%s:53", cfg.WorkloadDNSUpstream)}
+	if zitiSidecar.Entrypoint != zitiSidecarEntrypoint {
+		t.Fatalf("expected ziti sidecar entrypoint %q, got %q", zitiSidecarEntrypoint, zitiSidecar.Entrypoint)
+	}
+	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream)
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
+	}
+	if len(zitiSidecar.Cmd) != 2 {
+		t.Fatalf("expected ziti sidecar shell command, got %+v", zitiSidecar.Cmd)
+	}
+	zitiScript := zitiSidecar.Cmd[1]
+	for _, expected := range []string{
+		fmt.Sprintf("identity_file=\"%s\"", zitiIdentityFile),
+		fmt.Sprintf("token_file=\"%s\"", zitiEnrollmentTokenFile),
+		ZitiEnrollmentTokenEnvVar,
+		`ziti edge enroll "$token_file" --out "$identity_file"`,
+		fmt.Sprintf(`exec ziti tunnel %s --identity "$identity_file" --dnsUpstream "udp://%s:53"`, zitiSidecarCommand, cfg.WorkloadDNSUpstream),
+	} {
+		if !strings.Contains(zitiScript, expected) {
+			t.Fatalf("expected ziti sidecar command to contain %q, got %q", expected, zitiScript)
+		}
+	}
+	for _, unexpected := range []string{"jq"} {
+		if strings.Contains(zitiScript, unexpected) {
+			t.Fatalf("expected ziti sidecar command not to contain %q, got %q", unexpected, zitiScript)
+		}
 	}
 	if !equalStringSlice(zitiSidecar.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
 		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiSidecar.RequiredCapabilities)
@@ -1467,7 +1490,7 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 		ZitiEnabled:         true,
 		ZitiSidecarImage:    "ziti-image",
-		ClusterDNS:          "10.43.0.10",
+		WorkloadDNSUpstream: "10.43.0.10",
 	}, cert)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
