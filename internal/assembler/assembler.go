@@ -39,6 +39,7 @@ const (
 	zitiEnrollEntrypoint             = "/usr/bin/bash"
 	zitiSidecarCommand               = "tproxy"
 	zitiEnrollScript                 = `workload_dns_upstream="$1"
+workload_dns_nameserver="$2"
 identity_dir="${ZITI_IDENTITY_DIR}"
 identity_basename="${ZITI_IDENTITY_BASENAME}"
 identity_file="${identity_dir}/${identity_basename}.json"
@@ -78,7 +79,9 @@ fi
 if [[ ! -s "${identity_file}" ]]; then
   echo "expected identity file ${identity_file}" >&2
   exit 1
-fi`
+fi
+
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
@@ -369,6 +372,7 @@ func buildZitiEnrollCommand(workloadDNSUpstream string) []string {
 		zitiEnrollScript,
 		ZitiEnrollContainerName,
 		workloadDNSUpstream,
+		zitiDNSNameserver,
 	}
 }
 

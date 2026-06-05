@@ -399,6 +399,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiEnroll.Cmd[3] != cfg.WorkloadDNSUpstream {
 		t.Fatalf("expected ziti enroll upstream arg %q, got %q", cfg.WorkloadDNSUpstream, zitiEnroll.Cmd[3])
 	}
+	if zitiEnroll.Cmd[4] != zitiDNSNameserver {
+		t.Fatalf("expected ziti enroll workload DNS nameserver arg %q, got %q", zitiDNSNameserver, zitiEnroll.Cmd[4])
+	}
 	zitiEnrollEnv := envMap(zitiEnroll.Env)
 	assertEnv(t, zitiEnrollEnv, ZitiIdentityBasenameEnvVar, ZitiIdentityBasename)
 	assertEnv(t, zitiEnrollEnv, ZitiIdentityDirEnvVar, zitiIdentityMountPath)
@@ -1606,8 +1609,9 @@ set -euo pipefail
 printf 'args=%%s\n' "$*" > %q
 printf 'jwt=%%s\n' "$(cat %q)" >> %q
 printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
+printf 'post_enroll_resolv=%%s\n' "$(cat %q)" >> %q
 printf '{}\n' > %q
-`, logPath, filepath.Join(identityDir, "agent.jwt"), logPath, resolvPath, logPath, filepath.Join(identityDir, "agent.json")))
+`, logPath, filepath.Join(identityDir, "agent.jwt"), logPath, resolvPath, logPath, resolvPath, logPath, filepath.Join(identityDir, "agent.json")))
 	_ = writeExecutable(t, workDir, "cat", fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
 real_cat=/usr/bin/cat
@@ -1631,7 +1635,7 @@ exec "${real_cat}" "$@"
 		t.Fatalf("run ziti enroll script: %v\n%s", err, string(output))
 	}
 
-	assertFileEquals(t, resolvPath, "nameserver 10.43.0.10\nsearch svc.cluster.local cluster.local\noptions ndots:5\n")
+	assertFileEquals(t, resolvPath, "nameserver 127.0.0.1\nsearch svc.cluster.local cluster.local\noptions ndots:5\n")
 	hostsBytes, err := os.ReadFile(hostsPath)
 	if err != nil {
 		t.Fatalf("read hosts: %v", err)
@@ -1659,6 +1663,9 @@ exec "${real_cat}" "$@"
 	}
 	if !strings.Contains(log, "enroll_resolv=nameserver 10.43.0.10") {
 		t.Fatalf("expected ziti enroll invocation to observe workload DNS upstream resolver, got:\n%s", log)
+	}
+	if !strings.Contains(log, "post_enroll_resolv=nameserver 10.43.0.10") {
+		t.Fatalf("expected ziti enroll command to complete before workload resolver restore, got:\n%s", log)
 	}
 }
 
