@@ -2,9 +2,13 @@ package assembler
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -386,8 +390,11 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], "ziti edge enroll --jwt") {
 		t.Fatalf("expected ziti enroll script to run ziti edge enroll, got %q", zitiEnroll.Cmd[1])
 	}
-	if !strings.Contains(zitiEnroll.Cmd[1], "getent hosts") || !strings.Contains(zitiEnroll.Cmd[1], "ziti.agyn.dev") {
-		t.Fatalf("expected ziti enroll script to verify ziti.agyn.dev through workload DNS upstream, got %q", zitiEnroll.Cmd[1])
+	if strings.Contains(zitiEnroll.Cmd[1], "ziti.agyn.dev") {
+		t.Fatalf("expected ziti enroll script not to hard-code controller host, got %q", zitiEnroll.Cmd[1])
+	}
+	if !strings.Contains(zitiEnroll.Cmd[1], `"iss"`) {
+		t.Fatalf("expected ziti enroll script to derive controller host from JWT issuer, got %q", zitiEnroll.Cmd[1])
 	}
 	if zitiEnroll.Cmd[3] != cfg.WorkloadDNSUpstream {
 		t.Fatalf("expected ziti enroll upstream arg %q, got %q", cfg.WorkloadDNSUpstream, zitiEnroll.Cmd[3])
@@ -1592,5 +1599,103 @@ func TestLoadEgressCACertificate(t *testing.T) {
 	}
 	if string(cert) != "cert" {
 		t.Fatalf("expected cert bytes, got %q", string(cert))
+	}
+}
+
+func TestZitiEnrollScriptRemovesOnlyJwtControllerLoopbackAlias(t *testing.T) {
+	workDir := t.TempDir()
+	identityDir := filepath.Join(workDir, "netfoundry")
+	resolvPath := filepath.Join(workDir, "resolv.conf")
+	hostsPath := filepath.Join(workDir, "hosts")
+	logPath := filepath.Join(workDir, "ziti.log")
+	controllerHost := "controller.example.test"
+	otherHost := "other.example.test"
+	jwt := testJWTWithIssuer(t, "https://"+controllerHost+":2496")
+
+	if err := os.WriteFile(hostsPath, []byte(strings.Join([]string{
+		"127.0.0.1\tlocalhost",
+		"127.0.0.1\t" + controllerHost,
+		"127.0.0.1\t" + otherHost,
+		"10.42.1.121\tworkload-c84f0a23-ec5b-4410-97bb-2392195055a3",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatalf("write hosts: %v", err)
+	}
+	_ = writeExecutable(t, workDir, "ziti", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+printf 'args=%%s\n' "$*" > %q
+printf 'jwt=%%s\n' "$(cat %q)" >> %q
+printf '{}\n' > %q
+`, logPath, filepath.Join(identityDir, "agent.jwt"), logPath, filepath.Join(identityDir, "agent.json")))
+
+	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10")...)
+	cmd.Env = append(os.Environ(),
+		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		ZitiEnrollmentTokenEnvVar+"="+jwt,
+		ZitiIdentityBasenameEnvVar+"="+ZitiIdentityBasename,
+		ZitiIdentityDirEnvVar+"="+identityDir,
+		"ZITI_RESOLV_CONF="+resolvPath,
+		"ZITI_HOSTS_FILE="+hostsPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run ziti enroll script: %v\n%s", err, string(output))
+	}
+
+	assertFileEquals(t, resolvPath, "nameserver 10.43.0.10\nsearch svc.cluster.local cluster.local\noptions ndots:5\n")
+	hostsBytes, err := os.ReadFile(hostsPath)
+	if err != nil {
+		t.Fatalf("read hosts: %v", err)
+	}
+	hosts := string(hostsBytes)
+	if strings.Contains(hosts, "127.0.0.1\t"+controllerHost) {
+		t.Fatalf("expected controller loopback alias removed, got hosts:\n%s", hosts)
+	}
+	if !strings.Contains(hosts, "127.0.0.1\t"+otherHost) {
+		t.Fatalf("expected unrelated loopback alias preserved, got hosts:\n%s", hosts)
+	}
+	if !strings.Contains(hosts, "10.42.1.121\tworkload-c84f0a23-ec5b-4410-97bb-2392195055a3") {
+		t.Fatalf("expected workload host alias preserved, got hosts:\n%s", hosts)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read ziti log: %v", err)
+	}
+	log := string(logBytes)
+	if !strings.Contains(log, "args=edge enroll --jwt "+filepath.Join(identityDir, "agent.jwt")+" --out "+filepath.Join(identityDir, "agent.json")) {
+		t.Fatalf("expected ziti enroll args in log, got:\n%s", log)
+	}
+	if !strings.Contains(log, "jwt="+jwt) {
+		t.Fatalf("expected jwt written for enroll, got:\n%s", log)
+	}
+}
+
+func testJWTWithIssuer(t *testing.T, issuer string) string {
+	t.Helper()
+	encode := base64.RawURLEncoding.EncodeToString
+	return strings.Join([]string{
+		encode([]byte(`{"alg":"none"}`)),
+		encode([]byte(fmt.Sprintf(`{"iss":%q}`, issuer))),
+		"signature",
+	}, ".")
+}
+
+func writeExecutable(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
+		t.Fatalf("write executable %s: %v", name, err)
+	}
+	return path
+}
+
+func assertFileEquals(t *testing.T, path, expected string) {
+	t.Helper()
+	actual, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(actual) != expected {
+		t.Fatalf("expected %s to contain %q, got %q", path, expected, string(actual))
 	}
 }

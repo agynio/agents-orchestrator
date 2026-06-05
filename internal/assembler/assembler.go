@@ -43,18 +43,10 @@ identity_dir="${ZITI_IDENTITY_DIR}"
 identity_basename="${ZITI_IDENTITY_BASENAME}"
 identity_file="${identity_dir}/${identity_basename}.json"
 jwt_file="${identity_dir}/${identity_basename}.jwt"
-hosts_file="/etc/hosts"
-ziti_controller_host="ziti.agyn.dev"
+resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
+hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
 
-printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > /etc/resolv.conf
-awk -v host="${ziti_controller_host}" '$0 !~ "(^|[[:space:]])" host "([[:space:]]|$)" { print }' "${hosts_file}" > "${hosts_file}.tmp"
-cat "${hosts_file}.tmp" > "${hosts_file}"
-rm -f "${hosts_file}.tmp"
-ziti_controller_ip="$(getent hosts "${ziti_controller_host}" | awk '{ print $1; exit }')"
-if [[ -z "${ziti_controller_ip}" || "${ziti_controller_ip}" == 127.* || "${ziti_controller_ip}" == ::1 ]]; then
-  echo "failed to resolve ${ziti_controller_host} through workload DNS upstream ${workload_dns_upstream}" >&2
-  exit 1
-fi
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 mkdir -p "${identity_dir}"
 
 if [[ ! -s "${identity_file}" ]]; then
@@ -63,6 +55,22 @@ if [[ ! -s "${identity_file}" ]]; then
     exit 1
   fi
   printf '%s\n' "${ZITI_ENROLL_TOKEN}" > "${jwt_file}"
+
+  jwt_payload="${ZITI_ENROLL_TOKEN#*.}"
+  jwt_payload="${jwt_payload%%.*}"
+  jwt_payload="$(printf '%s' "${jwt_payload}" | tr '_-' '/+')"
+  case $(( ${#jwt_payload} % 4 )) in
+    2) jwt_payload="${jwt_payload}==" ;;
+    3) jwt_payload="${jwt_payload}=" ;;
+  esac
+  jwt_payload_json="$(printf '%s' "${jwt_payload}" | base64 -d 2>/dev/null || true)"
+  ziti_controller_host="$(printf '%s' "${jwt_payload_json}" | sed -nE 's/.*"iss"[[:space:]]*:[[:space:]]*"https?:\/\/([^"\/:]+).*/\1/p' | head -n 1)"
+  if [[ -n "${ziti_controller_host}" ]]; then
+    awk -v host="${ziti_controller_host}" '($1 ~ /^(127\.|::1$)/) { for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${hosts_file}" > "${hosts_file}.tmp"
+    cat "${hosts_file}.tmp" > "${hosts_file}"
+    rm -f "${hosts_file}.tmp"
+  fi
+
   ziti edge enroll --jwt "${jwt_file}" --out "${identity_file}"
 fi
 
