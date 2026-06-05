@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1546,5 +1549,117 @@ func TestLoadEgressCACertificate(t *testing.T) {
 	}
 	if string(cert) != "cert" {
 		t.Fatalf("expected cert bytes, got %q", string(cert))
+	}
+}
+
+func TestZitiSidecarResolverOverrideRestoresAfterEnrollment(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	resolvPath := filepath.Join(workDir, "resolv.conf")
+	originalResolv := "nameserver 127.0.0.1\nsearch svc.cluster.local cluster.local\n"
+	if err := os.WriteFile(resolvPath, []byte(originalResolv), 0o600); err != nil {
+		t.Fatalf("write resolv: %v", err)
+	}
+	zitiLogPath := filepath.Join(workDir, "ziti.log")
+	zitiPath := writeExecutable(t, workDir, "real-ziti", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "edge" && "$2" == "enroll" ]]; then
+  printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
+  exit 0
+fi
+if [[ "$1" == "tunnel" ]]; then
+  printf 'tunnel_resolv=%%s\n' "$(cat %q)" >> %q
+  exit 0
+fi
+exit 9
+`, resolvPath, zitiLogPath, resolvPath, zitiLogPath))
+	entrypointPath := writeExecutable(t, workDir, "entrypoint", `#!/usr/bin/env bash
+set -euo pipefail
+ziti edge enroll --jwt /netfoundry/agent.jwt --out /netfoundry/agent.json
+ziti tunnel "$@"
+`)
+
+	cmd := exec.Command(zitiSidecarEntrypoint, buildZitiSidecarCommand("10.43.0.10")...)
+	cmd.Env = append(os.Environ(),
+		"ZITI_BINARY="+zitiPath,
+		"ZITI_ENTRYPOINT="+entrypointPath,
+		"ZITI_RESOLV_CONF="+resolvPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run ziti sidecar wrapper: %v\n%s", err, string(output))
+	}
+
+	assertFileEquals(t, resolvPath, originalResolv)
+	logBytes, err := os.ReadFile(zitiLogPath)
+	if err != nil {
+		t.Fatalf("read ziti log: %v", err)
+	}
+	log := string(logBytes)
+	if !strings.Contains(log, "enroll_resolv=nameserver 10.43.0.10") {
+		t.Fatalf("expected enrollment to use upstream resolver, got log:\n%s", log)
+	}
+	if !strings.Contains(log, "tunnel_resolv="+originalResolv) {
+		t.Fatalf("expected tunnel startup to use restored resolver, got log:\n%s", log)
+	}
+}
+
+func TestZitiSidecarResolverOverrideRestoresAfterEnrollmentFailure(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	resolvPath := filepath.Join(workDir, "resolv.conf")
+	originalResolv := "nameserver 127.0.0.1\n"
+	if err := os.WriteFile(resolvPath, []byte(originalResolv), 0o600); err != nil {
+		t.Fatalf("write resolv: %v", err)
+	}
+	zitiLogPath := filepath.Join(workDir, "ziti.log")
+	zitiPath := writeExecutable(t, workDir, "real-ziti", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
+exit 7
+`, resolvPath, zitiLogPath))
+	entrypointPath := writeExecutable(t, workDir, "entrypoint", `#!/usr/bin/env bash
+set -euo pipefail
+ziti edge enroll --jwt /netfoundry/agent.jwt --out /netfoundry/agent.json
+`)
+
+	cmd := exec.Command(zitiSidecarEntrypoint, buildZitiSidecarCommand("10.43.0.10")...)
+	cmd.Env = append(os.Environ(),
+		"ZITI_BINARY="+zitiPath,
+		"ZITI_ENTRYPOINT="+entrypointPath,
+		"ZITI_RESOLV_CONF="+resolvPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected ziti sidecar wrapper to fail\n%s", string(output))
+	}
+
+	assertFileEquals(t, resolvPath, originalResolv)
+	logBytes, err := os.ReadFile(zitiLogPath)
+	if err != nil {
+		t.Fatalf("read ziti log: %v", err)
+	}
+	if !strings.Contains(string(logBytes), "enroll_resolv=nameserver 10.43.0.10") {
+		t.Fatalf("expected enrollment to use upstream resolver, got log:\n%s", string(logBytes))
+	}
+}
+
+func writeExecutable(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
+		t.Fatalf("write executable %s: %v", name, err)
+	}
+	return path
+}
+
+func assertFileEquals(t *testing.T, path, expected string) {
+	t.Helper()
+	actual, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(actual) != expected {
+		t.Fatalf("expected %s to contain %q, got %q", path, expected, string(actual))
 	}
 }

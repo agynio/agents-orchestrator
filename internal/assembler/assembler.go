@@ -38,30 +38,38 @@ const (
 	zitiSidecarCommand                = "tproxy"
 	zitiSidecarEntrypointScript       = `workload_dns_upstream="$1"
 shift
-identity_dir="${ZITI_IDENTITY_DIR:-/netfoundry}"
-identity_basename="${ZITI_IDENTITY_BASENAME:-ziti_id}"
-identity_file="${identity_dir}/${identity_basename}.json"
-jwt_file="${identity_dir}/${identity_basename}.jwt"
+resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
+real_ziti_binary="${ZITI_BINARY:-/usr/local/bin/ziti}"
+entrypoint="${ZITI_ENTRYPOINT:-/entrypoint.sh}"
 original_resolv="$(mktemp)"
+wrapper_dir="$(mktemp -d)"
+cp "${resolv_file}" "${original_resolv}"
+cat > "${wrapper_dir}/ziti" <<'ZITI_WRAPPER'
+#!/usr/bin/env bash
+set -o nounset -o pipefail
 restore_resolv() {
-  if [[ -f "${original_resolv}" ]]; then
-    cp "${original_resolv}" /etc/resolv.conf
-    rm -f "${original_resolv}"
+  if [[ -f "${ZITI_ORIGINAL_RESOLV}" ]]; then
+    cp "${ZITI_ORIGINAL_RESOLV}" "${ZITI_RESOLV_CONF}"
   fi
 }
-if [[ ! -s "${identity_file}" && -n "${ZITI_ENROLL_TOKEN:-}" ]]; then
-  mkdir -p "${identity_dir}"
-  printf '%s\n' "${ZITI_ENROLL_TOKEN}" > "${jwt_file}"
-fi
-if [[ ! -s "${identity_file}" && -s "${jwt_file}" ]]; then
-  cp /etc/resolv.conf "${original_resolv}"
-  trap restore_resolv EXIT
-  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > /etc/resolv.conf
-  ziti edge enroll --jwt "${jwt_file}" --out "${identity_file}"
+if [[ "${1:-}" == "edge" && "${2:-}" == "enroll" ]]; then
+  "${ZITI_BINARY}" "$@"
+  status="$?"
   restore_resolv
-  trap - EXIT
+  exit "${status}"
 fi
-exec /entrypoint.sh "$@"`
+if [[ "${1:-}" == "tunnel" ]]; then
+  restore_resolv
+fi
+exec "${ZITI_BINARY}" "$@"
+ZITI_WRAPPER
+chmod +x "${wrapper_dir}/ziti"
+export ZITI_BINARY="${real_ziti_binary}"
+export ZITI_ORIGINAL_RESOLV="${original_resolv}"
+export ZITI_RESOLV_CONF="${resolv_file}"
+export PATH="${wrapper_dir}:${PATH}"
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+exec "${entrypoint}" "$@"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
