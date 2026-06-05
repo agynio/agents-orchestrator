@@ -384,7 +384,12 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		ZitiEnrollmentTokenEnvVar,
 		zitiIngressHostAlias,
 		zitiIngressServiceName,
+		`if [ -z "$service_ip" ]; then`,
+		fmt.Sprintf(`echo "failed to resolve %s" >&2`, zitiIngressServiceName),
+		fmt.Sprintf(`grep -v "[[:space:]]%s\([[:space:]]\|$\)" /etc/hosts > /tmp/hosts || true`, zitiIngressHostAlias),
+		`cat /tmp/hosts > /etc/hosts`,
 		fmt.Sprintf(`printf '\n%%s %s\n' "$service_ip" >> /etc/hosts`, zitiIngressHostAlias),
+		fmt.Sprintf(`echo "routed %s to $service_ip for enrollment"`, zitiIngressHostAlias),
 		`ziti edge enroll "$token_file" --out "$identity_file"`,
 		fmt.Sprintf(`exec ziti tunnel %s --identity "$identity_file" --dnsUpstream "udp://%s:53"`, zitiSidecarCommand, cfg.WorkloadDNSUpstream),
 	} {
