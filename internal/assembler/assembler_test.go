@@ -1628,6 +1628,14 @@ printf 'jwt=%%s\n' "$(cat %q)" >> %q
 printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
 printf '{}\n' > %q
 `, logPath, filepath.Join(identityDir, "agent.jwt"), logPath, resolvPath, logPath, filepath.Join(identityDir, "agent.json")))
+	_ = writeExecutable(t, workDir, "cat", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+real_cat=/usr/bin/cat
+if [[ "$#" -ge 1 && "$1" == %q ]]; then
+  printf 'nameserver 127.0.0.1\n' > %q
+fi
+exec "${real_cat}" "$@"
+`, hostsPath+".tmp", resolvPath))
 
 	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10")...)
 	cmd.Env = append(os.Environ(),
