@@ -5,9 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -344,17 +341,20 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
 		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
 	}
-	if len(request.InitContainers) != 3 {
-		t.Fatalf("expected 3 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 4 {
+		t.Fatalf("expected 4 init containers, got %d", len(request.InitContainers))
 	}
-	if request.InitContainers[0].GetName() != ZitiSidecarContainerName {
-		t.Fatalf("expected %s to be first init container", ZitiSidecarContainerName)
+	if request.InitContainers[0].GetName() != ZitiEnrollContainerName {
+		t.Fatalf("expected %s to be first init container", ZitiEnrollContainerName)
 	}
-	if request.InitContainers[1].GetName() != zitiGatewayWaitContainerName {
-		t.Fatalf("expected %s to be second init container", zitiGatewayWaitContainerName)
+	if request.InitContainers[1].GetName() != ZitiSidecarContainerName {
+		t.Fatalf("expected %s to be second init container", ZitiSidecarContainerName)
 	}
-	if request.InitContainers[2].GetName() != "agent-init" {
-		t.Fatalf("expected agent-init to be third init container")
+	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName {
+		t.Fatalf("expected %s to be third init container", zitiGatewayWaitContainerName)
+	}
+	if request.InitContainers[3].GetName() != "agent-init" {
+		t.Fatalf("expected agent-init to be fourth init container")
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
@@ -363,6 +363,33 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if len(request.Sidecars) != 0 {
 		t.Fatalf("expected 0 sidecars, got %d", len(request.Sidecars))
 	}
+	zitiEnroll := testutil.FindInitContainer(request.InitContainers, ZitiEnrollContainerName)
+	if zitiEnroll == nil {
+		t.Fatal("expected ziti-enroll init container")
+	}
+	if zitiEnroll.Image != cfg.ZitiSidecarImage {
+		t.Fatalf("expected ziti enroll image %q, got %q", cfg.ZitiSidecarImage, zitiEnroll.Image)
+	}
+	if zitiEnroll.Entrypoint != zitiEnrollEntrypoint {
+		t.Fatalf("expected ziti enroll entrypoint %q, got %q", zitiEnrollEntrypoint, zitiEnroll.Entrypoint)
+	}
+	expectedEnrollCmd := buildZitiEnrollCommand(cfg.WorkloadDNSUpstream)
+	if !equalStringSlice(zitiEnroll.Cmd, expectedEnrollCmd) {
+		t.Fatalf("expected ziti enroll cmd %+v, got %+v", expectedEnrollCmd, zitiEnroll.Cmd)
+	}
+	if !strings.Contains(zitiEnroll.Cmd[1], "nameserver %s\\nsearch svc.cluster.local cluster.local\\noptions ndots:5\\n") {
+		t.Fatalf("expected ziti enroll script to write workload DNS upstream resolver, got %q", zitiEnroll.Cmd[1])
+	}
+	if !strings.Contains(zitiEnroll.Cmd[1], "ziti edge enroll --jwt") {
+		t.Fatalf("expected ziti enroll script to run ziti edge enroll, got %q", zitiEnroll.Cmd[1])
+	}
+	if zitiEnroll.Cmd[3] != cfg.WorkloadDNSUpstream {
+		t.Fatalf("expected ziti enroll upstream arg %q, got %q", cfg.WorkloadDNSUpstream, zitiEnroll.Cmd[3])
+	}
+	zitiEnrollEnv := envMap(zitiEnroll.Env)
+	assertEnv(t, zitiEnrollEnv, ZitiIdentityBasenameEnvVar, ZitiIdentityBasename)
+	assertEnv(t, zitiEnrollEnv, ZitiIdentityDirEnvVar, zitiIdentityMountPath)
+	assertSameZitiIdentityMount(t, zitiEnroll)
 	zitiSidecar := testutil.FindInitContainer(request.InitContainers, ZitiSidecarContainerName)
 	if zitiSidecar == nil {
 		t.Fatal("expected ziti-sidecar init container")
@@ -370,8 +397,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiSidecar.Image)
 	}
-	if zitiSidecar.Entrypoint != zitiSidecarEntrypoint {
-		t.Fatalf("expected ziti sidecar entrypoint %q, got %q", zitiSidecarEntrypoint, zitiSidecar.Entrypoint)
+	if zitiSidecar.Entrypoint != "" {
+		t.Fatalf("expected ziti sidecar to use image entrypoint, got %q", zitiSidecar.Entrypoint)
 	}
 	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream)
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
@@ -401,23 +428,16 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiSidecar.RequiredCapabilities)
 	}
 	zitiEnv := envMap(zitiSidecar.Env)
-	if zitiEnv[ZitiIdentityBasenameEnvVar] != ZitiIdentityBasename {
-		t.Fatalf("expected ziti sidecar basename %q, got %q", ZitiIdentityBasename, zitiEnv[ZitiIdentityBasenameEnvVar])
+	assertEnv(t, zitiEnv, ZitiIdentityBasenameEnvVar, ZitiIdentityBasename)
+	assertEnv(t, zitiEnv, ZitiIdentityDirEnvVar, zitiIdentityMountPath)
+	if _, ok := zitiEnv[ZitiEnrollmentTokenEnvVar]; ok {
+		t.Fatalf("expected ziti sidecar not to receive %s", ZitiEnrollmentTokenEnvVar)
 	}
 	expectedProperties := map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways}
 	if !equalStringMap(zitiSidecar.AdditionalProperties, expectedProperties) {
 		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiSidecar.AdditionalProperties)
 	}
-	if len(zitiSidecar.Mounts) != 1 {
-		t.Fatalf("expected 1 ziti sidecar mount, got %d", len(zitiSidecar.Mounts))
-	}
-	zitiMount := zitiSidecar.Mounts[0]
-	if zitiMount.Volume != zitiIdentityVolumeName {
-		t.Fatalf("expected ziti mount volume %q, got %q", zitiIdentityVolumeName, zitiMount.Volume)
-	}
-	if zitiMount.MountPath != zitiIdentityMountPath {
-		t.Fatalf("expected ziti mount path %q, got %q", zitiIdentityMountPath, zitiMount.MountPath)
-	}
+	assertSameZitiIdentityMount(t, zitiSidecar)
 	zitiGatewayWait := testutil.FindInitContainer(request.InitContainers, zitiGatewayWaitContainerName)
 	if zitiGatewayWait == nil {
 		t.Fatal("expected ziti-gateway-wait init container")
@@ -1429,6 +1449,20 @@ func assertEnv(t *testing.T, envs map[string]string, name, expected string) {
 	}
 }
 
+func assertSameZitiIdentityMount(t *testing.T, container *runnerv1.ContainerSpec) {
+	t.Helper()
+	if len(container.GetMounts()) != 1 {
+		t.Fatalf("expected 1 ziti identity mount on %s, got %d", container.GetName(), len(container.GetMounts()))
+	}
+	mount := container.GetMounts()[0]
+	if mount.GetVolume() != zitiIdentityVolumeName {
+		t.Fatalf("expected ziti mount volume %q on %s, got %q", zitiIdentityVolumeName, container.GetName(), mount.GetVolume())
+	}
+	if mount.GetMountPath() != zitiIdentityMountPath {
+		t.Fatalf("expected ziti mount path %q on %s, got %q", zitiIdentityMountPath, container.GetName(), mount.GetMountPath())
+	}
+}
+
 func equalStringMap(left, right map[string]string) bool {
 	if len(left) != len(right) {
 		return false
@@ -1549,105 +1583,5 @@ func TestLoadEgressCACertificate(t *testing.T) {
 	}
 	if string(cert) != "cert" {
 		t.Fatalf("expected cert bytes, got %q", string(cert))
-	}
-}
-
-func TestZitiSidecarResolverOverrideRestoresAfterEnrollment(t *testing.T) {
-	t.Parallel()
-	workDir := t.TempDir()
-	identityDir := filepath.Join(workDir, "netfoundry")
-	if err := os.Mkdir(identityDir, 0o700); err != nil {
-		t.Fatalf("create identity dir: %v", err)
-	}
-	resolvPath := filepath.Join(workDir, "resolv.conf")
-	originalResolv := "nameserver 127.0.0.1\nsearch svc.cluster.local cluster.local\n"
-	if err := os.WriteFile(resolvPath, []byte(originalResolv), 0o600); err != nil {
-		t.Fatalf("write resolv: %v", err)
-	}
-	zitiLogPath := filepath.Join(workDir, "ziti.log")
-	entrypointPath := writeExecutable(t, workDir, "entrypoint", fmt.Sprintf(`#!/usr/bin/env bash
-set -euo pipefail
-printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
-printf '{}\n' > %q
-ziti tunnel tproxy
-`, resolvPath, zitiLogPath, filepath.Join(identityDir, "agent.json")))
-	zitiPath := writeExecutable(t, workDir, "ziti", fmt.Sprintf(`#!/usr/bin/env bash
-set -euo pipefail
-if [[ "$1" == "tunnel" ]]; then
-  printf 'tunnel_resolv=%%s\n' "$(cat %q)" >> %q
-  exit 0
-fi
-exit 9
-`, resolvPath, zitiLogPath))
-
-	cmd := exec.Command(zitiSidecarEntrypoint, buildZitiSidecarCommand("10.43.0.10")...)
-	cmd.Env = append(os.Environ(),
-		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"ZITI_ENTRYPOINT="+entrypointPath,
-		"ZITI_RESOLV_CONF="+resolvPath,
-	)
-	_ = zitiPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("run ziti sidecar wrapper: %v\n%s", err, string(output))
-	}
-
-	assertFileEquals(t, resolvPath, originalResolv)
-	logBytes, err := os.ReadFile(zitiLogPath)
-	if err != nil {
-		t.Fatalf("read ziti log: %v", err)
-	}
-	log := string(logBytes)
-	if !strings.Contains(log, "enroll_resolv=nameserver 10.43.0.10") {
-		t.Fatalf("expected enrollment to use upstream resolver, got log:\n%s", log)
-	}
-	if !strings.Contains(log, "tunnel_resolv="+originalResolv) {
-		t.Fatalf("expected tunnel startup to use restored resolver, got log:\n%s", log)
-	}
-}
-
-func TestZitiSidecarResolverOverrideRestoresAfterEnrollmentFailure(t *testing.T) {
-	t.Parallel()
-	workDir := t.TempDir()
-	resolvPath := filepath.Join(workDir, "resolv.conf")
-	originalResolv := "nameserver 127.0.0.1\n"
-	if err := os.WriteFile(resolvPath, []byte(originalResolv), 0o600); err != nil {
-		t.Fatalf("write resolv: %v", err)
-	}
-	entrypointPath := writeExecutable(t, workDir, "entrypoint", `#!/usr/bin/env bash
-set -euo pipefail
-exit 7
-`)
-
-	cmd := exec.Command(zitiSidecarEntrypoint, buildZitiSidecarCommand("10.43.0.10")...)
-	cmd.Env = append(os.Environ(),
-		"ZITI_ENTRYPOINT="+entrypointPath,
-		"ZITI_RESOLV_CONF="+resolvPath,
-	)
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected ziti sidecar wrapper to fail\n%s", string(output))
-	}
-
-	assertFileEquals(t, resolvPath, originalResolv)
-}
-
-func writeExecutable(t *testing.T, dir, name, content string) string {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
-		t.Fatalf("write executable %s: %v", name, err)
-	}
-	return path
-}
-
-func assertFileEquals(t *testing.T, path, expected string) {
-	t.Helper()
-	actual, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	if string(actual) != expected {
-		t.Fatalf("expected %s to contain %q, got %q", path, expected, string(actual))
 	}
 }
