@@ -1625,8 +1625,9 @@ func TestZitiEnrollScriptRemovesOnlyJwtControllerLoopbackAlias(t *testing.T) {
 set -euo pipefail
 printf 'args=%%s\n' "$*" > %q
 printf 'jwt=%%s\n' "$(cat %q)" >> %q
+printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
 printf '{}\n' > %q
-`, logPath, filepath.Join(identityDir, "agent.jwt"), logPath, filepath.Join(identityDir, "agent.json")))
+`, logPath, filepath.Join(identityDir, "agent.jwt"), logPath, resolvPath, logPath, filepath.Join(identityDir, "agent.json")))
 
 	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10")...)
 	cmd.Env = append(os.Environ(),
@@ -1667,6 +1668,9 @@ printf '{}\n' > %q
 	}
 	if !strings.Contains(log, "jwt="+jwt) {
 		t.Fatalf("expected jwt written for enroll, got:\n%s", log)
+	}
+	if !strings.Contains(log, "enroll_resolv=nameserver 10.43.0.10") {
+		t.Fatalf("expected ziti enroll invocation to observe workload DNS upstream resolver, got:\n%s", log)
 	}
 }
 
