@@ -634,3 +634,35 @@ func (f *fakeZitiContext) Events() ziti.Eventer { return nil }
 func (f *fakeZitiContext) Inspect() *inspect.ContextInspectResult { return nil }
 
 var errNotImplemented = errors.New("not implemented")
+
+func (f *fakeZitiMgmtClient) CreateTunnelIdentity(context.Context, *zitimgmtv1.CreateTunnelIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateTunnelIdentityResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) DeleteTunnelIdentity(context.Context, *zitimgmtv1.DeleteTunnelIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteTunnelIdentityResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) PatchIdentityRoleAttributes(context.Context, *zitimgmtv1.PatchIdentityRoleAttributesRequest, ...grpc.CallOption) (*zitimgmtv1.PatchIdentityRoleAttributesResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) GetIdentityLiveness(context.Context, *zitimgmtv1.GetIdentityLivenessRequest, ...grpc.CallOption) (*zitimgmtv1.GetIdentityLivenessResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListServicesByTag(context.Context, *zitimgmtv1.ListServicesByTagRequest, ...grpc.CallOption) (*zitimgmtv1.ListServicesByTagResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListIdentitiesByTag(context.Context, *zitimgmtv1.ListIdentitiesByTagRequest, ...grpc.CallOption) (*zitimgmtv1.ListIdentitiesByTagResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListServicePoliciesByTag(context.Context, *zitimgmtv1.ListServicePoliciesByTagRequest, ...grpc.CallOption) (*zitimgmtv1.ListServicePoliciesByTagResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) UpdateService(context.Context, *zitimgmtv1.UpdateServiceRequest, ...grpc.CallOption) (*zitimgmtv1.UpdateServiceResponse, error) {
+	return nil, errNotImplemented
+}

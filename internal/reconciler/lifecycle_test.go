@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	groupsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/groups/v1"
 	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
@@ -20,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -47,6 +50,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 	zitiMgmt := &fakeZitiMgmtClient{
 		createAgentIdentity: func(_ context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
 			calls = append(calls, "create")
+			assertStringSet(t, req.GetAdditionalRoleAttributes(), []string{groupRoleAttribute("group-a"), groupRoleAttribute("group-b")})
 			if req.GetAgentId() != agentID.String() {
 				return nil, errors.New("unexpected agent id")
 			}
@@ -172,14 +176,23 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 		},
 	}
 
+	fakeGroups := &fakeGroupsClient{groupsByOrg: map[string][]*groupsv1.Group{testOrganizationID: {{Meta: &groupsv1.EntityMeta{Id: "group-b"}}, {Meta: &groupsv1.EntityMeta{Id: "group-a"}}, {Meta: &groupsv1.EntityMeta{Id: "group-a"}}}}}
+
 	reconciler := newTestReconciler(Config{
 		RunnerDialer: runnerDialer,
 		Runners:      runners,
 		ZitiMgmt:     zitiMgmt,
+		Groups:       fakeGroups,
 		Assembler:    testAssembler,
 	})
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
 
+	if len(fakeGroups.requests) != 1 {
+		t.Fatalf("expected one groups lookup, got %d", len(fakeGroups.requests))
+	}
+	if fakeGroups.requests[0].GetMemberId() != agentID.String() {
+		t.Fatalf("expected groups lookup by agent id %s, got %s", agentID, fakeGroups.requests[0].GetMemberId())
+	}
 	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "start", "update-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
@@ -1284,6 +1297,209 @@ func TestFetchActualSkipsMissingRunnerID(t *testing.T) {
 	}
 }
 
+func TestGroupMembershipEventPatchesLiveWorkloads(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	groupID := "group-a"
+	zitiID := "ziti-workload-1"
+	var listRequest *runnersv1.ListWorkloadsRequest
+	var patchRequest *zitimgmtv1.PatchIdentityRoleAttributesRequest
+
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			listRequest = req
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{{
+				Meta:           &runnersv1.EntityMeta{Id: "workload-1"},
+				AgentId:        agentID.String(),
+				OrganizationId: testOrganizationID,
+				ZitiIdentityId: zitiID,
+			}}}, nil
+		},
+	}
+	zitiMgmt := &fakeZitiMgmtClient{
+		patchIdentityRoleAttributes: func(_ context.Context, req *zitimgmtv1.PatchIdentityRoleAttributesRequest, _ ...grpc.CallOption) (*zitimgmtv1.PatchIdentityRoleAttributesResponse, error) {
+			patchRequest = req
+			return &zitimgmtv1.PatchIdentityRoleAttributesResponse{}, nil
+		},
+	}
+	fakeGroups := &fakeGroupsClient{groupsByOrg: map[string][]*groupsv1.Group{testOrganizationID: {{Meta: &groupsv1.EntityMeta{Id: groupID}}}}}
+	reconciler := newTestReconciler(Config{Runners: runners, ZitiMgmt: zitiMgmt, Groups: fakeGroups})
+	payload := mustMarshal(t, &groupsv1.GroupMembershipAddedEvent{
+		GroupId:    groupID,
+		MemberType: groupsv1.GroupMemberType_GROUP_MEMBER_TYPE_AGENT,
+		MemberId:   agentID.String(),
+	})
+
+	if err := reconciler.HandleGroupMembershipEvent(ctx, groupMembershipAddedSubject, payload); err != nil {
+		t.Fatalf("HandleGroupMembershipEvent: %v", err)
+	}
+	if listRequest == nil {
+		t.Fatal("expected live workload lookup")
+	}
+	assertStringSet(t, listRequest.GetFilter().GetAgentIdIn(), []string{agentID.String()})
+	if patchRequest == nil {
+		t.Fatal("expected ziti patch")
+	}
+	if patchRequest.GetZitiIdentityId() != zitiID {
+		t.Fatalf("expected ziti identity %s, got %s", zitiID, patchRequest.GetZitiIdentityId())
+	}
+	assertStringSet(t, patchRequest.GetAdd(), []string{groupRoleAttribute(groupID)})
+	if len(patchRequest.GetRemove()) != 0 {
+		t.Fatalf("expected no removals, got %v", patchRequest.GetRemove())
+	}
+}
+
+func TestGroupMembershipEventsAreDuplicateAndOutOfOrderSafe(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	groupID := "group-a"
+	zitiID := "ziti-workload-1"
+	patchRequests := []*zitimgmtv1.PatchIdentityRoleAttributesRequest{}
+	runners := &fakeRunnersClient{
+		listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{{
+				Meta:           &runnersv1.EntityMeta{Id: "workload-1"},
+				AgentId:        agentID.String(),
+				OrganizationId: testOrganizationID,
+				ZitiIdentityId: zitiID,
+			}}}, nil
+		},
+	}
+	zitiMgmt := &fakeZitiMgmtClient{
+		patchIdentityRoleAttributes: func(_ context.Context, req *zitimgmtv1.PatchIdentityRoleAttributesRequest, _ ...grpc.CallOption) (*zitimgmtv1.PatchIdentityRoleAttributesResponse, error) {
+			patchRequests = append(patchRequests, req)
+			return &zitimgmtv1.PatchIdentityRoleAttributesResponse{}, nil
+		},
+	}
+	fakeGroups := &fakeGroupsClient{groupsByOrg: map[string][]*groupsv1.Group{testOrganizationID: {}}}
+	reconciler := newTestReconciler(Config{Runners: runners, ZitiMgmt: zitiMgmt, Groups: fakeGroups})
+	removed := mustMarshal(t, &groupsv1.GroupMembershipRemovedEvent{
+		GroupId:    groupID,
+		MemberType: groupsv1.GroupMemberType_GROUP_MEMBER_TYPE_AGENT,
+		MemberId:   agentID.String(),
+	})
+	added := mustMarshal(t, &groupsv1.GroupMembershipAddedEvent{
+		GroupId:    groupID,
+		MemberType: groupsv1.GroupMemberType_GROUP_MEMBER_TYPE_AGENT,
+		MemberId:   agentID.String(),
+	})
+
+	if err := reconciler.HandleGroupMembershipEvent(ctx, groupMembershipRemovedSubject, removed); err != nil {
+		t.Fatalf("remove event: %v", err)
+	}
+	if err := reconciler.HandleGroupMembershipEvent(ctx, groupMembershipRemovedSubject, removed); err != nil {
+		t.Fatalf("duplicate remove event: %v", err)
+	}
+	if err := reconciler.HandleGroupMembershipEvent(ctx, groupMembershipAddedSubject, added); err != nil {
+		t.Fatalf("out-of-order add event: %v", err)
+	}
+	if len(patchRequests) != 3 {
+		t.Fatalf("expected three patch requests, got %d", len(patchRequests))
+	}
+	for _, request := range patchRequests {
+		if len(request.GetAdd()) != 0 {
+			t.Fatalf("expected no adds while source-of-truth is empty, got %v", request.GetAdd())
+		}
+		assertStringSet(t, request.GetRemove(), []string{groupRoleAttribute(groupID)})
+	}
+
+	fakeGroups.groupsByOrg[testOrganizationID] = []*groupsv1.Group{{Meta: &groupsv1.EntityMeta{Id: groupID}}}
+	if err := reconciler.HandleGroupMembershipEvent(ctx, groupMembershipAddedSubject, added); err != nil {
+		t.Fatalf("add event: %v", err)
+	}
+	last := patchRequests[len(patchRequests)-1]
+	assertStringSet(t, last.GetAdd(), []string{groupRoleAttribute(groupID)})
+	if len(last.GetRemove()) != 0 {
+		t.Fatalf("expected no removal for desired group, got %v", last.GetRemove())
+	}
+}
+
+func TestReconcileAllAgentGroupRolesPatchesMissingDesiredAttrs(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	groupID := "group-a"
+	zitiID := "ziti-workload-1"
+	var patchRequest *zitimgmtv1.PatchIdentityRoleAttributesRequest
+	agents := &testutil.FakeAgentsClient{ListAgentsFunc: func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+		return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{{
+			Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+			OrganizationId: testOrganizationID,
+		}}}, nil
+	}}
+	runners := &fakeRunnersClient{listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+		return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{{
+			Meta:           &runnersv1.EntityMeta{Id: "workload-1"},
+			RunnerId:       "runner-1",
+			AgentId:        agentID.String(),
+			OrganizationId: testOrganizationID,
+			ZitiIdentityId: zitiID,
+		}}}, nil
+	}}
+	zitiMgmt := &fakeZitiMgmtClient{patchIdentityRoleAttributes: func(_ context.Context, req *zitimgmtv1.PatchIdentityRoleAttributesRequest, _ ...grpc.CallOption) (*zitimgmtv1.PatchIdentityRoleAttributesResponse, error) {
+		patchRequest = req
+		return &zitimgmtv1.PatchIdentityRoleAttributesResponse{}, nil
+	}}
+	fakeGroups := &fakeGroupsClient{groupsByOrg: map[string][]*groupsv1.Group{testOrganizationID: {{Meta: &groupsv1.EntityMeta{Id: groupID}}}}}
+	reconciler := newTestReconciler(Config{Agents: agents, Runners: runners, ZitiMgmt: zitiMgmt, Groups: fakeGroups})
+
+	if err := reconciler.ReconcileAllAgentGroupRoles(ctx); err != nil {
+		t.Fatalf("ReconcileAllAgentGroupRoles: %v", err)
+	}
+	if patchRequest == nil {
+		t.Fatal("expected ziti patch")
+	}
+	assertStringSet(t, patchRequest.GetAdd(), []string{groupRoleAttribute(groupID)})
+	if len(patchRequest.GetRemove()) != 0 {
+		t.Fatalf("expected no removals, got %v", patchRequest.GetRemove())
+	}
+}
+
+func TestGroupMembershipConsumerLoopRetriesWithoutBlocking(t *testing.T) {
+	originalInitial := groupMembershipRetryInitial
+	originalMax := groupMembershipRetryMax
+	groupMembershipRetryInitial = time.Millisecond
+	groupMembershipRetryMax = time.Millisecond
+	defer func() {
+		groupMembershipRetryInitial = originalInitial
+		groupMembershipRetryMax = originalMax
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	subscription := &fakeGroupMembershipSubscription{}
+	var attempts int32
+	reconciler := newTestReconciler(Config{})
+	reconciler.StartGroupMembershipConsumerLoopWithSubscriber(ctx, func(context.Context) (groupMembershipSubscription, error) {
+		attempt := atomic.AddInt32(&attempts, 1)
+		if attempt < 2 {
+			return nil, errors.New("nats unavailable")
+		}
+		return subscription, nil
+	})
+
+	deadline := time.After(time.Second)
+	for atomic.LoadInt32(&attempts) < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("expected retry without blocking")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if subscription.unsubscribed {
+		t.Fatalf("did not expect unsubscribe before cancellation")
+	}
+	cancel()
+	deadline = time.After(time.Second)
+	for !subscription.unsubscribed {
+		select {
+		case <-deadline:
+			t.Fatalf("expected unsubscribe after cancellation")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
 func newTestReconciler(cfg Config) *Reconciler {
 	if cfg.Poll == 0 {
 		cfg.Poll = time.Second
@@ -1661,26 +1877,41 @@ func (f *fakeRunnerClient) CancelExecution(context.Context, *runnerv1.CancelExec
 }
 
 type fakeZitiMgmtClient struct {
-	createAgentIdentity    func(context.Context, *zitimgmtv1.CreateAgentIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error)
-	createAppIdentity      func(context.Context, *zitimgmtv1.CreateAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAppIdentityResponse, error)
-	createService          func(context.Context, *zitimgmtv1.CreateServiceRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServiceResponse, error)
-	createRunnerIdentity   func(context.Context, *zitimgmtv1.CreateRunnerIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateRunnerIdentityResponse, error)
-	deleteAppIdentity      func(context.Context, *zitimgmtv1.DeleteAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteAppIdentityResponse, error)
-	deleteIdentity         func(context.Context, *zitimgmtv1.DeleteIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error)
-	deleteRunnerIdentity   func(context.Context, *zitimgmtv1.DeleteRunnerIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteRunnerIdentityResponse, error)
-	listManagedIdentities  func(context.Context, *zitimgmtv1.ListManagedIdentitiesRequest, ...grpc.CallOption) (*zitimgmtv1.ListManagedIdentitiesResponse, error)
-	requestServiceIdentity func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error)
-	extendIdentityLease    func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error)
-	createServicePolicy    func(context.Context, *zitimgmtv1.CreateServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServicePolicyResponse, error)
-	deleteServicePolicy    func(context.Context, *zitimgmtv1.DeleteServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServicePolicyResponse, error)
-	deleteService          func(context.Context, *zitimgmtv1.DeleteServiceRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServiceResponse, error)
-	createDeviceIdentity   func(context.Context, *zitimgmtv1.CreateDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateDeviceIdentityResponse, error)
-	deleteDeviceIdentity   func(context.Context, *zitimgmtv1.DeleteDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteDeviceIdentityResponse, error)
+	createAgentIdentity         func(context.Context, *zitimgmtv1.CreateAgentIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error)
+	patchIdentityRoleAttributes func(context.Context, *zitimgmtv1.PatchIdentityRoleAttributesRequest, ...grpc.CallOption) (*zitimgmtv1.PatchIdentityRoleAttributesResponse, error)
+	createAppIdentity           func(context.Context, *zitimgmtv1.CreateAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAppIdentityResponse, error)
+	createService               func(context.Context, *zitimgmtv1.CreateServiceRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServiceResponse, error)
+	createRunnerIdentity        func(context.Context, *zitimgmtv1.CreateRunnerIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateRunnerIdentityResponse, error)
+	deleteAppIdentity           func(context.Context, *zitimgmtv1.DeleteAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteAppIdentityResponse, error)
+	deleteIdentity              func(context.Context, *zitimgmtv1.DeleteIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error)
+	deleteRunnerIdentity        func(context.Context, *zitimgmtv1.DeleteRunnerIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteRunnerIdentityResponse, error)
+	listManagedIdentities       func(context.Context, *zitimgmtv1.ListManagedIdentitiesRequest, ...grpc.CallOption) (*zitimgmtv1.ListManagedIdentitiesResponse, error)
+	requestServiceIdentity      func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error)
+	extendIdentityLease         func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error)
+	createServicePolicy         func(context.Context, *zitimgmtv1.CreateServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServicePolicyResponse, error)
+	deleteServicePolicy         func(context.Context, *zitimgmtv1.DeleteServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServicePolicyResponse, error)
+	deleteService               func(context.Context, *zitimgmtv1.DeleteServiceRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServiceResponse, error)
+	createDeviceIdentity        func(context.Context, *zitimgmtv1.CreateDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateDeviceIdentityResponse, error)
+	deleteDeviceIdentity        func(context.Context, *zitimgmtv1.DeleteDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteDeviceIdentityResponse, error)
+	createTunnelIdentity        func(context.Context, *zitimgmtv1.CreateTunnelIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateTunnelIdentityResponse, error)
+	deleteTunnelIdentity        func(context.Context, *zitimgmtv1.DeleteTunnelIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteTunnelIdentityResponse, error)
+	listServicesByTag           func(context.Context, *zitimgmtv1.ListServicesByTagRequest, ...grpc.CallOption) (*zitimgmtv1.ListServicesByTagResponse, error)
+	listIdentitiesByTag         func(context.Context, *zitimgmtv1.ListIdentitiesByTagRequest, ...grpc.CallOption) (*zitimgmtv1.ListIdentitiesByTagResponse, error)
+	listServicePoliciesByTag    func(context.Context, *zitimgmtv1.ListServicePoliciesByTagRequest, ...grpc.CallOption) (*zitimgmtv1.ListServicePoliciesByTagResponse, error)
+	updateService               func(context.Context, *zitimgmtv1.UpdateServiceRequest, ...grpc.CallOption) (*zitimgmtv1.UpdateServiceResponse, error)
+	getIdentityLiveness         func(context.Context, *zitimgmtv1.GetIdentityLivenessRequest, ...grpc.CallOption) (*zitimgmtv1.GetIdentityLivenessResponse, error)
 }
 
 func (f *fakeZitiMgmtClient) CreateAgentIdentity(ctx context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
 	if f.createAgentIdentity != nil {
 		return f.createAgentIdentity(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) PatchIdentityRoleAttributes(ctx context.Context, req *zitimgmtv1.PatchIdentityRoleAttributesRequest, opts ...grpc.CallOption) (*zitimgmtv1.PatchIdentityRoleAttributesResponse, error) {
+	if f.patchIdentityRoleAttributes != nil {
+		return f.patchIdentityRoleAttributes(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
@@ -1783,6 +2014,138 @@ func (f *fakeZitiMgmtClient) CreateDeviceIdentity(ctx context.Context, req *ziti
 func (f *fakeZitiMgmtClient) DeleteDeviceIdentity(ctx context.Context, req *zitimgmtv1.DeleteDeviceIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.DeleteDeviceIdentityResponse, error) {
 	if f.deleteDeviceIdentity != nil {
 		return f.deleteDeviceIdentity(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+type fakeGroupsClient struct {
+	groupsByOrg map[string][]*groupsv1.Group
+	requests    []*groupsv1.ListMemberGroupsRequest
+}
+
+func (f *fakeGroupsClient) CreateGroup(context.Context, *groupsv1.CreateGroupRequest, ...grpc.CallOption) (*groupsv1.CreateGroupResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeGroupsClient) GetGroup(context.Context, *groupsv1.GetGroupRequest, ...grpc.CallOption) (*groupsv1.GetGroupResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeGroupsClient) ListGroups(context.Context, *groupsv1.ListGroupsRequest, ...grpc.CallOption) (*groupsv1.ListGroupsResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeGroupsClient) UpdateGroup(context.Context, *groupsv1.UpdateGroupRequest, ...grpc.CallOption) (*groupsv1.UpdateGroupResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeGroupsClient) DeleteGroup(context.Context, *groupsv1.DeleteGroupRequest, ...grpc.CallOption) (*groupsv1.DeleteGroupResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeGroupsClient) AddMember(context.Context, *groupsv1.AddMemberRequest, ...grpc.CallOption) (*groupsv1.AddMemberResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeGroupsClient) RemoveMember(context.Context, *groupsv1.RemoveMemberRequest, ...grpc.CallOption) (*groupsv1.RemoveMemberResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeGroupsClient) ListMembers(context.Context, *groupsv1.ListMembersRequest, ...grpc.CallOption) (*groupsv1.ListMembersResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeGroupsClient) ListMemberGroups(_ context.Context, request *groupsv1.ListMemberGroupsRequest, _ ...grpc.CallOption) (*groupsv1.ListMemberGroupsResponse, error) {
+	f.requests = append(f.requests, request)
+	return &groupsv1.ListMemberGroupsResponse{Groups: append([]*groupsv1.Group{}, f.groupsByOrg[request.GetOrganizationId()]...)}, nil
+}
+
+func (f *fakeGroupsClient) ListMemberGroupsBatch(context.Context, *groupsv1.ListMemberGroupsBatchRequest, ...grpc.CallOption) (*groupsv1.ListMemberGroupsBatchResponse, error) {
+	return nil, errNotImplemented
+}
+
+type fakeGroupMembershipSubscription struct {
+	unsubscribed bool
+}
+
+func (s *fakeGroupMembershipSubscription) Unsubscribe() error {
+	s.unsubscribed = true
+	return nil
+}
+
+func mustMarshal(t *testing.T, message proto.Message) []byte {
+	t.Helper()
+	data, err := proto.Marshal(message)
+	if err != nil {
+		t.Fatalf("marshal message: %v", err)
+	}
+	return data
+}
+
+func assertStringSet(t *testing.T, actual []string, expected []string) {
+	t.Helper()
+	if len(actual) != len(expected) {
+		t.Fatalf("expected %v, got %v", expected, actual)
+	}
+	counts := map[string]int{}
+	for _, value := range actual {
+		counts[value]++
+	}
+	for _, value := range expected {
+		counts[value]--
+	}
+	for value, count := range counts {
+		if count != 0 {
+			t.Fatalf("expected %v, got %v; mismatch on %s", expected, actual, value)
+		}
+	}
+}
+
+func (f *fakeZitiMgmtClient) CreateTunnelIdentity(ctx context.Context, req *zitimgmtv1.CreateTunnelIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateTunnelIdentityResponse, error) {
+	if f.createTunnelIdentity != nil {
+		return f.createTunnelIdentity(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) DeleteTunnelIdentity(ctx context.Context, req *zitimgmtv1.DeleteTunnelIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.DeleteTunnelIdentityResponse, error) {
+	if f.deleteTunnelIdentity != nil {
+		return f.deleteTunnelIdentity(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListServicesByTag(ctx context.Context, req *zitimgmtv1.ListServicesByTagRequest, opts ...grpc.CallOption) (*zitimgmtv1.ListServicesByTagResponse, error) {
+	if f.listServicesByTag != nil {
+		return f.listServicesByTag(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListIdentitiesByTag(ctx context.Context, req *zitimgmtv1.ListIdentitiesByTagRequest, opts ...grpc.CallOption) (*zitimgmtv1.ListIdentitiesByTagResponse, error) {
+	if f.listIdentitiesByTag != nil {
+		return f.listIdentitiesByTag(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) UpdateService(ctx context.Context, req *zitimgmtv1.UpdateServiceRequest, opts ...grpc.CallOption) (*zitimgmtv1.UpdateServiceResponse, error) {
+	if f.updateService != nil {
+		return f.updateService(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) GetIdentityLiveness(ctx context.Context, req *zitimgmtv1.GetIdentityLivenessRequest, opts ...grpc.CallOption) (*zitimgmtv1.GetIdentityLivenessResponse, error) {
+	if f.getIdentityLiveness != nil {
+		return f.getIdentityLiveness(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListServicePoliciesByTag(ctx context.Context, req *zitimgmtv1.ListServicePoliciesByTagRequest, opts ...grpc.CallOption) (*zitimgmtv1.ListServicePoliciesByTagResponse, error) {
+	if f.listServicePoliciesByTag != nil {
+		return f.listServicePoliciesByTag(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }

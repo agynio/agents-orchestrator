@@ -33,6 +33,8 @@ type Reconciler struct {
 	metering                  meteringv1.MeteringServiceClient
 	meteringSampleInterval    time.Duration
 	zitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
+	zitiPatcher               zitiIdentityPatcher
+	groups                    groupsClient
 	assembler                 *assembler.Assembler
 	wake                      <-chan struct{}
 	poll                      time.Duration
@@ -48,6 +50,8 @@ type Config struct {
 	Runners                   runnersv1.RunnersServiceClient
 	Metering                  meteringv1.MeteringServiceClient
 	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
+	ZitiPatcher               zitiIdentityPatcher
+	Groups                    groupsClient
 	Assembler                 *assembler.Assembler
 	Wake                      <-chan struct{}
 	Poll                      time.Duration
@@ -58,6 +62,9 @@ type Config struct {
 }
 
 func New(cfg Config) *Reconciler {
+	if cfg.ZitiPatcher == nil {
+		cfg.ZitiPatcher = cfg.ZitiMgmt
+	}
 	return &Reconciler{
 		threads:                   cfg.Threads,
 		agents:                    cfg.Agents,
@@ -66,6 +73,8 @@ func New(cfg Config) *Reconciler {
 		metering:                  cfg.Metering,
 		meteringSampleInterval:    cfg.MeteringSampleInterval,
 		zitiMgmt:                  cfg.ZitiMgmt,
+		zitiPatcher:               cfg.ZitiPatcher,
+		groups:                    cfg.Groups,
 		assembler:                 cfg.Assembler,
 		wake:                      cfg.Wake,
 		poll:                      cfg.Poll,
@@ -145,6 +154,11 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 			return err
 		}
 	}
+	if r.zitiPatcher != nil && r.groups != nil {
+		if err := r.ReconcileAllAgentGroupRoles(ctx); err != nil {
+			return err
+		}
+	}
 	log.Printf(
 		"reconciler: cycle complete - desired=%d actual=%d started=%d stopped=%d",
 		len(desired),
@@ -167,13 +181,18 @@ func (i *identityInfo) idPtr() *string {
 	return &i.id
 }
 
-func (r *Reconciler) createIdentity(ctx context.Context, target AgentThread, workloadID uuid.UUID) (*identityInfo, error) {
+func (r *Reconciler) createIdentity(ctx context.Context, target AgentThread, workloadID uuid.UUID, organizationID string) (*identityInfo, error) {
 	if r.zitiMgmt == nil {
 		return nil, nil
 	}
+	roleAttributes, err := r.agentGroupRoleAttributes(ctx, target.AgentID, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list groups for agent %s thread %s: %w", target.AgentID.String(), target.ThreadID.String(), err)
+	}
 	identityResp, err := r.zitiMgmt.CreateAgentIdentity(ctx, &zitimgmtv1.CreateAgentIdentityRequest{
-		AgentId:    target.AgentID.String(),
-		WorkloadId: workloadID.String(),
+		AgentId:                  target.AgentID.String(),
+		WorkloadId:               workloadID.String(),
+		AdditionalRoleAttributes: roleAttributes,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create ziti identity for agent %s thread %s: %w", target.AgentID.String(), target.ThreadID.String(), err)
@@ -259,7 +278,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 	}
 	request.WorkloadId = workloadIDValue
 	request.Main.Env = append(request.Main.Env, &runnerv1.EnvVar{Name: "WORKLOAD_ID", Value: workloadIDValue})
-	identity, err := r.createIdentity(ctx, target, workloadID)
+	identity, err := r.createIdentity(ctx, target, workloadID, assembled.OrganizationID)
 	if err != nil {
 		log.Printf("reconciler: %v", err)
 		return
