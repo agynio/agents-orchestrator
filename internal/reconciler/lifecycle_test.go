@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -193,6 +194,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 	if fakeGroups.requests[0].GetMemberId() != agentID.String() {
 		t.Fatalf("expected groups lookup by agent id %s, got %s", agentID, fakeGroups.requests[0].GetMemberId())
 	}
+	assertStringSet(t, fakeGroups.identityIDs, []string{agentID.String()})
 	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "start", "update-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
@@ -1347,6 +1349,7 @@ func TestGroupMembershipEventPatchesLiveWorkloads(t *testing.T) {
 	if len(patchRequest.GetRemove()) != 0 {
 		t.Fatalf("expected no removals, got %v", patchRequest.GetRemove())
 	}
+	assertStringSet(t, fakeGroups.identityIDs, []string{agentID.String()})
 }
 
 func TestGroupMembershipEventsAreDuplicateAndOutOfOrderSafe(t *testing.T) {
@@ -1452,6 +1455,7 @@ func TestReconcileAllAgentGroupRolesPatchesMissingDesiredAttrs(t *testing.T) {
 	if len(patchRequest.GetRemove()) != 0 {
 		t.Fatalf("expected no removals, got %v", patchRequest.GetRemove())
 	}
+	assertStringSet(t, fakeGroups.identityIDs, []string{agentID.String()})
 }
 
 func TestGroupMembershipConsumerLoopRetriesWithoutBlocking(t *testing.T) {
@@ -2021,6 +2025,7 @@ func (f *fakeZitiMgmtClient) DeleteDeviceIdentity(ctx context.Context, req *ziti
 type fakeGroupsClient struct {
 	groupsByOrg map[string][]*groupsv1.Group
 	requests    []*groupsv1.ListMemberGroupsRequest
+	identityIDs []string
 }
 
 func (f *fakeGroupsClient) CreateGroup(context.Context, *groupsv1.CreateGroupRequest, ...grpc.CallOption) (*groupsv1.CreateGroupResponse, error) {
@@ -2055,8 +2060,10 @@ func (f *fakeGroupsClient) ListMembers(context.Context, *groupsv1.ListMembersReq
 	return nil, errNotImplemented
 }
 
-func (f *fakeGroupsClient) ListMemberGroups(_ context.Context, request *groupsv1.ListMemberGroupsRequest, _ ...grpc.CallOption) (*groupsv1.ListMemberGroupsResponse, error) {
-	f.requests = append(f.requests, request)
+func (f *fakeGroupsClient) ListMemberGroups(ctx context.Context, request *groupsv1.ListMemberGroupsRequest, _ ...grpc.CallOption) (*groupsv1.ListMemberGroupsResponse, error) {
+	metadataValues, _ := metadata.FromOutgoingContext(ctx)
+	f.identityIDs = append(f.identityIDs, metadataValues.Get(identityMetadataKey)...)
+	f.requests = append(f.requests, proto.Clone(request).(*groupsv1.ListMemberGroupsRequest))
 	return &groupsv1.ListMemberGroupsResponse{Groups: append([]*groupsv1.Group{}, f.groupsByOrg[request.GetOrganizationId()]...)}, nil
 }
 

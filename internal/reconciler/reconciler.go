@@ -33,7 +33,6 @@ type Reconciler struct {
 	metering                  meteringv1.MeteringServiceClient
 	meteringSampleInterval    time.Duration
 	zitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
-	zitiPatcher               zitiIdentityPatcher
 	groups                    groupsClient
 	assembler                 *assembler.Assembler
 	wake                      <-chan struct{}
@@ -50,7 +49,6 @@ type Config struct {
 	Runners                   runnersv1.RunnersServiceClient
 	Metering                  meteringv1.MeteringServiceClient
 	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
-	ZitiPatcher               zitiIdentityPatcher
 	Groups                    groupsClient
 	Assembler                 *assembler.Assembler
 	Wake                      <-chan struct{}
@@ -62,9 +60,6 @@ type Config struct {
 }
 
 func New(cfg Config) *Reconciler {
-	if cfg.ZitiPatcher == nil {
-		cfg.ZitiPatcher = cfg.ZitiMgmt
-	}
 	return &Reconciler{
 		threads:                   cfg.Threads,
 		agents:                    cfg.Agents,
@@ -73,7 +68,6 @@ func New(cfg Config) *Reconciler {
 		metering:                  cfg.Metering,
 		meteringSampleInterval:    cfg.MeteringSampleInterval,
 		zitiMgmt:                  cfg.ZitiMgmt,
-		zitiPatcher:               cfg.ZitiPatcher,
 		groups:                    cfg.Groups,
 		assembler:                 cfg.Assembler,
 		wake:                      cfg.Wake,
@@ -154,7 +148,7 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 			return err
 		}
 	}
-	if r.zitiPatcher != nil && r.groups != nil {
+	if r.zitiMgmt != nil && r.groups != nil {
 		if err := r.ReconcileAllAgentGroupRoles(ctx); err != nil {
 			return err
 		}

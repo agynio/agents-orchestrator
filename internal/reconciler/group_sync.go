@@ -27,10 +27,6 @@ const (
 	groupWorkloadPageSize         = int32(100)
 )
 
-type zitiIdentityPatcher interface {
-	PatchIdentityRoleAttributes(context.Context, *zitimgmtv1.PatchIdentityRoleAttributesRequest, ...grpc.CallOption) (*zitimgmtv1.PatchIdentityRoleAttributesResponse, error)
-}
-
 type groupsClient interface {
 	ListMemberGroups(context.Context, *groupsv1.ListMemberGroupsRequest, ...grpc.CallOption) (*groupsv1.ListMemberGroupsResponse, error)
 }
@@ -66,10 +62,14 @@ func (r *Reconciler) agentGroupRoleAttributes(ctx context.Context, agentID uuid.
 }
 
 func (r *Reconciler) listAgentGroups(ctx context.Context, agentID uuid.UUID, organizationID string) ([]*groupsv1.Group, error) {
+	groupsCtx, err := r.runnerIdentityContextForAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
 	groups := []*groupsv1.Group{}
 	pageToken := ""
 	for {
-		response, err := r.groups.ListMemberGroups(ctx, &groupsv1.ListMemberGroupsRequest{
+		response, err := r.groups.ListMemberGroups(groupsCtx, &groupsv1.ListMemberGroupsRequest{
 			MemberType:     groupsv1.GroupMemberType_GROUP_MEMBER_TYPE_AGENT,
 			MemberId:       agentID.String(),
 			OrganizationId: organizationID,
@@ -195,7 +195,7 @@ func (r *Reconciler) patchWorkloadToCurrentGroupRoles(ctx context.Context, workl
 	if err != nil {
 		return err
 	}
-	_, err = r.zitiPatcher.PatchIdentityRoleAttributes(ctx, &zitimgmtv1.PatchIdentityRoleAttributesRequest{
+	_, err = r.zitiMgmt.PatchIdentityRoleAttributes(ctx, &zitimgmtv1.PatchIdentityRoleAttributesRequest{
 		ZitiIdentityId: zitiIdentityID,
 		Add:            desiredAttributes,
 		Remove:         staleCandidateAttributes(desiredAttributes, candidateRemoveAttributes),
