@@ -25,9 +25,23 @@ functions:
     else
       echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
     fi
+  egress_ca_namespace: |-
+    if kubectl get secret egress-ca -n ${ORCHESTRATOR_NAMESPACE} >/dev/null 2>&1; then
+      echo "${ORCHESTRATOR_NAMESPACE}"
+      exit 0
+    fi
+    namespace="$(kubectl get certificate -A -o jsonpath='{range .items[?(@.spec.secretName=="egress-ca")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -n 1)"
+    if [ -z "${namespace}" ]; then
+      namespace="$(kubectl get secret -A --field-selector metadata.name=egress-ca -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -n 1)"
+    fi
+    if [ -z "${namespace}" ]; then
+      echo "ERROR: egress-ca secret namespace could not be determined" >&2
+      exit 1
+    fi
+    echo "${namespace}"
   ensure_egress_ca_rbac: |-
     echo "Ensuring agents-orchestrator can read egress CA secret..."
-    EGRESS_CA_NAMESPACE="${ORCHESTRATOR_NAMESPACE}"
+    EGRESS_CA_NAMESPACE="$(egress_ca_namespace)"
     kubectl create role agents-orchestrator-egress-ca \
       -n ${EGRESS_CA_NAMESPACE} \
       --verb=get \
@@ -43,7 +57,8 @@ functions:
       -o yaml | kubectl apply -f -
   patch_deployment: |-
     echo "Patching agents-orchestrator deployment for DevSpace..."
-    kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
+    EGRESS_CA_NAMESPACE="$(egress_ca_namespace)"
+    patch="$(cat <<'EOF'
     spec:
       template:
         spec:
@@ -64,7 +79,7 @@ functions:
                 - name: WORKLOAD_RECONCILE_INTERVAL
                   value: "10s"
                 - name: EGRESS_CA_NAMESPACE
-                  value: "platform"
+                  value: "__EGRESS_CA_NAMESPACE__"
               command:
                 - sh
                 - -c
@@ -122,6 +137,8 @@ functions:
                   type: RuntimeDefault
     EOF
     )"
+    patch="${patch/__EGRESS_CA_NAMESPACE__/${EGRESS_CA_NAMESPACE}}"
+    kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "${patch}"
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."
     kubectl rollout status deployment/agents-orchestrator \
