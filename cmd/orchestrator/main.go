@@ -96,12 +96,6 @@ func run() error {
 	}
 	defer closeConn(meteringConn)
 
-	groupsConn, err := grpc.NewClient(cfg.GroupsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("dial groups: %w", err)
-	}
-	defer closeConn(groupsConn)
-
 	var (
 		runnerDialer   runnerdial.RunnerDialer
 		zitiMgmtConn   *grpc.ClientConn
@@ -140,7 +134,16 @@ func run() error {
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 	meteringClient := meteringv1.NewMeteringServiceClient(meteringConn)
-	groupsClient := groupsv1.NewGroupsServiceClient(groupsConn)
+	var groupsClient groupsv1.GroupsServiceClient
+	var groupsConn *grpc.ClientConn
+	if cfg.GroupSyncEnabled {
+		groupsConn, err = grpc.NewClient(cfg.GroupsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial groups: %w", err)
+		}
+		defer closeConn(groupsConn)
+		groupsClient = groupsv1.NewGroupsServiceClient(groupsConn)
+	}
 	subscriber := subscriber.New(notificationsClient, agentsClient)
 	egressCANamespace, err := k8sclient.ResolveNamespace(cfg.EgressCANamespace, "egress CA")
 	if err != nil {
@@ -178,7 +181,7 @@ func run() error {
 
 	start := func(leadCtx context.Context) {
 		group, groupCtx := errgroup.WithContext(leadCtx)
-		if cfg.NATSURL != "" {
+		if cfg.GroupSyncEnabled && cfg.NATSURL != "" {
 			reconciler.StartGroupMembershipConsumerLoop(groupCtx, cfg.NATSURL)
 		}
 		group.Go(func() error {
