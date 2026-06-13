@@ -27,15 +27,19 @@ functions:
     fi
   ensure_egress_ca_rbac: |-
     echo "Ensuring agents-orchestrator can read egress CA secret..."
+    EGRESS_CA_NAMESPACE="$(kubectl get deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} -o jsonpath='{range .spec.template.spec.containers[?(@.name=="agents-orchestrator")].env[?(@.name=="EGRESS_CA_NAMESPACE")]}{.value}{end}')"
+    if [ -z "${EGRESS_CA_NAMESPACE}" ]; then
+      EGRESS_CA_NAMESPACE="${ORCHESTRATOR_NAMESPACE}"
+    fi
     kubectl create role agents-orchestrator-egress-ca \
-      -n ${ORCHESTRATOR_NAMESPACE} \
+      -n ${EGRESS_CA_NAMESPACE} \
       --verb=get \
       --resource=secrets \
       --resource-name=egress-ca \
       --dry-run=client \
       -o yaml | kubectl apply -f -
     kubectl create rolebinding agents-orchestrator-egress-ca \
-      -n ${ORCHESTRATOR_NAMESPACE} \
+      -n ${EGRESS_CA_NAMESPACE} \
       --role=agents-orchestrator-egress-ca \
       --serviceaccount=${ORCHESTRATOR_NAMESPACE}:agents-orchestrator \
       --dry-run=client \
