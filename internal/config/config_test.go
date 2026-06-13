@@ -40,6 +40,15 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.MeteringSampleInterval != time.Minute {
 		t.Fatalf("expected metering sample interval %q, got %q", time.Minute, cfg.MeteringSampleInterval)
 	}
+	if cfg.GroupSyncEnabled {
+		t.Fatal("expected group sync to be disabled")
+	}
+	if cfg.GroupsAddress != "groups:50051" {
+		t.Fatalf("expected groups address %q, got %q", "groups:50051", cfg.GroupsAddress)
+	}
+	if cfg.NATSURL != "" {
+		t.Fatalf("expected empty nats url, got %q", cfg.NATSURL)
+	}
 	if cfg.WorkloadReconcileInterval != time.Minute {
 		t.Fatalf("expected workload reconcile interval %q, got %q", time.Minute, cfg.WorkloadReconcileInterval)
 	}
@@ -139,6 +148,9 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("METERING_SERVICE_ADDRESS", "")
 	t.Setenv("METERING_SAMPLE_INTERVAL", "")
 	t.Setenv("ZITI_MANAGEMENT_ADDRESS", "")
+	t.Setenv("GROUP_SYNC_ENABLED", "")
+	t.Setenv("GROUPS_ADDRESS", "")
+	t.Setenv("NATS_URL", "")
 	t.Setenv("ZITI_LEASE_RENEWAL_INTERVAL", "")
 	t.Setenv("ZITI_ENROLLMENT_TIMEOUT", "")
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
@@ -154,4 +166,35 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("LEASE_NAME", "")
 	t.Setenv("LEASE_NAMESPACE", "")
 	t.Setenv("EGRESS_CA_NAMESPACE", "")
+}
+
+func TestFromEnvGroupSyncConfig(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("GROUP_SYNC_ENABLED", "true")
+	t.Setenv("GROUPS_ADDRESS", "groups.internal:50051")
+	t.Setenv("NATS_URL", "nats://nats:4222")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if !cfg.GroupSyncEnabled {
+		t.Fatal("expected group sync to be enabled")
+	}
+	if cfg.GroupsAddress != "groups.internal:50051" {
+		t.Fatalf("expected groups address %q, got %q", "groups.internal:50051", cfg.GroupsAddress)
+	}
+	if cfg.NATSURL != "nats://nats:4222" {
+		t.Fatalf("expected nats url %q, got %q", "nats://nats:4222", cfg.NATSURL)
+	}
+}
+
+func TestFromEnvGroupSyncEnabledInvalid(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("GROUP_SYNC_ENABLED", "not-bool")
+
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatal("expected GROUP_SYNC_ENABLED parse error")
+	}
 }

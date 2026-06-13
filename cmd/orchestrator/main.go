@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	groupsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/groups/v1"
 	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
@@ -133,6 +134,16 @@ func run() error {
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 	meteringClient := meteringv1.NewMeteringServiceClient(meteringConn)
+	var groupsClient groupsv1.GroupsServiceClient
+	var groupsConn *grpc.ClientConn
+	if cfg.GroupSyncEnabled {
+		groupsConn, err = grpc.NewClient(cfg.GroupsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial groups: %w", err)
+		}
+		defer closeConn(groupsConn)
+		groupsClient = groupsv1.NewGroupsServiceClient(groupsConn)
+	}
 	subscriber := subscriber.New(notificationsClient, agentsClient)
 	egressCANamespace, err := k8sclient.ResolveNamespace(cfg.EgressCANamespace, "egress CA")
 	if err != nil {
@@ -156,6 +167,7 @@ func run() error {
 		Agents:                    agentsClient,
 		RunnerDialer:              runnerDialer,
 		ZitiMgmt:                  zitiMgmtClient,
+		Groups:                    groupsClient,
 		Runners:                   runnersClient,
 		Metering:                  meteringClient,
 		Assembler:                 assembler,
@@ -169,6 +181,9 @@ func run() error {
 
 	start := func(leadCtx context.Context) {
 		group, groupCtx := errgroup.WithContext(leadCtx)
+		if cfg.GroupSyncEnabled && cfg.NATSURL != "" {
+			reconciler.StartGroupMembershipConsumerLoop(groupCtx, cfg.NATSURL)
+		}
 		group.Go(func() error {
 			return subscriber.Run(groupCtx)
 		})

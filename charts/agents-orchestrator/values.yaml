@@ -88,6 +88,12 @@ env:
     value: "2m"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: "ziti-management:50051"
+  - name: GROUP_SYNC_ENABLED
+    value: "false"
+  - name: GROUPS_ADDRESS
+    value: "groups:50051"
+  - name: NATS_URL
+    value: ""
   # Upstream DNS resolver used for Ziti-enabled workload pods.
   - name: WORKLOAD_DNS_UPSTREAM
     value: ""

@@ -25,24 +25,40 @@ functions:
     else
       echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
     fi
+  egress_ca_namespace: |-
+    if kubectl get secret egress-ca -n ${ORCHESTRATOR_NAMESPACE} >/dev/null 2>&1; then
+      echo "${ORCHESTRATOR_NAMESPACE}"
+      exit 0
+    fi
+    namespace="$(kubectl get certificate -A -o jsonpath='{range .items[?(@.spec.secretName=="egress-ca")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -n 1)"
+    if [ -z "${namespace}" ]; then
+      namespace="$(kubectl get secret -A --field-selector metadata.name=egress-ca -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -n 1)"
+    fi
+    if [ -z "${namespace}" ]; then
+      echo "ERROR: egress-ca secret namespace could not be determined" >&2
+      exit 1
+    fi
+    echo "${namespace}"
   ensure_egress_ca_rbac: |-
     echo "Ensuring agents-orchestrator can read egress CA secret..."
+    EGRESS_CA_NAMESPACE="$(egress_ca_namespace)"
     kubectl create role agents-orchestrator-egress-ca \
-      -n ${ORCHESTRATOR_NAMESPACE} \
+      -n ${EGRESS_CA_NAMESPACE} \
       --verb=get \
       --resource=secrets \
       --resource-name=egress-ca \
       --dry-run=client \
       -o yaml | kubectl apply -f -
     kubectl create rolebinding agents-orchestrator-egress-ca \
-      -n ${ORCHESTRATOR_NAMESPACE} \
+      -n ${EGRESS_CA_NAMESPACE} \
       --role=agents-orchestrator-egress-ca \
       --serviceaccount=${ORCHESTRATOR_NAMESPACE}:agents-orchestrator \
       --dry-run=client \
       -o yaml | kubectl apply -f -
   patch_deployment: |-
     echo "Patching agents-orchestrator deployment for DevSpace..."
-    kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
+    EGRESS_CA_NAMESPACE="$(egress_ca_namespace)"
+    patch="$(cat <<'EOF'
     spec:
       template:
         spec:
@@ -62,6 +78,8 @@ functions:
                   value: "10s"
                 - name: WORKLOAD_RECONCILE_INTERVAL
                   value: "10s"
+                - name: EGRESS_CA_NAMESPACE
+                  value: "__EGRESS_CA_NAMESPACE__"
               command:
                 - sh
                 - -c
@@ -93,6 +111,7 @@ functions:
                     --path agynio/api/agents/v1 \
                     --path agynio/api/secrets/v1 \
                     --path agynio/api/ziti_management/v1 \
+                    --path agynio/api/groups/v1 \
                     --path agynio/api/identity/v1 \
                     --path agynio/api/llm/v1 \
                     --path agynio/api/users/v1 \
@@ -118,6 +137,8 @@ functions:
                   type: RuntimeDefault
     EOF
     )"
+    patch="${patch/__EGRESS_CA_NAMESPACE__/${EGRESS_CA_NAMESPACE}}"
+    kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "${patch}"
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."
     kubectl rollout status deployment/agents-orchestrator \

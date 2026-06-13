@@ -18,6 +18,9 @@ type Config struct {
 	MeteringSampleInterval    time.Duration
 	ZitiEnabled               bool
 	ZitiManagementAddress     string
+	GroupsAddress             string
+	GroupSyncEnabled          bool
+	NATSURL                   string
 	ZitiLeaseRenewalInterval  time.Duration
 	ZitiEnrollmentTimeout     time.Duration
 	ZitiSidecarImage          string
@@ -113,6 +116,19 @@ func FromEnv() (Config, error) {
 	if cfg.ZitiManagementAddress == "" {
 		cfg.ZitiManagementAddress = "ziti-management:50051"
 	}
+	groupSyncEnabled := os.Getenv("GROUP_SYNC_ENABLED")
+	if groupSyncEnabled != "" {
+		parsed, err := strconv.ParseBool(groupSyncEnabled)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse GROUP_SYNC_ENABLED: %w", err)
+		}
+		cfg.GroupSyncEnabled = parsed
+	}
+	cfg.GroupsAddress = os.Getenv("GROUPS_ADDRESS")
+	if cfg.GroupsAddress == "" {
+		cfg.GroupsAddress = "groups:50051"
+	}
+	cfg.NATSURL = os.Getenv("NATS_URL")
 	zitiLeaseRenewalInterval := os.Getenv("ZITI_LEASE_RENEWAL_INTERVAL")
 	if zitiLeaseRenewalInterval == "" {
 		cfg.ZitiLeaseRenewalInterval = 2 * time.Minute
