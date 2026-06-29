@@ -100,9 +100,13 @@ if [[ ! -s "${identity_file}" ]]; then
     echo "expected controller certificate from ${ziti_controller_hostport}" >&2
     exit 1
   fi
+  ziti_tls_ca_cert="${ziti_controller_cert}"
+  if [[ -s "${SSL_CERT_FILE:-}" ]]; then
+    ziti_tls_ca_cert="${SSL_CERT_FILE}"
+  fi
   openssl ecparam -name secp384r1 -genkey -noout -out "${ziti_key_file}"
   openssl req -new -key "${ziti_key_file}" -subj "/C=US/O=NetFoundry/CN=${ziti_identity_subject}" -out "${ziti_csr_file}"
-  enroll_response="$(curl --fail-with-body --show-error --silent --cacert "${ziti_controller_cert}" -H 'content-type: application/x-pem-file' --data-binary "@${ziti_csr_file}" "${ziti_enroll_url}")"
+  enroll_response="$(curl --fail-with-body --show-error --silent --cacert "${ziti_tls_ca_cert}" -H 'content-type: application/x-pem-file' --data-binary "@${ziti_csr_file}" "${ziti_enroll_url}")"
   if printf '%s' "${enroll_response}" | jq -e . >/dev/null 2>&1; then
     printf '%s' "${enroll_response}" | jq -r '.data.cert // empty' > "${ziti_cert_file}"
   else

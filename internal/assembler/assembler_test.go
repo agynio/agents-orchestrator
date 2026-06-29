@@ -1716,7 +1716,7 @@ exec "${real_cat}" "$@"
 		t.Fatalf("expected enrollment to use upstream resolver, got:\n%s", log)
 	}
 	if !strings.Contains(log, "--cacert "+filepath.Join(identityDir, "controller-ca.pem")) {
-		t.Fatalf("expected enrollment curl to trust observed controller cert, got:\n%s", log)
+		t.Fatalf("expected enrollment curl to trust observed controller cert when SSL_CERT_FILE is absent, got:\n%s", log)
 	}
 	identityBytes, err := os.ReadFile(filepath.Join(identityDir, "agent.json"))
 	if err != nil {
