@@ -315,11 +315,12 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-		ZitiEnabled:         true,
-		ZitiSidecarImage:    "ziti-image",
-		WorkloadDNSUpstream: "10.43.0.10",
+		AgentGatewayAddress:       "gateway:50051",
+		AgentLLMBaseURL:           "http://llm:8080/v1",
+		ZitiEnabled:               true,
+		ZitiSidecarImage:          "ziti-image",
+		WorkloadDNSUpstream:       "10.43.0.10",
+		ZitiEnrollmentDNSUpstream: "10.43.0.20",
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
@@ -380,7 +381,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiEnroll.Entrypoint != zitiEnrollEntrypoint {
 		t.Fatalf("expected ziti enroll entrypoint %q, got %q", zitiEnrollEntrypoint, zitiEnroll.Entrypoint)
 	}
-	expectedEnrollCmd := buildZitiEnrollCommand(cfg.WorkloadDNSUpstream)
+	expectedEnrollCmd := buildZitiEnrollCommand(cfg.ZitiEnrollmentDNSUpstream)
 	if !equalStringSlice(zitiEnroll.Cmd, expectedEnrollCmd) {
 		t.Fatalf("expected ziti enroll cmd %+v, got %+v", expectedEnrollCmd, zitiEnroll.Cmd)
 	}
@@ -396,8 +397,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], `"iss"`) {
 		t.Fatalf("expected ziti enroll script to derive controller host from JWT issuer, got %q", zitiEnroll.Cmd[1])
 	}
-	if zitiEnroll.Cmd[3] != cfg.WorkloadDNSUpstream {
-		t.Fatalf("expected ziti enroll upstream arg %q, got %q", cfg.WorkloadDNSUpstream, zitiEnroll.Cmd[3])
+	if zitiEnroll.Cmd[3] != cfg.ZitiEnrollmentDNSUpstream {
+		t.Fatalf("expected ziti enroll upstream arg %q, got %q", cfg.ZitiEnrollmentDNSUpstream, zitiEnroll.Cmd[3])
 	}
 	if zitiEnroll.Cmd[4] != zitiDNSNameserver {
 		t.Fatalf("expected ziti enroll workload DNS nameserver arg %q, got %q", zitiDNSNameserver, zitiEnroll.Cmd[4])
@@ -413,8 +414,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti sidecar image %q, got %q", cfg.ZitiSidecarImage, zitiSidecar.Image)
 	}
-	if zitiSidecar.Entrypoint != "" {
-		t.Fatalf("expected ziti sidecar to use image entrypoint, got %q", zitiSidecar.Entrypoint)
+	if zitiSidecar.Entrypoint != zitiSidecarEntrypoint {
+		t.Fatalf("expected ziti sidecar entrypoint %q, got %q", zitiSidecarEntrypoint, zitiSidecar.Entrypoint)
 	}
 	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream)
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
@@ -1522,11 +1523,12 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 	}
 
 	assembler := NewWithEgressCA(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-		ZitiEnabled:         true,
-		ZitiSidecarImage:    "ziti-image",
-		WorkloadDNSUpstream: "10.43.0.10",
+		AgentGatewayAddress:       "gateway:50051",
+		AgentLLMBaseURL:           "http://llm:8080/v1",
+		ZitiEnabled:               true,
+		ZitiSidecarImage:          "ziti-image",
+		WorkloadDNSUpstream:       "10.43.0.10",
+		ZitiEnrollmentDNSUpstream: "10.43.0.10",
 	}, cert)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
@@ -1696,5 +1698,23 @@ func assertFileEquals(t *testing.T, path, expected string) {
 	}
 	if string(actual) != expected {
 		t.Fatalf("expected %s to contain %q, got %q", path, expected, string(actual))
+	}
+}
+
+func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
+	cmd := buildZitiSidecarCommand("10.43.0.30")
+	expected := []string{
+		zitiSidecarCommand,
+		zitiSidecarMode,
+		"--identity",
+		zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".json",
+		"--dnsUpstream",
+		"udp://10.43.0.30:53",
+	}
+	if zitiSidecarEntrypoint != "/usr/local/bin/ziti" {
+		t.Fatalf("expected sidecar entrypoint to bypass image entrypoint, got %q", zitiSidecarEntrypoint)
+	}
+	if !equalStringSlice(cmd, expected) {
+		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expected, cmd)
 	}
 }

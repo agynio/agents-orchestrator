@@ -37,7 +37,9 @@ const (
 	egressCACertDir                  = "/etc/agyn/egress-ca"
 	zitiDNSNameserver                = "127.0.0.1"
 	zitiEnrollEntrypoint             = "/usr/bin/bash"
-	zitiSidecarCommand               = "tproxy"
+	zitiSidecarEntrypoint            = "/usr/local/bin/ziti"
+	zitiSidecarCommand               = "tunnel"
+	zitiSidecarMode                  = "tproxy"
 	zitiEnrollScript                 = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
 identity_dir="${ZITI_IDENTITY_DIR}"
@@ -218,7 +220,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiEnroll := &runnerv1.ContainerSpec{
 			Image:      a.cfg.ZitiSidecarImage,
 			Name:       ZitiEnrollContainerName,
-			Cmd:        buildZitiEnrollCommand(a.cfg.WorkloadDNSUpstream),
+			Cmd:        buildZitiEnrollCommand(a.cfg.ZitiEnrollmentDNSUpstream),
 			Entrypoint: zitiEnrollEntrypoint,
 			Env:        zitiEnvVars(),
 			Mounts:     []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
@@ -227,6 +229,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
 			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream),
+			Entrypoint:           zitiSidecarEntrypoint,
 			Env:                  zitiEnvVars(),
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
@@ -379,6 +382,9 @@ func buildZitiEnrollCommand(workloadDNSUpstream string) []string {
 func buildZitiSidecarCommand(workloadDNSUpstream string) []string {
 	return []string{
 		zitiSidecarCommand,
+		zitiSidecarMode,
+		"--identity",
+		fmt.Sprintf("%s/%s.json", zitiIdentityMountPath, ZitiIdentityBasename),
 		"--dnsUpstream",
 		fmt.Sprintf("udp://%s:53", workloadDNSUpstream),
 	}

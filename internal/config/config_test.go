@@ -80,29 +80,45 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.WorkloadDNSUpstream != "10.43.0.10" {
 		t.Fatalf("expected workload DNS upstream %q, got %q", "10.43.0.10", cfg.WorkloadDNSUpstream)
 	}
+	if cfg.ZitiEnrollmentDNSUpstream != "10.43.0.10" {
+		t.Fatalf("expected ziti enrollment DNS upstream %q, got %q", "10.43.0.10", cfg.ZitiEnrollmentDNSUpstream)
+	}
 }
 
 func TestFromEnvWorkloadDNSUpstream(t *testing.T) {
 	tests := []struct {
-		name        string
-		workloadDNS string
-		clusterDNS  string
-		expected    string
+		name           string
+		workloadDNS    string
+		clusterDNS     string
+		enrollmentDNS  string
+		expected       string
+		expectedEnroll string
 	}{
 		{
-			name:     "default",
-			expected: "10.43.0.10",
+			name:           "default",
+			expected:       "10.43.0.10",
+			expectedEnroll: "10.43.0.10",
 		},
 		{
-			name:       "deprecated cluster dns fallback",
-			clusterDNS: "10.43.0.20",
-			expected:   "10.43.0.20",
+			name:           "deprecated cluster dns fallback",
+			clusterDNS:     "10.43.0.20",
+			expected:       "10.43.0.20",
+			expectedEnroll: "10.43.0.20",
 		},
 		{
-			name:        "workload dns upstream takes precedence",
-			workloadDNS: "10.43.0.30",
-			clusterDNS:  "10.43.0.20",
-			expected:    "10.43.0.30",
+			name:           "workload dns upstream takes precedence",
+			workloadDNS:    "10.43.0.30",
+			clusterDNS:     "10.43.0.20",
+			expected:       "10.43.0.30",
+			expectedEnroll: "10.43.0.20",
+		},
+		{
+			name:           "enrollment dns upstream takes precedence",
+			workloadDNS:    "10.43.0.30",
+			clusterDNS:     "10.43.0.20",
+			enrollmentDNS:  "10.43.0.40",
+			expected:       "10.43.0.30",
+			expectedEnroll: "10.43.0.40",
 		},
 	}
 
@@ -111,6 +127,7 @@ func TestFromEnvWorkloadDNSUpstream(t *testing.T) {
 			setBaseEnv(t)
 			t.Setenv("WORKLOAD_DNS_UPSTREAM", tt.workloadDNS)
 			t.Setenv("CLUSTER_DNS", tt.clusterDNS)
+			t.Setenv("ZITI_ENROLLMENT_DNS_UPSTREAM", tt.enrollmentDNS)
 
 			cfg, err := FromEnv()
 			if err != nil {
@@ -118,6 +135,9 @@ func TestFromEnvWorkloadDNSUpstream(t *testing.T) {
 			}
 			if cfg.WorkloadDNSUpstream != tt.expected {
 				t.Fatalf("expected workload DNS upstream %q, got %q", tt.expected, cfg.WorkloadDNSUpstream)
+			}
+			if cfg.ZitiEnrollmentDNSUpstream != tt.expectedEnroll {
+				t.Fatalf("expected ziti enrollment DNS upstream %q, got %q", tt.expectedEnroll, cfg.ZitiEnrollmentDNSUpstream)
 			}
 		})
 	}
@@ -156,6 +176,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
 	t.Setenv("WORKLOAD_DNS_UPSTREAM", "")
 	t.Setenv("CLUSTER_DNS", "")
+	t.Setenv("ZITI_ENROLLMENT_DNS_UPSTREAM", "")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_TRACING_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")

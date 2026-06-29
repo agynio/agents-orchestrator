@@ -94,8 +94,11 @@ env:
     value: "groups:50051"
   - name: NATS_URL
     value: ""
-  # Upstream DNS resolver used for Ziti-enabled workload pods.
+  # Upstream DNS resolver used by the workload Ziti tunnel after enrollment.
   - name: WORKLOAD_DNS_UPSTREAM
+    value: ""
+  # Bootstrap resolver used before the workload Ziti tunnel is running.
+  - name: ZITI_ENROLLMENT_DNS_UPSTREAM
     value: ""
   # Deprecated: use WORKLOAD_DNS_UPSTREAM instead.
   - name: CLUSTER_DNS
