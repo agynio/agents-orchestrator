@@ -441,12 +441,15 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Entrypoint != zitiSidecarEntrypoint {
 		t.Fatalf("expected ziti sidecar entrypoint %q, got %q", zitiSidecarEntrypoint, zitiSidecar.Entrypoint)
 	}
-	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream)
+	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream, cfg.ZitiRuntimeControllerResolveHost)
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
 	}
 	if zitiSidecar.Cmd[3] != cfg.WorkloadDNSUpstream {
 		t.Fatalf("expected ziti sidecar runtime DNS upstream arg %q, got %q", cfg.WorkloadDNSUpstream, zitiSidecar.Cmd[3])
+	}
+	if zitiSidecar.Cmd[4] != cfg.ZitiRuntimeControllerResolveHost {
+		t.Fatalf("expected ziti sidecar runtime controller resolve host arg %q, got %q", cfg.ZitiRuntimeControllerResolveHost, zitiSidecar.Cmd[4])
 	}
 	if zitiSidecar.Cmd[3] == cfg.ZitiEnrollmentDNSUpstream {
 		t.Fatalf("expected ziti sidecar not to use enrollment DNS upstream %q", cfg.ZitiEnrollmentDNSUpstream)
@@ -1966,12 +1969,13 @@ func assertFileEquals(t *testing.T, path, expected string) {
 }
 
 func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
-	cmd := buildZitiSidecarCommand("10.43.0.30")
+	cmd := buildZitiSidecarCommand("10.43.0.30", "istio-ingressgateway.istio-gateway.svc.cluster.local")
 	expected := []string{
 		"-ec",
 		zitiSidecarScript,
 		ZitiSidecarContainerName,
 		"10.43.0.30",
+		"istio-ingressgateway.istio-gateway.svc.cluster.local",
 	}
 	if zitiSidecarEntrypoint != "/usr/bin/bash" {
 		t.Fatalf("expected sidecar entrypoint to bypass image entrypoint with shell wrapper, got %q", zitiSidecarEntrypoint)

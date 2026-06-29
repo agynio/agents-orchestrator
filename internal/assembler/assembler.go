@@ -199,7 +199,27 @@ fi
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
 	zitiSidecarScript = `workload_dns_upstream="$1"
+runtime_controller_resolve_host="$2"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
+hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
+if [[ -n "${runtime_controller_resolve_host}" ]]; then
+  ziti_runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
+  ziti_runtime_controller_hostport="$(printf '%s\n' "${ziti_runtime_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
+  if [[ -z "${ziti_runtime_controller_hostport}" ]]; then
+    echo "expected runtime controller endpoint in ${identity_file}" >&2
+    exit 1
+  fi
+  ziti_runtime_controller_host="${ziti_runtime_controller_hostport%%:*}"
+  ziti_runtime_controller_ip="$(getent ahostsv4 "${runtime_controller_resolve_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
+  if [[ -z "${ziti_runtime_controller_ip}" ]]; then
+    echo "expected resolved runtime controller address for ${runtime_controller_resolve_host}" >&2
+    exit 1
+  fi
+  awk -v host="${ziti_runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${hosts_file}" > "${hosts_file}.tmp"
+  printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" >> "${hosts_file}.tmp"
+  cat "${hosts_file}.tmp" > "${hosts_file}"
+  rm -f "${hosts_file}.tmp"
+fi
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --dnsUpstream "tcp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
@@ -346,7 +366,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiSidecar := &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
-			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream),
+			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream, a.cfg.ZitiRuntimeControllerResolveHost),
 			Entrypoint:           zitiSidecarEntrypoint,
 			Env:                  zitiSidecarEnvVars(a.cfg.WorkloadDNSUpstream, a.cfg.ZitiEnrollmentDNSUpstream, a.cfg.ZitiRuntimeControllerResolveHost),
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
@@ -524,12 +544,13 @@ func buildZitiEnrollCommand(workloadDNSUpstream string, enrollmentControllerReso
 	}
 }
 
-func buildZitiSidecarCommand(workloadDNSUpstream string) []string {
+func buildZitiSidecarCommand(workloadDNSUpstream string, runtimeControllerResolveHost string) []string {
 	return []string{
 		"-ec",
 		zitiSidecarScript,
 		ZitiSidecarContainerName,
 		workloadDNSUpstream,
+		runtimeControllerResolveHost,
 	}
 }
 
