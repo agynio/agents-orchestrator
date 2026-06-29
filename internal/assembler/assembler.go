@@ -30,7 +30,6 @@ const (
 	zitiIdentityVolumeName           = "ziti-identity"
 	zitiIdentityMountPath            = "/netfoundry"
 	ZitiIdentityBasename             = "agent"
-	zitiEnrollmentCAFilePath         = "/netfoundry/enrollment-ca.pem"
 	ZitiEnrollmentTokenEnvVar        = "ZITI_ENROLL_TOKEN"
 	ZitiIdentityBasenameEnvVar       = "ZITI_IDENTITY_BASENAME"
 	ZitiIdentityDirEnvVar            = "ZITI_IDENTITY_DIR"
@@ -76,11 +75,44 @@ if [[ ! -s "${identity_file}" ]]; then
   fi
   printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 
-  enroll_args=(edge enroll --jwt "${jwt_file}" --out "${identity_file}")
-  if [[ -n "${ZITI_ENROLLMENT_CA_FILE:-}" ]]; then
-    enroll_args+=(--ca "${ZITI_ENROLLMENT_CA_FILE}")
+  jwt_payload_file="${identity_dir}/${identity_basename}.payload.json"
+  printf '%s\n' "${jwt_payload_json}" > "${jwt_payload_file}"
+  ziti_controller_url="$(jq -r '.iss // empty' "${jwt_payload_file}")"
+  ziti_enrollment_method="$(jq -r '.em // empty' "${jwt_payload_file}")"
+  ziti_enrollment_token_id="$(jq -r '.jti // empty' "${jwt_payload_file}")"
+  ziti_identity_subject="$(jq -r '.sub // empty' "${jwt_payload_file}")"
+  if [[ -z "${ziti_controller_url}" || -z "${ziti_enrollment_method}" || -z "${ziti_enrollment_token_id}" || -z "${ziti_identity_subject}" ]]; then
+    echo "ZITI_ENROLL_TOKEN is missing required iss, em, jti, or sub claims" >&2
+    exit 1
   fi
-  ziti "${enroll_args[@]}"
+
+  ziti_controller_hostport="$(printf '%s\n' "${ziti_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
+  ziti_controller_host="${ziti_controller_hostport%%:*}"
+  ziti_controller_cert="${identity_dir}/controller-ca.pem"
+  ziti_key_file="${identity_dir}/${identity_basename}.key"
+  ziti_csr_file="${identity_dir}/${identity_basename}.csr"
+  ziti_cert_file="${identity_dir}/${identity_basename}.crt"
+  ziti_enroll_url="${ziti_controller_url%/}/edge/client/v1/enroll?method=${ziti_enrollment_method}&token=${ziti_enrollment_token_id}"
+  ziti_api_url="${ziti_controller_url%/}/edge/client/v1"
+
+  openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_controller_hostport}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
+  if [[ ! -s "${ziti_controller_cert}" ]]; then
+    echo "expected controller certificate from ${ziti_controller_hostport}" >&2
+    exit 1
+  fi
+  openssl ecparam -name secp384r1 -genkey -noout -out "${ziti_key_file}"
+  openssl req -new -key "${ziti_key_file}" -subj "/C=US/O=NetFoundry/CN=${ziti_identity_subject}" -out "${ziti_csr_file}"
+  enroll_response="$(curl --fail-with-body --show-error --silent --cacert "${ziti_controller_cert}" -H 'content-type: application/x-pem-file' --data-binary "@${ziti_csr_file}" "${ziti_enroll_url}")"
+  if printf '%s' "${enroll_response}" | jq -e . >/dev/null 2>&1; then
+    printf '%s' "${enroll_response}" | jq -r '.data.cert // empty' > "${ziti_cert_file}"
+  else
+    printf '%s' "${enroll_response}" > "${ziti_cert_file}"
+  fi
+  if [[ ! -s "${ziti_cert_file}" ]]; then
+    echo "expected certificate in ziti enrollment response" >&2
+    exit 1
+  fi
+  jq -n --arg ztAPI "${ziti_api_url}" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_controller_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
 fi
 
 if [[ ! -s "${identity_file}" ]]; then
@@ -249,7 +281,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
 		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
-		applyZitiEnrollmentCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
 		applyEgressCA(zitiGatewayWait, a.egressCACert)
 		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, initContainer}

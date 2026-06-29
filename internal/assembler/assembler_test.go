@@ -388,14 +388,14 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], "nameserver %s\\nsearch svc.cluster.local cluster.local\\noptions ndots:5\\n") {
 		t.Fatalf("expected ziti enroll script to write workload DNS upstream resolver, got %q", zitiEnroll.Cmd[1])
 	}
-	if !strings.Contains(zitiEnroll.Cmd[1], "enroll_args=(edge enroll --jwt") {
-		t.Fatalf("expected ziti enroll script to run ziti edge enroll, got %q", zitiEnroll.Cmd[1])
+	if !strings.Contains(zitiEnroll.Cmd[1], "curl --fail-with-body") || !strings.Contains(zitiEnroll.Cmd[1], "/edge/client/v1/enroll?method=") {
+		t.Fatalf("expected ziti enroll script to post CSR to controller enrollment endpoint, got %q", zitiEnroll.Cmd[1])
 	}
 	if strings.Contains(zitiEnroll.Cmd[1], "ziti.agyn.dev") {
 		t.Fatalf("expected ziti enroll script not to hard-code controller host, got %q", zitiEnroll.Cmd[1])
 	}
-	if !strings.Contains(zitiEnroll.Cmd[1], `"iss"`) {
-		t.Fatalf("expected ziti enroll script to derive controller host from JWT issuer, got %q", zitiEnroll.Cmd[1])
+	if !strings.Contains(zitiEnroll.Cmd[1], ".iss") || !strings.Contains(zitiEnroll.Cmd[1], ".em") || !strings.Contains(zitiEnroll.Cmd[1], ".jti") || !strings.Contains(zitiEnroll.Cmd[1], ".sub") {
+		t.Fatalf("expected ziti enroll script to derive enrollment request from JWT claims, got %q", zitiEnroll.Cmd[1])
 	}
 	if zitiEnroll.Cmd[3] != cfg.ZitiEnrollmentDNSUpstream {
 		t.Fatalf("expected ziti enroll upstream arg %q, got %q", cfg.ZitiEnrollmentDNSUpstream, zitiEnroll.Cmd[3])
@@ -1538,9 +1538,6 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 	if string(request.GetInlineFiles()[egressCACertPath]) != string(cert) {
 		t.Fatalf("expected egress CA inline file bytes")
 	}
-	if string(request.GetInlineFiles()[zitiEnrollmentCAFilePath]) != string(cert) {
-		t.Fatalf("expected ziti enrollment CA inline file bytes")
-	}
 	containers := []*runnerv1.ContainerSpec{request.Main}
 	containers = append(containers, request.GetSidecars()...)
 	containers = append(containers, request.GetInitContainers()...)
@@ -1552,8 +1549,6 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 	if zitiEnroll == nil {
 		t.Fatal("expected ziti-enroll init container")
 	}
-	assertEnv(t, envMap(zitiEnroll.GetEnv()), "ZITI_ENROLLMENT_CA_FILE", zitiEnrollmentCAFilePath)
-	assertInlineFileMount(t, zitiEnroll, zitiEnrollmentCAFilePath)
 }
 
 func assertEgressCAEnv(t *testing.T, container *runnerv1.ContainerSpec) {
@@ -1601,7 +1596,7 @@ func TestZitiEnrollScriptRemovesOnlyJwtControllerLoopbackAlias(t *testing.T) {
 	identityDir := filepath.Join(workDir, "netfoundry")
 	resolvPath := filepath.Join(workDir, "resolv.conf")
 	hostsPath := filepath.Join(workDir, "hosts")
-	logPath := filepath.Join(workDir, "ziti.log")
+	logPath := filepath.Join(workDir, "enroll.log")
 	controllerHost := "controller.example.test"
 	otherHost := "other.example.test"
 	jwt := testJWTWithIssuer(t, "https://"+controllerHost+":2496")
@@ -1615,14 +1610,65 @@ func TestZitiEnrollScriptRemovesOnlyJwtControllerLoopbackAlias(t *testing.T) {
 	}, "\n")), 0o600); err != nil {
 		t.Fatalf("write hosts: %v", err)
 	}
-	_ = writeExecutable(t, workDir, "ziti", fmt.Sprintf(`#!/usr/bin/env bash
+	_ = writeExecutable(t, workDir, "openssl", fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
-printf 'args=%%s\n' "$*" > %q
-printf 'jwt=%%s\n' "$(cat %q)" >> %q
-printf 'enroll_resolv=%%s\n' "$(cat %q)" >> %q
-printf 'post_enroll_resolv=%%s\n' "$(cat %q)" >> %q
-printf '{}\n' > %q
-`, logPath, filepath.Join(identityDir, "agent.jwt"), logPath, resolvPath, logPath, resolvPath, logPath, filepath.Join(identityDir, "agent.json")))
+printf 'openssl_resolv=%%s\n' "$(cat %s)" >> %s
+case "$1" in
+  s_client)
+    cat <<'CERT'
+-----BEGIN CERTIFICATE-----
+controller-ca
+-----END CERTIFICATE-----
+CERT
+    ;;
+  ecparam)
+    printf 'key\n' > "${@: -1}"
+    ;;
+  req)
+    printf 'csr\n' > "${@: -1}"
+    ;;
+  *)
+    echo "unexpected openssl args" >&2
+    exit 1
+    ;;
+esac
+`, resolvPath, logPath))
+	_ = writeExecutable(t, workDir, "curl", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+printf 'curl_args=%%s\n' "$*" >> %s
+printf 'curl_resolv=%%s\n' "$(cat %s)" >> %s
+printf '{"data":{"cert":"agent-cert"}}'
+`, logPath, resolvPath, logPath))
+	_ = writeExecutable(t, workDir, "jq", `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "-e" ]]; then
+  cat >/dev/null
+  exit 0
+fi
+if [[ "$1" == "-n" ]]; then
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --arg) shift; name="$1"; shift; value="$1"; printf -v "$name" '%s' "$value" ;;
+    esac
+    shift || true
+  done
+  printf '{"ztAPI":%q,"id":{"cert":%q,"key":%q,"ca":%q}}\n' "$ztAPI" "$cert" "$key" "$ca"
+  exit 0
+fi
+if [[ "$1" == "-r" ]]; then
+  shift
+fi
+filter="${1:-}"
+file="${2:-}"
+case "$filter" in
+  ".iss // empty") sed -nE 's/.*"iss":"([^"]+)".*/\1/p' "$file" ;;
+  ".em // empty") sed -nE 's/.*"em":"([^"]+)".*/\1/p' "$file" ;;
+  ".jti // empty") sed -nE 's/.*"jti":"([^"]+)".*/\1/p' "$file" ;;
+  ".sub // empty") sed -nE 's/.*"sub":"([^"]+)".*/\1/p' "$file" ;;
+  ".data.cert // empty") sed -nE 's/.*"cert":"([^"]+)".*/\1/p' ;;
+  *) echo "unexpected jq filter: $filter" >&2; exit 1 ;;
+esac
+`)
 	_ = writeExecutable(t, workDir, "cat", fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
 real_cat=/usr/bin/cat
@@ -1640,7 +1686,6 @@ exec "${real_cat}" "$@"
 		ZitiIdentityDirEnvVar+"="+identityDir,
 		"ZITI_RESOLV_CONF="+resolvPath,
 		"ZITI_HOSTS_FILE="+hostsPath,
-		"ZITI_ENROLLMENT_CA_FILE="+zitiEnrollmentCAFilePath,
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1664,20 +1709,22 @@ exec "${real_cat}" "$@"
 	}
 	logBytes, err := os.ReadFile(logPath)
 	if err != nil {
-		t.Fatalf("read ziti log: %v", err)
+		t.Fatalf("read enroll log: %v", err)
 	}
 	log := string(logBytes)
-	if !strings.Contains(log, "args=edge enroll --jwt "+filepath.Join(identityDir, "agent.jwt")+" --out "+filepath.Join(identityDir, "agent.json")+" --ca "+zitiEnrollmentCAFilePath) {
-		t.Fatalf("expected ziti enroll args in log, got:\n%s", log)
+	if !strings.Contains(log, "openssl_resolv=nameserver 10.43.0.10") || !strings.Contains(log, "curl_resolv=nameserver 10.43.0.10") {
+		t.Fatalf("expected enrollment to use upstream resolver, got:\n%s", log)
 	}
-	if !strings.Contains(log, "jwt="+jwt) {
-		t.Fatalf("expected jwt written for enroll, got:\n%s", log)
+	if !strings.Contains(log, "--cacert "+filepath.Join(identityDir, "controller-ca.pem")) {
+		t.Fatalf("expected enrollment curl to trust observed controller cert, got:\n%s", log)
 	}
-	if !strings.Contains(log, "enroll_resolv=nameserver 10.43.0.10") {
-		t.Fatalf("expected ziti enroll invocation to observe workload DNS upstream resolver, got:\n%s", log)
+	identityBytes, err := os.ReadFile(filepath.Join(identityDir, "agent.json"))
+	if err != nil {
+		t.Fatalf("read identity file: %v", err)
 	}
-	if !strings.Contains(log, "post_enroll_resolv=nameserver 10.43.0.10") {
-		t.Fatalf("expected ziti enroll command to complete before workload resolver restore, got:\n%s", log)
+	identity := string(identityBytes)
+	if !strings.Contains(identity, "https://"+controllerHost+":2496/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
+		t.Fatalf("expected enrolled identity json, got:\n%s", identity)
 	}
 }
 
@@ -1686,7 +1733,7 @@ func testJWTWithIssuer(t *testing.T, issuer string) string {
 	encode := base64.RawURLEncoding.EncodeToString
 	return strings.Join([]string{
 		encode([]byte(`{"alg":"none"}`)),
-		encode([]byte(fmt.Sprintf(`{"iss":%q}`, issuer))),
+		encode([]byte(fmt.Sprintf(`{"iss":%q,"em":"ott","jti":"token-id","sub":"agent-subject"}`, issuer))),
 		"signature",
 	}, ".")
 }
