@@ -102,6 +102,12 @@ env:
   # Bootstrap resolver used before the workload Ziti tunnel is running.
   - name: ZITI_ENROLLMENT_DNS_UPSTREAM
     value: ""
+  # Optional cluster DNS name that ziti.agyn.dev should resolve to at runtime.
+  - name: ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST
+    value: ""
+  # Optional runtime controller port override for the enrolled identity.
+  - name: ZITI_RUNTIME_CONTROLLER_PORT
+    value: ""
   # Deprecated: use WORKLOAD_DNS_UPSTREAM instead.
   - name: CLUSTER_DNS
     value: ""

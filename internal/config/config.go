@@ -8,34 +8,36 @@ import (
 )
 
 type Config struct {
-	ThreadsAddress            string
-	NotificationsAddress      string
-	AgentsAddress             string
-	SecretsAddress            string
-	RunnerAddress             string
-	RunnersAddress            string
-	MeteringServiceAddress    string
-	MeteringSampleInterval    time.Duration
-	ZitiEnabled               bool
-	ZitiManagementAddress     string
-	GroupsAddress             string
-	GroupSyncEnabled          bool
-	NATSURL                   string
-	ZitiLeaseRenewalInterval  time.Duration
-	ZitiEnrollmentTimeout     time.Duration
-	ZitiSidecarImage          string
-	WorkloadDNSUpstream       string
-	ZitiEnrollmentDNSUpstream string
-	AgentGatewayAddress       string
-	AgentTracingAddress       string
-	AgentLLMBaseURL           string
-	PollInterval              time.Duration
-	WorkloadReconcileInterval time.Duration
-	IdleTimeout               time.Duration
-	StopTimeoutSec            uint32
-	LeaseName                 string
-	LeaseNamespace            string
-	EgressCANamespace         string
+	ThreadsAddress                   string
+	NotificationsAddress             string
+	AgentsAddress                    string
+	SecretsAddress                   string
+	RunnerAddress                    string
+	RunnersAddress                   string
+	MeteringServiceAddress           string
+	MeteringSampleInterval           time.Duration
+	ZitiEnabled                      bool
+	ZitiManagementAddress            string
+	GroupsAddress                    string
+	GroupSyncEnabled                 bool
+	NATSURL                          string
+	ZitiLeaseRenewalInterval         time.Duration
+	ZitiEnrollmentTimeout            time.Duration
+	ZitiSidecarImage                 string
+	WorkloadDNSUpstream              string
+	ZitiEnrollmentDNSUpstream        string
+	ZitiRuntimeControllerResolveHost string
+	ZitiRuntimeControllerPort        string
+	AgentGatewayAddress              string
+	AgentTracingAddress              string
+	AgentLLMBaseURL                  string
+	PollInterval                     time.Duration
+	WorkloadReconcileInterval        time.Duration
+	IdleTimeout                      time.Duration
+	StopTimeoutSec                   uint32
+	LeaseName                        string
+	LeaseNamespace                   string
+	EgressCANamespace                string
 }
 
 func FromEnv() (Config, error) {
@@ -174,6 +176,17 @@ func FromEnv() (Config, error) {
 	}
 	if cfg.ZitiEnrollmentDNSUpstream == "" {
 		cfg.ZitiEnrollmentDNSUpstream = "10.43.0.10"
+	}
+	cfg.ZitiRuntimeControllerResolveHost = os.Getenv("ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST")
+	cfg.ZitiRuntimeControllerPort = os.Getenv("ZITI_RUNTIME_CONTROLLER_PORT")
+	if cfg.ZitiRuntimeControllerPort != "" {
+		parsed, err := strconv.ParseUint(cfg.ZitiRuntimeControllerPort, 10, 16)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse ZITI_RUNTIME_CONTROLLER_PORT: %w", err)
+		}
+		if parsed == 0 {
+			return Config{}, fmt.Errorf("ZITI_RUNTIME_CONTROLLER_PORT must be greater than 0")
+		}
 	}
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {

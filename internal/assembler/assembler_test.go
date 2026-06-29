@@ -315,12 +315,14 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		AgentGatewayAddress:       "gateway:50051",
-		AgentLLMBaseURL:           "http://llm:8080/v1",
-		ZitiEnabled:               true,
-		ZitiSidecarImage:          "ziti-image",
-		WorkloadDNSUpstream:       "10.43.0.10",
-		ZitiEnrollmentDNSUpstream: "10.43.0.20",
+		AgentGatewayAddress:              "gateway:50051",
+		AgentLLMBaseURL:                  "http://llm:8080/v1",
+		ZitiEnabled:                      true,
+		ZitiSidecarImage:                 "ziti-image",
+		WorkloadDNSUpstream:              "10.43.0.10",
+		ZitiEnrollmentDNSUpstream:        "10.43.0.20",
+		ZitiRuntimeControllerResolveHost: "istio-ingressgateway.istio-gateway.svc.cluster.local",
+		ZitiRuntimeControllerPort:        "443",
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
@@ -381,7 +383,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiEnroll.Entrypoint != zitiEnrollEntrypoint {
 		t.Fatalf("expected ziti enroll entrypoint %q, got %q", zitiEnrollEntrypoint, zitiEnroll.Entrypoint)
 	}
-	expectedEnrollCmd := buildZitiEnrollCommand(cfg.ZitiEnrollmentDNSUpstream)
+	expectedEnrollCmd := buildZitiEnrollCommand(cfg.ZitiEnrollmentDNSUpstream, cfg.ZitiRuntimeControllerResolveHost, cfg.ZitiRuntimeControllerPort)
 	if !equalStringSlice(zitiEnroll.Cmd, expectedEnrollCmd) {
 		t.Fatalf("expected ziti enroll cmd %+v, got %+v", expectedEnrollCmd, zitiEnroll.Cmd)
 	}
@@ -408,6 +410,12 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 	if zitiEnroll.Cmd[4] != zitiDNSNameserver {
 		t.Fatalf("expected ziti enroll workload DNS nameserver arg %q, got %q", zitiDNSNameserver, zitiEnroll.Cmd[4])
+	}
+	if zitiEnroll.Cmd[5] != cfg.ZitiRuntimeControllerResolveHost {
+		t.Fatalf("expected ziti enroll runtime controller resolve host arg %q, got %q", cfg.ZitiRuntimeControllerResolveHost, zitiEnroll.Cmd[5])
+	}
+	if zitiEnroll.Cmd[6] != cfg.ZitiRuntimeControllerPort {
+		t.Fatalf("expected ziti enroll runtime controller port arg %q, got %q", cfg.ZitiRuntimeControllerPort, zitiEnroll.Cmd[6])
 	}
 	zitiEnrollEnv := envMap(zitiEnroll.Env)
 	assertEnv(t, zitiEnrollEnv, ZitiIdentityBasenameEnvVar, ZitiIdentityBasename)
@@ -1538,12 +1546,14 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 	}
 
 	assembler := NewWithEgressCA(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
-		AgentGatewayAddress:       "gateway:50051",
-		AgentLLMBaseURL:           "http://llm:8080/v1",
-		ZitiEnabled:               true,
-		ZitiSidecarImage:          "ziti-image",
-		WorkloadDNSUpstream:       "10.43.0.10",
-		ZitiEnrollmentDNSUpstream: "10.43.0.10",
+		AgentGatewayAddress:              "gateway:50051",
+		AgentLLMBaseURL:                  "http://llm:8080/v1",
+		ZitiEnabled:                      true,
+		ZitiSidecarImage:                 "ziti-image",
+		WorkloadDNSUpstream:              "10.43.0.10",
+		ZitiEnrollmentDNSUpstream:        "10.43.0.10",
+		ZitiRuntimeControllerResolveHost: "istio-ingressgateway.istio-gateway.svc.cluster.local",
+		ZitiRuntimeControllerPort:        "443",
 	}, cert)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
@@ -1680,11 +1690,18 @@ if [[ "$1" == "-n" ]]; then
     esac
     shift || true
   done
-  printf '{"ztAPI":%q,"id":{"cert":%q,"key":%q,"ca":%q}}\n' "$ztAPI" "$cert" "$key" "$ca"
+  printf '{"ztAPI":"%s","id":{"cert":"%s","key":"%s","ca":"%s"}}\n' "$ztAPI" "$cert" "$key" "$ca"
   exit 0
 fi
 if [[ "$1" == "-r" ]]; then
   shift
+fi
+if [[ "$1" == "--arg" ]]; then
+  shift; name="$1"; shift; value="$1"; shift
+  if [[ "${1:-}" == '.ztAPI = $ztAPI' ]]; then
+    sed -E "s#\"ztAPI\":\"[^\"]+\"#\"ztAPI\":\"${value}\"#" "${2:-}"
+    exit 0
+  fi
 fi
 filter="${1:-}"
 file="${2:-}"
@@ -1693,6 +1710,7 @@ case "$filter" in
   ".em // empty") sed -nE 's/.*"em":"([^"]+)".*/\1/p' "$file" ;;
   ".jti // empty") sed -nE 's/.*"jti":"([^"]+)".*/\1/p' "$file" ;;
   ".sub // empty") sed -nE 's/.*"sub":"([^"]+)".*/\1/p' "$file" ;;
+  ".ztAPI // empty") sed -nE 's/.*"ztAPI":"([^"]+)".*/\1/p' "$file" ;;
   ".data.cert // empty") sed -nE 's/.*"cert":"([^"]+)".*/\1/p' ;;
   *) echo "unexpected jq filter: $filter" >&2; exit 1 ;;
 esac
@@ -1706,7 +1724,7 @@ fi
 exec "${real_cat}" "$@"
 `, hostsPath+".tmp", resolvPath))
 
-	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10")...)
+	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10", "", "")...)
 	cmd.Env = append(os.Environ(),
 		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		ZitiEnrollmentTokenEnvVar+"="+jwt,
@@ -1761,6 +1779,134 @@ exec "${real_cat}" "$@"
 	}
 	if strings.Contains(identity, "https://10.43.58.17:2496") || strings.Contains(identity, "https://10.43.253.228:2496") {
 		t.Fatalf("expected identity runtime API to avoid direct controller IP, got:\n%s", identity)
+	}
+}
+
+func TestZitiEnrollScriptCanPinRuntimeControllerHostAlias(t *testing.T) {
+	workDir := t.TempDir()
+	identityDir := filepath.Join(workDir, "netfoundry")
+	resolvPath := filepath.Join(workDir, "resolv.conf")
+	hostsPath := filepath.Join(workDir, "hosts")
+	logPath := filepath.Join(workDir, "enroll.log")
+	controllerHost := "controller.example.test"
+	runtimeResolveHost := "istio-ingressgateway.istio-gateway.svc.cluster.local"
+	jwt := testJWTWithIssuer(t, "https://"+controllerHost+":2496")
+
+	if err := os.WriteFile(hostsPath, []byte("127.0.0.1\tlocalhost\n"), 0o600); err != nil {
+		t.Fatalf("write hosts: %v", err)
+	}
+	_ = writeExecutable(t, workDir, "openssl", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+printf 'openssl_args=%%s\n' "$*" >> %s
+case "$1" in
+  s_client)
+    cat <<'CERT'
+-----BEGIN CERTIFICATE-----
+controller-ca
+-----END CERTIFICATE-----
+CERT
+    ;;
+  ecparam)
+    printf 'key\n' > "${@: -1}"
+    ;;
+  req)
+    printf 'csr\n' > "${@: -1}"
+    ;;
+  *)
+    echo "unexpected openssl args" >&2
+    exit 1
+    ;;
+esac
+`, logPath))
+	_ = writeExecutable(t, workDir, "curl", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+printf 'curl_args=%%s\n' "$*" >> %s
+printf '{"data":{"cert":"agent-cert"}}'
+`, logPath))
+	_ = writeExecutable(t, workDir, "getent", `#!/usr/bin/env bash
+set -euo pipefail
+case "${2:-}" in
+  controller.example.test) exit 2 ;;
+  istio-ingressgateway.istio-gateway.svc.cluster.local) printf '10.43.0.99 STREAM istio-ingressgateway.istio-gateway.svc.cluster.local\n' ;;
+  *) exit 2 ;;
+esac
+`)
+	_ = writeExecutable(t, workDir, "jq", `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "-e" ]]; then
+  cat >/dev/null
+  exit 0
+fi
+if [[ "$1" == "-n" ]]; then
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --arg) shift; name="$1"; shift; value="$1"; printf -v "$name" '%s' "$value" ;;
+    esac
+    shift || true
+  done
+  printf '{"ztAPI":"%s","id":{"cert":"%s","key":"%s","ca":"%s"}}\n' "$ztAPI" "$cert" "$key" "$ca"
+  exit 0
+fi
+if [[ "$1" == "-r" ]]; then
+  shift
+fi
+if [[ "$1" == "--arg" ]]; then
+  shift; name="$1"; shift; value="$1"; shift
+  if [[ "${1:-}" == '.ztAPI = $ztAPI' ]]; then
+    sed -E "s#\"ztAPI\":\"[^\"]+\"#\"ztAPI\":\"${value}\"#" "${2:-}"
+    exit 0
+  fi
+fi
+filter="${1:-}"
+file="${2:-}"
+case "$filter" in
+  ".iss // empty") sed -nE 's/.*"iss":"([^"]+)".*/\1/p' "$file" ;;
+  ".em // empty") sed -nE 's/.*"em":"([^"]+)".*/\1/p' "$file" ;;
+  ".jti // empty") sed -nE 's/.*"jti":"([^"]+)".*/\1/p' "$file" ;;
+  ".sub // empty") sed -nE 's/.*"sub":"([^"]+)".*/\1/p' "$file" ;;
+  ".ztAPI // empty") sed -nE 's/.*"ztAPI":"([^"]+)".*/\1/p' "$file" ;;
+  ".data.cert // empty") sed -nE 's/.*"cert":"([^"]+)".*/\1/p' ;;
+  *) echo "unexpected jq filter: $filter" >&2; exit 1 ;;
+esac
+`)
+
+	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10", runtimeResolveHost, "443")...)
+	cmd.Env = append(os.Environ(),
+		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		ZitiEnrollmentTokenEnvVar+"="+jwt,
+		ZitiIdentityBasenameEnvVar+"="+ZitiIdentityBasename,
+		ZitiIdentityDirEnvVar+"="+identityDir,
+		"ZITI_RESOLV_CONF="+resolvPath,
+		"ZITI_HOSTS_FILE="+hostsPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run ziti enroll script: %v\n%s", err, string(output))
+	}
+
+	hostsBytes, err := os.ReadFile(hostsPath)
+	if err != nil {
+		t.Fatalf("read hosts: %v", err)
+	}
+	hosts := string(hostsBytes)
+	if !strings.Contains(hosts, "10.43.0.99\t"+controllerHost) {
+		t.Fatalf("expected runtime controller host alias, got hosts:\n%s", hosts)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read enroll log: %v", err)
+	}
+	log := string(logBytes)
+	if !strings.Contains(log, "-connect 10.43.0.99:2496") || !strings.Contains(log, "--resolve "+controllerHost+":2496:10.43.0.99") {
+		t.Fatalf("expected enrollment to use runtime-resolved controller underlay, got:\n%s", log)
+	}
+	identityBytes, err := os.ReadFile(filepath.Join(identityDir, "agent.json"))
+	if err != nil {
+		t.Fatalf("read identity file: %v", err)
+	}
+	identity := string(identityBytes)
+	if !strings.Contains(identity, "https://"+controllerHost+":443/edge/client/v1") {
+		t.Fatalf("expected identity runtime API to preserve advertised host with configured runtime port, got:\n%s", identity)
 	}
 }
 
