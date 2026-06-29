@@ -202,7 +202,9 @@ printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n
 runtime_controller_resolve_host="$2"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
+resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 if [[ -n "${runtime_controller_resolve_host}" ]]; then
+  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
   ziti_runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
   ziti_runtime_controller_hostport="$(printf '%s\n' "${ziti_runtime_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
   if [[ -z "${ziti_runtime_controller_hostport}" ]]; then
