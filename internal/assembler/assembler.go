@@ -335,7 +335,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiSidecar := &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
-			Cmd:                  buildZitiSidecarCommand(a.cfg.ZitiEnrollmentDNSUpstream),
+			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream),
 			Entrypoint:           zitiSidecarEntrypoint,
 			Env:                  zitiSidecarEnvVars(a.cfg.WorkloadDNSUpstream, a.cfg.ZitiEnrollmentDNSUpstream),
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},

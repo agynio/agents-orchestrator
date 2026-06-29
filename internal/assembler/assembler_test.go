@@ -434,9 +434,15 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Entrypoint != zitiSidecarEntrypoint {
 		t.Fatalf("expected ziti sidecar entrypoint %q, got %q", zitiSidecarEntrypoint, zitiSidecar.Entrypoint)
 	}
-	expectedCmd := buildZitiSidecarCommand(cfg.ZitiEnrollmentDNSUpstream)
+	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream)
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
+	}
+	if zitiSidecar.Cmd[3] != cfg.WorkloadDNSUpstream {
+		t.Fatalf("expected ziti sidecar runtime DNS upstream arg %q, got %q", cfg.WorkloadDNSUpstream, zitiSidecar.Cmd[3])
+	}
+	if zitiSidecar.Cmd[3] == cfg.ZitiEnrollmentDNSUpstream {
+		t.Fatalf("expected ziti sidecar not to use enrollment DNS upstream %q", cfg.ZitiEnrollmentDNSUpstream)
 	}
 	if !equalStringSlice(zitiSidecar.RequiredCapabilities, []string{zitiRequiredCapabilityNetAdmin}) {
 		t.Fatalf("expected ziti sidecar capabilities %+v, got %+v", []string{zitiRequiredCapabilityNetAdmin}, zitiSidecar.RequiredCapabilities)
