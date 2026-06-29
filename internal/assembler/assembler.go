@@ -80,6 +80,10 @@ if [[ ! -s "${identity_file}" ]]; then
   if [[ -n "${ZITI_ENROLLMENT_CA_FILE:-}" ]]; then
     enroll_args+=(--ca "${ZITI_ENROLLMENT_CA_FILE}")
   fi
+  printf 'enrolling with args:'
+  printf ' %q' "ziti" "${enroll_args[@]}"
+  printf '\n'
+  ls -l "${ZITI_ENROLLMENT_CA_FILE:-/dev/null}" 2>/dev/null || true
   ziti "${enroll_args[@]}"
 fi
 
