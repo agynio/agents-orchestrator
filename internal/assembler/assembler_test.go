@@ -459,6 +459,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	assertEnv(t, zitiEnv, ZitiIdentityDirEnvVar, zitiIdentityMountPath)
 	assertEnv(t, zitiEnv, "WORKLOAD_DNS_UPSTREAM", cfg.WorkloadDNSUpstream)
 	assertEnv(t, zitiEnv, "ZITI_DNS_UPSTREAM", cfg.ZitiEnrollmentDNSUpstream)
+	assertEnv(t, zitiEnv, "ZITI_CTRL_ADVERTISED_ADDRESS", cfg.ZitiRuntimeControllerResolveHost)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_BINARY", zitiSidecarBinaryPath)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_COMMAND", zitiSidecarCommand)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_MODE", zitiSidecarMode)
