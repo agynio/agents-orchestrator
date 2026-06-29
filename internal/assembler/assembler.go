@@ -338,9 +338,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiSidecar := &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
-			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream),
+			Cmd:                  buildZitiSidecarCommand(a.cfg.ZitiEnrollmentDNSUpstream),
 			Entrypoint:           zitiSidecarEntrypoint,
-			Env:                  zitiSidecarEnvVars(a.cfg.WorkloadDNSUpstream),
+			Env:                  zitiSidecarEnvVars(a.cfg.WorkloadDNSUpstream, a.cfg.ZitiEnrollmentDNSUpstream),
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
 			// k8s-runner maps restart_policy=Always on init containers to
@@ -479,10 +479,11 @@ func zitiEnvVars() []*runnerv1.EnvVar {
 	}
 }
 
-func zitiSidecarEnvVars(workloadDNSUpstream string) []*runnerv1.EnvVar {
+func zitiSidecarEnvVars(workloadDNSUpstream string, zitiEnrollmentDNSUpstream string) []*runnerv1.EnvVar {
 	envVars := zitiEnvVars()
 	envVars = append(envVars,
 		&runnerv1.EnvVar{Name: "WORKLOAD_DNS_UPSTREAM", Value: workloadDNSUpstream},
+		&runnerv1.EnvVar{Name: "ZITI_DNS_UPSTREAM", Value: zitiEnrollmentDNSUpstream},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_BINARY", Value: zitiSidecarBinaryPath},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_COMMAND", Value: zitiSidecarCommand},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_MODE", Value: zitiSidecarMode},

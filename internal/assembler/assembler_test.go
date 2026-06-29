@@ -426,7 +426,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Entrypoint != zitiSidecarEntrypoint {
 		t.Fatalf("expected ziti sidecar entrypoint %q, got %q", zitiSidecarEntrypoint, zitiSidecar.Entrypoint)
 	}
-	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream)
+	expectedCmd := buildZitiSidecarCommand(cfg.ZitiEnrollmentDNSUpstream)
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
 	}
@@ -437,6 +437,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	assertEnv(t, zitiEnv, ZitiIdentityBasenameEnvVar, ZitiIdentityBasename)
 	assertEnv(t, zitiEnv, ZitiIdentityDirEnvVar, zitiIdentityMountPath)
 	assertEnv(t, zitiEnv, "WORKLOAD_DNS_UPSTREAM", cfg.WorkloadDNSUpstream)
+	assertEnv(t, zitiEnv, "ZITI_DNS_UPSTREAM", cfg.ZitiEnrollmentDNSUpstream)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_BINARY", zitiSidecarBinaryPath)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_COMMAND", zitiSidecarCommand)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_MODE", zitiSidecarMode)
