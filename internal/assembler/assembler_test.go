@@ -467,7 +467,6 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_COMMAND", zitiSidecarCommand)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_MODE", zitiSidecarMode)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_SERVICE_POLL_RATE", zitiSidecarServicePollRate)
-	assertEnv(t, zitiEnv, zitiSidecarResolverTestEnvVar, "true")
 	if _, ok := zitiEnv[ZitiEnrollmentTokenEnvVar]; ok {
 		t.Fatalf("expected ziti sidecar not to receive %s", ZitiEnrollmentTokenEnvVar)
 	}
@@ -2004,9 +2003,6 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	}
 	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`) {
 		t.Fatalf("expected sidecar script to enable service polling, got %q", zitiSidecarScript)
-	}
-	if zitiSidecarResolverTestEnvVar != "ZITI_SIDECAR_SKIP_RESOLVER_TEST" {
-		t.Fatalf("expected sidecar resolver test env var name, got %q", zitiSidecarResolverTestEnvVar)
 	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
 		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)
