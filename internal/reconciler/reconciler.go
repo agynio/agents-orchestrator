@@ -601,6 +601,14 @@ func buildContainers(request *runnerv1.StartWorkloadRequest, resp *runnerv1.Star
 	return containers
 }
 
+func attachZitiEnrollmentEnv(container *runnerv1.ContainerSpec, jwt string) {
+	container.Env = append(container.Env,
+		&runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt},
+		&runnerv1.EnvVar{Name: assembler.ZitiControllerServiceHostEnvVar, Value: "ziti-controller-client.ziti.svc.cluster.local"},
+		&runnerv1.EnvVar{Name: assembler.ZitiControllerServicePortEnvVar, Value: "1280"},
+	)
+}
+
 func failureSummary(failure *runnerv1.WorkloadFailure) string {
 	if failure == nil {
 		return "unknown failure"
@@ -614,13 +622,13 @@ func failureSummary(failure *runnerv1.WorkloadFailure) string {
 func attachZitiEnrollmentToken(request *runnerv1.StartWorkloadRequest, jwt string) error {
 	for _, container := range request.InitContainers {
 		if container.Name == assembler.ZitiEnrollContainerName {
-			container.Env = append(container.Env, &runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt})
+			attachZitiEnrollmentEnv(container, jwt)
 			return nil
 		}
 	}
 	for _, container := range request.Sidecars {
 		if container.Name == assembler.ZitiEnrollContainerName {
-			container.Env = append(container.Env, &runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt})
+			attachZitiEnrollmentEnv(container, jwt)
 			return nil
 		}
 	}

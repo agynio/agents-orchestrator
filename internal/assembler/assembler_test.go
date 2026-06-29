@@ -412,6 +412,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	zitiEnrollEnv := envMap(zitiEnroll.Env)
 	assertEnv(t, zitiEnrollEnv, ZitiIdentityBasenameEnvVar, ZitiIdentityBasename)
 	assertEnv(t, zitiEnrollEnv, ZitiIdentityDirEnvVar, zitiIdentityMountPath)
+	if _, ok := zitiEnrollEnv[ZitiControllerServiceHostEnvVar]; ok {
+		t.Fatalf("expected assembler not to attach runtime controller service host before enrollment token binding")
+	}
 	assertSameZitiIdentityMount(t, zitiEnroll)
 	zitiSidecar := testutil.FindInitContainer(request.InitContainers, ZitiSidecarContainerName)
 	if zitiSidecar == nil {
@@ -1698,6 +1701,8 @@ exec "${real_cat}" "$@"
 		ZitiIdentityDirEnvVar+"="+identityDir,
 		"ZITI_RESOLV_CONF="+resolvPath,
 		"ZITI_HOSTS_FILE="+hostsPath,
+		ZitiControllerServiceHostEnvVar+"=ziti-controller-client.ziti.svc.cluster.local",
+		ZitiControllerServicePortEnvVar+"=1280",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1735,11 +1740,14 @@ exec "${real_cat}" "$@"
 		t.Fatalf("read identity file: %v", err)
 	}
 	identity := string(identityBytes)
-	if !strings.Contains(identity, "https://10.43.58.17:2496/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
+	if !strings.Contains(identity, "https://ziti-controller-client.ziti.svc.cluster.local:1280/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
 		t.Fatalf("expected enrolled identity json with direct controller endpoint, got:\n%s", identity)
 	}
 	if strings.Contains(identity, controllerHost) {
-		t.Fatalf("expected identity runtime API to avoid controller DNS, got:\n%s", identity)
+		t.Fatalf("expected identity runtime API to avoid JWT controller DNS, got:\n%s", identity)
+	}
+	if strings.Contains(identity, "https://10.43.58.17:2496") {
+		t.Fatalf("expected identity runtime API to avoid advertised ingress service port, got:\n%s", identity)
 	}
 }
 

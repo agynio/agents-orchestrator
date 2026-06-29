@@ -19,30 +19,32 @@ import (
 )
 
 const (
-	listPageSize               int32 = 100
-	rpcTimeout                       = 10 * time.Second
-	agynBinVolumeName                = "agyn-bin"
-	agynBinMountPath                 = "/agyn-bin"
-	agynBinBinaryPath                = "/agyn-bin/agynd"
-	mcpBasePort                      = 8100
-	ZitiEnrollContainerName          = "ziti-enroll"
-	ZitiSidecarContainerName         = "ziti-sidecar"
-	zitiIdentityVolumeName           = "ziti-identity"
-	zitiIdentityMountPath            = "/netfoundry"
-	ZitiIdentityBasename             = "agent"
-	ZitiEnrollmentTokenEnvVar        = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar       = "ZITI_IDENTITY_BASENAME"
-	ZitiIdentityDirEnvVar            = "ZITI_IDENTITY_DIR"
-	egressCACertPath                 = "/etc/agyn/egress-ca/ca.crt"
-	egressCACertDir                  = "/etc/agyn/egress-ca"
-	zitiDNSNameserver                = "127.0.0.1"
-	zitiEnrollEntrypoint             = "/usr/bin/bash"
-	zitiSidecarEntrypoint            = "/usr/bin/bash"
-	zitiSidecarBinaryPath            = "/usr/local/bin/ziti"
-	zitiSidecarCommand               = "tunnel"
-	zitiSidecarMode                  = "tproxy"
-	zitiSidecarServicePollRate       = "1"
-	zitiEnrollScript                 = `workload_dns_upstream="$1"
+	listPageSize                    int32 = 100
+	rpcTimeout                            = 10 * time.Second
+	agynBinVolumeName                     = "agyn-bin"
+	agynBinMountPath                      = "/agyn-bin"
+	agynBinBinaryPath                     = "/agyn-bin/agynd"
+	mcpBasePort                           = 8100
+	ZitiEnrollContainerName               = "ziti-enroll"
+	ZitiSidecarContainerName              = "ziti-sidecar"
+	zitiIdentityVolumeName                = "ziti-identity"
+	zitiIdentityMountPath                 = "/netfoundry"
+	ZitiIdentityBasename                  = "agent"
+	ZitiEnrollmentTokenEnvVar             = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar            = "ZITI_IDENTITY_BASENAME"
+	ZitiIdentityDirEnvVar                 = "ZITI_IDENTITY_DIR"
+	ZitiControllerServiceHostEnvVar       = "ZITI_CONTROLLER_SERVICE_HOST"
+	ZitiControllerServicePortEnvVar       = "ZITI_CONTROLLER_SERVICE_PORT"
+	egressCACertPath                      = "/etc/agyn/egress-ca/ca.crt"
+	egressCACertDir                       = "/etc/agyn/egress-ca"
+	zitiDNSNameserver                     = "127.0.0.1"
+	zitiEnrollEntrypoint                  = "/usr/bin/bash"
+	zitiSidecarEntrypoint                 = "/usr/bin/bash"
+	zitiSidecarBinaryPath                 = "/usr/local/bin/ziti"
+	zitiSidecarCommand                    = "tunnel"
+	zitiSidecarMode                       = "tproxy"
+	zitiSidecarServicePollRate            = "1"
+	zitiEnrollScript                      = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
 identity_dir="${ZITI_IDENTITY_DIR}"
 identity_basename="${ZITI_IDENTITY_BASENAME}"
@@ -94,21 +96,23 @@ if [[ ! -s "${identity_file}" ]]; then
   if [[ "${ziti_controller_port}" == "${ziti_controller_hostport}" ]]; then
     ziti_controller_port="443"
   fi
-  ziti_controller_ip="$(getent ahostsv4 "${ziti_controller_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
-  if [[ -z "${ziti_controller_ip}" ]]; then
-    ziti_controller_ip="$(awk -v host="${ziti_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) { print $1; exit } }' "${hosts_file}")"
+  ziti_enrollment_controller_ip="$(getent ahostsv4 "${ziti_controller_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
+  if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
+    ziti_enrollment_controller_ip="$(awk -v host="${ziti_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) { print $1; exit } }' "${hosts_file}")"
   fi
-  if [[ -z "${ziti_controller_ip}" ]]; then
+  if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
     echo "expected resolved controller address for ${ziti_controller_host}" >&2
     exit 1
   fi
+  ziti_runtime_controller_host="${ZITI_CONTROLLER_SERVICE_HOST:-${ziti_controller_host}}"
+  ziti_runtime_controller_port="${ZITI_CONTROLLER_SERVICE_PORT:-${ziti_controller_port}}"
   ziti_controller_cert="${identity_dir}/controller-ca.pem"
   ziti_key_file="${identity_dir}/${identity_basename}.key"
   ziti_csr_file="${identity_dir}/${identity_basename}.csr"
   ziti_cert_file="${identity_dir}/${identity_basename}.crt"
   ziti_enroll_url="${ziti_controller_url%/}/edge/client/v1/enroll?method=${ziti_enrollment_method}&token=${ziti_enrollment_token_id}"
 
-  openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_controller_ip}:${ziti_controller_port}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
+  openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_enrollment_controller_ip}:${ziti_controller_port}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
   if [[ ! -s "${ziti_controller_cert}" ]]; then
     echo "expected controller certificate from ${ziti_controller_hostport}" >&2
     exit 1
@@ -120,7 +124,7 @@ if [[ ! -s "${identity_file}" ]]; then
   fi
   openssl ecparam -name secp384r1 -genkey -noout -out "${ziti_key_file}"
   openssl req -new -key "${ziti_key_file}" -subj "/C=US/O=NetFoundry/CN=${ziti_identity_subject}" -out "${ziti_csr_file}"
-  enroll_response="$(curl --fail-with-body --show-error --silent --cacert "${ziti_tls_ca_cert}" --resolve "${ziti_controller_host}:${ziti_controller_port}:${ziti_controller_ip}" -H 'content-type: application/x-pem-file' --data-binary "@${ziti_csr_file}" "${ziti_enroll_url}")"
+  enroll_response="$(curl --fail-with-body --show-error --silent --cacert "${ziti_tls_ca_cert}" --resolve "${ziti_controller_host}:${ziti_controller_port}:${ziti_enrollment_controller_ip}" -H 'content-type: application/x-pem-file' --data-binary "@${ziti_csr_file}" "${ziti_enroll_url}")"
   if printf '%s' "${enroll_response}" | jq -e . >/dev/null 2>&1; then
     printf '%s' "${enroll_response}" | jq -r '.data.cert // empty' > "${ziti_cert_file}"
   else
@@ -130,10 +134,10 @@ if [[ ! -s "${identity_file}" ]]; then
     echo "expected certificate in ziti enrollment response" >&2
     exit 1
   fi
-  jq -n --arg ztAPI "https://${ziti_controller_ip}:${ziti_controller_port}/edge/client/v1" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_tls_ca_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
+  jq -n --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_tls_ca_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
   printf '%s\n' "${ziti_controller_host}" > "${identity_dir}/${identity_basename}.controller-host"
   printf '%s\n' "${ziti_controller_port}" > "${identity_dir}/${identity_basename}.controller-port"
-  printf '%s\n' "${ziti_controller_ip}" > "${identity_dir}/${identity_basename}.controller-ip"
+  printf '%s\n' "${ziti_enrollment_controller_ip}" > "${identity_dir}/${identity_basename}.controller-ip"
 fi
 
 if [[ ! -s "${identity_file}" ]]; then
