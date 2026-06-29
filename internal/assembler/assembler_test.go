@@ -397,6 +397,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], "getent ahostsv4") || !strings.Contains(zitiEnroll.Cmd[1], "--resolve") {
 		t.Fatalf("expected ziti enroll script to persist resolved controller address, got %q", zitiEnroll.Cmd[1])
 	}
+	if !strings.Contains(zitiEnroll.Cmd[1], `--arg ca "pem:$(cat "${ziti_tls_ca_cert}")"`) {
+		t.Fatalf("expected ziti enroll script to retain the full TLS CA bundle in identity config, got %q", zitiEnroll.Cmd[1])
+	}
 	if !strings.Contains(zitiEnroll.Cmd[1], ".iss") || !strings.Contains(zitiEnroll.Cmd[1], ".em") || !strings.Contains(zitiEnroll.Cmd[1], ".jti") || !strings.Contains(zitiEnroll.Cmd[1], ".sub") {
 		t.Fatalf("expected ziti enroll script to derive enrollment request from JWT claims, got %q", zitiEnroll.Cmd[1])
 	}
@@ -434,6 +437,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_BINARY", zitiSidecarBinaryPath)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_COMMAND", zitiSidecarCommand)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_MODE", zitiSidecarMode)
+	assertEnv(t, zitiEnv, "ZITI_SIDECAR_SERVICE_POLL_RATE", zitiSidecarServicePollRate)
 	if _, ok := zitiEnv[ZitiEnrollmentTokenEnvVar]; ok {
 		t.Fatalf("expected ziti sidecar not to receive %s", ZitiEnrollmentTokenEnvVar)
 	}
@@ -1785,6 +1789,12 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	}
 	if !strings.Contains(zitiSidecarScript, `getent ahostsv4`) || !strings.Contains(zitiSidecarScript, `timeout 5 openssl s_client`) || !strings.Contains(zitiSidecarScript, `GODEBUG`) || !strings.Contains(zitiSidecarScript, `controller_ip`) {
 		t.Fatalf("expected sidecar script to assert controller host routing, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `-CAfile "${ZITI_IDENTITY_DIR}/controller-tls-ca.pem"`) || !strings.Contains(zitiSidecarScript, `-verify_return_error`) {
+		t.Fatalf("expected sidecar preflight to verify with configured CA bundle, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`) {
+		t.Fatalf("expected sidecar script to enable service polling, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
 		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)

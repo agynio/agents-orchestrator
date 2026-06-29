@@ -41,6 +41,7 @@ const (
 	zitiSidecarBinaryPath            = "/usr/local/bin/ziti"
 	zitiSidecarCommand               = "tunnel"
 	zitiSidecarMode                  = "tproxy"
+	zitiSidecarServicePollRate       = "1"
 	zitiEnrollScript                 = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
 identity_dir="${ZITI_IDENTITY_DIR}"
@@ -130,7 +131,7 @@ if [[ ! -s "${identity_file}" ]]; then
     echo "expected certificate in ziti enrollment response" >&2
     exit 1
   fi
-  jq -n --arg ztAPI "${ziti_api_url}" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_controller_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
+  jq -n --arg ztAPI "${ziti_api_url}" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_tls_ca_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
   printf '%s\n' "${ziti_controller_host}" > "${identity_dir}/${identity_basename}.controller-host"
   printf '%s\n' "${ziti_controller_port}" > "${identity_dir}/${identity_basename}.controller-port"
   printf '%s\n' "${ziti_controller_ip}" > "${identity_dir}/${identity_basename}.controller-ip"
@@ -177,9 +178,9 @@ if ! getent ahostsv4 "${controller_host}" | awk -v ip="${controller_ip}" '$1 == 
   echo "expected ${controller_host} to resolve to ${controller_ip}" >&2
   exit 1
 fi
-timeout 5 openssl s_client -servername "${controller_host}" -connect "${controller_host}:${controller_port}" </dev/null >/dev/null
+timeout 5 openssl s_client -CAfile "${ZITI_IDENTITY_DIR}/controller-tls-ca.pem" -verify_return_error -servername "${controller_host}" -connect "${controller_host}:${controller_port}" </dev/null >/dev/null
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
-exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53"`
+exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
@@ -472,6 +473,7 @@ func zitiSidecarEnvVars(workloadDNSUpstream string) []*runnerv1.EnvVar {
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_BINARY", Value: zitiSidecarBinaryPath},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_COMMAND", Value: zitiSidecarCommand},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_MODE", Value: zitiSidecarMode},
+		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_SERVICE_POLL_RATE", Value: zitiSidecarServicePollRate},
 	)
 	return envVars
 }
