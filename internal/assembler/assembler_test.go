@@ -441,7 +441,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Entrypoint != zitiSidecarEntrypoint {
 		t.Fatalf("expected ziti sidecar entrypoint %q, got %q", zitiSidecarEntrypoint, zitiSidecar.Entrypoint)
 	}
-	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream, cfg.ZitiRuntimeControllerResolveHost)
+	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream, cfg.ZitiRuntimeControllerResolveHost, cfg.ZitiRuntimeControllerPort, cfg.ZitiEnrollmentControllerResolveHost)
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
 	}
@@ -450,6 +450,12 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 	if zitiSidecar.Cmd[4] != cfg.ZitiRuntimeControllerResolveHost {
 		t.Fatalf("expected ziti sidecar runtime controller resolve host arg %q, got %q", cfg.ZitiRuntimeControllerResolveHost, zitiSidecar.Cmd[4])
+	}
+	if zitiSidecar.Cmd[5] != cfg.ZitiRuntimeControllerPort {
+		t.Fatalf("expected ziti sidecar runtime controller port arg %q, got %q", cfg.ZitiRuntimeControllerPort, zitiSidecar.Cmd[5])
+	}
+	if zitiSidecar.Cmd[6] != cfg.ZitiEnrollmentControllerResolveHost {
+		t.Fatalf("expected ziti sidecar enrollment controller resolve host arg %q, got %q", cfg.ZitiEnrollmentControllerResolveHost, zitiSidecar.Cmd[6])
 	}
 	if zitiSidecar.Cmd[3] == cfg.ZitiEnrollmentDNSUpstream {
 		t.Fatalf("expected ziti sidecar not to use enrollment DNS upstream %q", cfg.ZitiEnrollmentDNSUpstream)
@@ -1969,13 +1975,15 @@ func assertFileEquals(t *testing.T, path, expected string) {
 }
 
 func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
-	cmd := buildZitiSidecarCommand("10.43.0.30", "istio-ingressgateway.istio-gateway.svc.cluster.local")
+	cmd := buildZitiSidecarCommand("10.43.0.30", "istio-ingressgateway.istio-gateway.svc.cluster.local", "443", "ziti-controller-client.ziti.svc.cluster.local")
 	expected := []string{
 		"-ec",
 		zitiSidecarScript,
 		ZitiSidecarContainerName,
 		"10.43.0.30",
 		"istio-ingressgateway.istio-gateway.svc.cluster.local",
+		"443",
+		"ziti-controller-client.ziti.svc.cluster.local",
 	}
 	if zitiSidecarEntrypoint != "/usr/bin/bash" {
 		t.Fatalf("expected sidecar entrypoint to bypass image entrypoint with shell wrapper, got %q", zitiSidecarEntrypoint)
@@ -2003,6 +2011,12 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	}
 	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`) {
 		t.Fatalf("expected sidecar script to enable service polling, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || !strings.Contains(zitiSidecarScript, `--to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"`) {
+		t.Fatalf("expected sidecar script to pin enrollment underlay runtime traffic to runtime controller, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" > "${resolv_file}"`) {
+		t.Fatalf("expected sidecar script to restore the local tunnel resolver before ziti starts, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
 		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)

@@ -200,6 +200,8 @@ fi
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
 	zitiSidecarScript = `workload_dns_upstream="$1"
 runtime_controller_resolve_host="$2"
+runtime_controller_port_override="$3"
+enrollment_controller_resolve_host="$4"
 runtime_controller_dns_upstream="${ZITI_DNS_UPSTREAM:-${workload_dns_upstream}}"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
@@ -213,16 +215,35 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
     exit 1
   fi
   ziti_runtime_controller_host="${ziti_runtime_controller_hostport%%:*}"
+  ziti_runtime_controller_port="${ziti_runtime_controller_hostport##:*}"
+  if [[ "${ziti_runtime_controller_port}" == "${ziti_runtime_controller_hostport}" ]]; then
+    ziti_runtime_controller_port="443"
+  fi
+  if [[ -n "${runtime_controller_port_override}" ]]; then
+    ziti_runtime_controller_port="${runtime_controller_port_override}"
+  fi
   ziti_runtime_controller_ip="$(getent ahostsv4 "${runtime_controller_resolve_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
   if [[ -z "${ziti_runtime_controller_ip}" ]]; then
     echo "expected resolved runtime controller address for ${runtime_controller_resolve_host}" >&2
     exit 1
+  fi
+  if [[ -n "${enrollment_controller_resolve_host}" ]]; then
+    ziti_enrollment_controller_ip="$(getent ahostsv4 "${enrollment_controller_resolve_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
+    if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
+      echo "expected resolved enrollment controller address for ${enrollment_controller_resolve_host}" >&2
+      exit 1
+    fi
+    if [[ "${ziti_enrollment_controller_ip}" != "${ziti_runtime_controller_ip}" ]]; then
+      iptables -t nat -C OUTPUT -p tcp -d "${ziti_enrollment_controller_ip}" --dport "${ziti_runtime_controller_port}" -j DNAT --to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}" 2>/dev/null || \
+        iptables -t nat -A OUTPUT -p tcp -d "${ziti_enrollment_controller_ip}" --dport "${ziti_runtime_controller_port}" -j DNAT --to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"
+    fi
   fi
   awk -v host="${ziti_runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${hosts_file}" > "${hosts_file}.tmp"
   printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" >> "${hosts_file}.tmp"
   cat "${hosts_file}.tmp" > "${hosts_file}"
   rm -f "${hosts_file}.tmp"
 fi
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --dnsUpstream "tcp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
@@ -369,7 +390,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiSidecar := &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
-			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream, a.cfg.ZitiRuntimeControllerResolveHost),
+			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream, a.cfg.ZitiRuntimeControllerResolveHost, a.cfg.ZitiRuntimeControllerPort, a.cfg.ZitiEnrollmentControllerResolveHost),
 			Entrypoint:           zitiSidecarEntrypoint,
 			Env:                  zitiSidecarEnvVars(a.cfg.WorkloadDNSUpstream, a.cfg.ZitiEnrollmentDNSUpstream, a.cfg.ZitiRuntimeControllerResolveHost),
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
@@ -547,13 +568,15 @@ func buildZitiEnrollCommand(workloadDNSUpstream string, enrollmentControllerReso
 	}
 }
 
-func buildZitiSidecarCommand(workloadDNSUpstream string, runtimeControllerResolveHost string) []string {
+func buildZitiSidecarCommand(workloadDNSUpstream string, runtimeControllerResolveHost string, runtimeControllerPort string, enrollmentControllerResolveHost string) []string {
 	return []string{
 		"-ec",
 		zitiSidecarScript,
 		ZitiSidecarContainerName,
 		workloadDNSUpstream,
 		runtimeControllerResolveHost,
+		runtimeControllerPort,
+		enrollmentControllerResolveHost,
 	}
 }
 
