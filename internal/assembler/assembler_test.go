@@ -394,6 +394,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if strings.Contains(zitiEnroll.Cmd[1], "ziti.agyn.dev") {
 		t.Fatalf("expected ziti enroll script not to hard-code controller host, got %q", zitiEnroll.Cmd[1])
 	}
+	if !strings.Contains(zitiEnroll.Cmd[1], "getent ahostsv4") || !strings.Contains(zitiEnroll.Cmd[1], "--resolve") {
+		t.Fatalf("expected ziti enroll script to persist resolved controller address, got %q", zitiEnroll.Cmd[1])
+	}
 	if !strings.Contains(zitiEnroll.Cmd[1], ".iss") || !strings.Contains(zitiEnroll.Cmd[1], ".em") || !strings.Contains(zitiEnroll.Cmd[1], ".jti") || !strings.Contains(zitiEnroll.Cmd[1], ".sub") {
 		t.Fatalf("expected ziti enroll script to derive enrollment request from JWT claims, got %q", zitiEnroll.Cmd[1])
 	}
@@ -427,6 +430,10 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	zitiEnv := envMap(zitiSidecar.Env)
 	assertEnv(t, zitiEnv, ZitiIdentityBasenameEnvVar, ZitiIdentityBasename)
 	assertEnv(t, zitiEnv, ZitiIdentityDirEnvVar, zitiIdentityMountPath)
+	assertEnv(t, zitiEnv, "WORKLOAD_DNS_UPSTREAM", cfg.WorkloadDNSUpstream)
+	assertEnv(t, zitiEnv, "ZITI_SIDECAR_BINARY", zitiSidecarBinaryPath)
+	assertEnv(t, zitiEnv, "ZITI_SIDECAR_COMMAND", zitiSidecarCommand)
+	assertEnv(t, zitiEnv, "ZITI_SIDECAR_MODE", zitiSidecarMode)
 	if _, ok := zitiEnv[ZitiEnrollmentTokenEnvVar]; ok {
 		t.Fatalf("expected ziti sidecar not to receive %s", ZitiEnrollmentTokenEnvVar)
 	}
@@ -1605,6 +1612,7 @@ func TestZitiEnrollScriptRemovesOnlyJwtControllerLoopbackAlias(t *testing.T) {
 		"127.0.0.1\tlocalhost",
 		"127.0.0.1\t" + controllerHost,
 		"127.0.0.1\t" + otherHost,
+		"10.43.58.17\t" + controllerHost,
 		"10.42.1.121\tworkload-c84f0a23-ec5b-4410-97bb-2392195055a3",
 		"",
 	}, "\n")), 0o600); err != nil {
@@ -1761,17 +1769,21 @@ func assertFileEquals(t *testing.T, path, expected string) {
 func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	cmd := buildZitiSidecarCommand("10.43.0.30")
 	expected := []string{
-		zitiSidecarCommand,
-		zitiSidecarMode,
-		"--identity",
-		zitiIdentityMountPath + "/" + ZitiIdentityBasename + ".json",
-		"--dnsUpstream",
-		"udp://10.43.0.30:53",
+		"-ec",
+		zitiSidecarScript,
+		ZitiSidecarContainerName,
+		"10.43.0.30",
 	}
-	if zitiSidecarEntrypoint != "/usr/local/bin/ziti" {
-		t.Fatalf("expected sidecar entrypoint to bypass image entrypoint, got %q", zitiSidecarEntrypoint)
+	if zitiSidecarEntrypoint != "/usr/bin/bash" {
+		t.Fatalf("expected sidecar entrypoint to bypass image entrypoint with shell wrapper, got %q", zitiSidecarEntrypoint)
 	}
 	if !equalStringSlice(cmd, expected) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expected, cmd)
+	}
+	if !strings.Contains(zitiSidecarScript, `exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}"`) {
+		t.Fatalf("expected sidecar script to exec ziti tunnel directly, got %q", zitiSidecarScript)
+	}
+	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
+		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)
 	}
 }
