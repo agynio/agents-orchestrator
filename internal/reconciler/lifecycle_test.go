@@ -1601,6 +1601,8 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 		ZitiEnrollmentDNSUpstream:           "10.43.0.10",
 		ZitiEnrollmentControllerResolveHost: "ziti-controller-client.ziti.svc.cluster.local",
 		ZitiEnrollmentControllerPort:        "2496",
+		ZitiRuntimeControllerResolveHost:    "istio-ingressgateway.istio-gateway.svc.cluster.local",
+		ZitiRuntimeControllerPort:           "443",
 	}
 	return assembler.New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
 }
