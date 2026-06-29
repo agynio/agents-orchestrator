@@ -1989,8 +1989,11 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `GODEBUG`) {
 		t.Fatalf("expected sidecar script to force cgo DNS resolution, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"`) {
-		t.Fatalf("expected sidecar script to resolve runtime controller through workload DNS, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `runtime_controller_dns_upstream="${ZITI_DNS_UPSTREAM:-${workload_dns_upstream}}"`) {
+		t.Fatalf("expected sidecar script to resolve runtime controller through bootstrap DNS, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${runtime_controller_dns_upstream}" > "${resolv_file}"`) {
+		t.Fatalf("expected sidecar script to write runtime controller bootstrap resolver, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `openssl s_client`) {
 		t.Fatalf("expected sidecar startup not to fail before tunnel retry handling, got %q", zitiSidecarScript)
