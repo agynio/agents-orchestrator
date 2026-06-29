@@ -602,11 +602,7 @@ func buildContainers(request *runnerv1.StartWorkloadRequest, resp *runnerv1.Star
 }
 
 func attachZitiEnrollmentEnv(container *runnerv1.ContainerSpec, jwt string) {
-	container.Env = append(container.Env,
-		&runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt},
-		&runnerv1.EnvVar{Name: assembler.ZitiControllerServiceHostEnvVar, Value: "ziti-controller-client.ziti.svc.cluster.local"},
-		&runnerv1.EnvVar{Name: assembler.ZitiControllerServicePortEnvVar, Value: "2496"},
-	)
+	container.Env = append(container.Env, &runnerv1.EnvVar{Name: assembler.ZitiEnrollmentTokenEnvVar, Value: jwt})
 }
 
 func failureSummary(failure *runnerv1.WorkloadFailure) string {

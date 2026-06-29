@@ -83,6 +83,12 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.ZitiEnrollmentDNSUpstream != "10.43.0.10" {
 		t.Fatalf("expected ziti enrollment DNS upstream %q, got %q", "10.43.0.10", cfg.ZitiEnrollmentDNSUpstream)
 	}
+	if cfg.ZitiEnrollmentControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected ziti enrollment controller resolve host %q, got %q", "ziti-controller-client.ziti.svc.cluster.local", cfg.ZitiEnrollmentControllerResolveHost)
+	}
+	if cfg.ZitiEnrollmentControllerPort != "2496" {
+		t.Fatalf("expected ziti enrollment controller port %q, got %q", "2496", cfg.ZitiEnrollmentControllerPort)
+	}
 }
 
 func TestFromEnvWorkloadDNSUpstream(t *testing.T) {
@@ -177,6 +183,8 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("WORKLOAD_DNS_UPSTREAM", "")
 	t.Setenv("CLUSTER_DNS", "")
 	t.Setenv("ZITI_ENROLLMENT_DNS_UPSTREAM", "")
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST", "")
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_PORT", "")
 	t.Setenv("ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST", "")
 	t.Setenv("ZITI_RUNTIME_CONTROLLER_PORT", "")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
@@ -224,6 +232,8 @@ func TestFromEnvGroupSyncEnabledInvalid(t *testing.T) {
 
 func TestFromEnvZitiRuntimeController(t *testing.T) {
 	setBaseEnv(t)
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST", "ziti-controller-client.ziti.svc.cluster.local")
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_PORT", "2496")
 	t.Setenv("ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST", "istio-ingressgateway.istio-gateway.svc.cluster.local")
 	t.Setenv("ZITI_RUNTIME_CONTROLLER_PORT", "443")
 
@@ -236,6 +246,39 @@ func TestFromEnvZitiRuntimeController(t *testing.T) {
 	}
 	if cfg.ZitiRuntimeControllerPort != "443" {
 		t.Fatalf("expected runtime controller port %q, got %q", "443", cfg.ZitiRuntimeControllerPort)
+	}
+	if cfg.ZitiEnrollmentControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected enrollment controller resolve host, got %q", cfg.ZitiEnrollmentControllerResolveHost)
+	}
+	if cfg.ZitiEnrollmentControllerPort != "2496" {
+		t.Fatalf("expected enrollment controller port %q, got %q", "2496", cfg.ZitiEnrollmentControllerPort)
+	}
+}
+
+func TestFromEnvZitiEnrollmentControllerDefaults(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST", "")
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_PORT", "")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.ZitiEnrollmentControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected default enrollment controller resolve host, got %q", cfg.ZitiEnrollmentControllerResolveHost)
+	}
+	if cfg.ZitiEnrollmentControllerPort != "2496" {
+		t.Fatalf("expected default enrollment controller port, got %q", cfg.ZitiEnrollmentControllerPort)
+	}
+}
+
+func TestFromEnvZitiEnrollmentControllerPortInvalid(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_PORT", "not-a-port")
+
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatal("expected ZITI_ENROLLMENT_CONTROLLER_PORT parse error")
 	}
 }
 

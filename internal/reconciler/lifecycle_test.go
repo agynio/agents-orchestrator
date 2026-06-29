@@ -91,11 +91,11 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if envs[assembler.ZitiIdentityBasenameEnvVar] != assembler.ZitiIdentityBasename {
 				return nil, errors.New("missing ZITI_IDENTITY_BASENAME")
 			}
-			if envs[assembler.ZitiControllerServiceHostEnvVar] != "ziti-controller-client.ziti.svc.cluster.local" {
-				return nil, errors.New("missing ZITI_CONTROLLER_SERVICE_HOST")
+			if envs[assembler.ZitiEnrollmentControllerResolveHostEnvVar] != "ziti-controller-client.ziti.svc.cluster.local" {
+				return nil, errors.New("missing ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST")
 			}
-			if envs[assembler.ZitiControllerServicePortEnvVar] != "2496" {
-				return nil, errors.New("missing ZITI_CONTROLLER_SERVICE_PORT")
+			if envs[assembler.ZitiEnrollmentControllerPortEnvVar] != "2496" {
+				return nil, errors.New("missing ZITI_ENROLLMENT_CONTROLLER_PORT")
 			}
 			zitiSidecar := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarContainerName)
 			if zitiSidecar == nil {
@@ -1593,11 +1593,14 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 	}
 
 	cfg := &config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-		ZitiEnabled:         zitiEnabled,
-		ZitiSidecarImage:    "ziti-sidecar-image",
-		WorkloadDNSUpstream: "10.43.0.10",
+		AgentGatewayAddress:                 "gateway:50051",
+		AgentLLMBaseURL:                     "http://llm:8080/v1",
+		ZitiEnabled:                         zitiEnabled,
+		ZitiSidecarImage:                    "ziti-sidecar-image",
+		WorkloadDNSUpstream:                 "10.43.0.10",
+		ZitiEnrollmentDNSUpstream:           "10.43.0.10",
+		ZitiEnrollmentControllerResolveHost: "ziti-controller-client.ziti.svc.cluster.local",
+		ZitiEnrollmentControllerPort:        "2496",
 	}
 	return assembler.New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
 }

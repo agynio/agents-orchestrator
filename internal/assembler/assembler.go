@@ -19,35 +19,37 @@ import (
 )
 
 const (
-	listPageSize                    int32 = 100
-	rpcTimeout                            = 10 * time.Second
-	agynBinVolumeName                     = "agyn-bin"
-	agynBinMountPath                      = "/agyn-bin"
-	agynBinBinaryPath                     = "/agyn-bin/agynd"
-	mcpBasePort                           = 8100
-	ZitiEnrollContainerName               = "ziti-enroll"
-	ZitiSidecarContainerName              = "ziti-sidecar"
-	zitiIdentityVolumeName                = "ziti-identity"
-	zitiIdentityMountPath                 = "/netfoundry"
-	ZitiIdentityBasename                  = "agent"
-	ZitiEnrollmentTokenEnvVar             = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar            = "ZITI_IDENTITY_BASENAME"
-	ZitiIdentityDirEnvVar                 = "ZITI_IDENTITY_DIR"
-	ZitiControllerServiceHostEnvVar       = "ZITI_CONTROLLER_SERVICE_HOST"
-	ZitiControllerServicePortEnvVar       = "ZITI_CONTROLLER_SERVICE_PORT"
-	egressCACertPath                      = "/etc/agyn/egress-ca/ca.crt"
-	egressCACertDir                       = "/etc/agyn/egress-ca"
-	zitiDNSNameserver                     = "127.0.0.1"
-	zitiEnrollEntrypoint                  = "/usr/bin/bash"
-	zitiSidecarEntrypoint                 = "/usr/bin/bash"
-	zitiSidecarBinaryPath                 = "/usr/local/bin/ziti"
-	zitiSidecarCommand                    = "tunnel"
-	zitiSidecarMode                       = "tproxy"
-	zitiSidecarServicePollRate            = "1"
-	zitiEnrollScript                      = `workload_dns_upstream="$1"
+	listPageSize                              int32 = 100
+	rpcTimeout                                      = 10 * time.Second
+	agynBinVolumeName                               = "agyn-bin"
+	agynBinMountPath                                = "/agyn-bin"
+	agynBinBinaryPath                               = "/agyn-bin/agynd"
+	mcpBasePort                                     = 8100
+	ZitiEnrollContainerName                         = "ziti-enroll"
+	ZitiSidecarContainerName                        = "ziti-sidecar"
+	zitiIdentityVolumeName                          = "ziti-identity"
+	zitiIdentityMountPath                           = "/netfoundry"
+	ZitiIdentityBasename                            = "agent"
+	ZitiEnrollmentTokenEnvVar                       = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar                      = "ZITI_IDENTITY_BASENAME"
+	ZitiIdentityDirEnvVar                           = "ZITI_IDENTITY_DIR"
+	ZitiEnrollmentControllerResolveHostEnvVar       = "ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST"
+	ZitiEnrollmentControllerPortEnvVar              = "ZITI_ENROLLMENT_CONTROLLER_PORT"
+	egressCACertPath                                = "/etc/agyn/egress-ca/ca.crt"
+	egressCACertDir                                 = "/etc/agyn/egress-ca"
+	zitiDNSNameserver                               = "127.0.0.1"
+	zitiEnrollEntrypoint                            = "/usr/bin/bash"
+	zitiSidecarEntrypoint                           = "/usr/bin/bash"
+	zitiSidecarBinaryPath                           = "/usr/local/bin/ziti"
+	zitiSidecarCommand                              = "tunnel"
+	zitiSidecarMode                                 = "tproxy"
+	zitiSidecarServicePollRate                      = "1"
+	zitiEnrollScript                                = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
-runtime_controller_resolve_host="$3"
-runtime_controller_port_override="$4"
+enrollment_controller_resolve_host="$3"
+enrollment_controller_port_override="$4"
+runtime_controller_resolve_host="$5"
+runtime_controller_port_override="$6"
 identity_dir="${ZITI_IDENTITY_DIR}"
 identity_basename="${ZITI_IDENTITY_BASENAME}"
 identity_file="${identity_dir}/${identity_basename}.json"
@@ -67,6 +69,12 @@ if [[ ! -s "${identity_file}" ]]; then
   if [[ -z "${ZITI_ENROLL_TOKEN}" ]]; then
     echo "ZITI_ENROLL_TOKEN is required" >&2
     exit 1
+  fi
+  if [[ -n "${ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST:-}" ]]; then
+    enrollment_controller_resolve_host="${ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST}"
+  fi
+  if [[ -n "${ZITI_ENROLLMENT_CONTROLLER_PORT:-}" ]]; then
+    enrollment_controller_port_override="${ZITI_ENROLLMENT_CONTROLLER_PORT}"
   fi
   printf '%s\n' "${ZITI_ENROLL_TOKEN}" > "${jwt_file}"
 
@@ -103,14 +111,17 @@ if [[ ! -s "${identity_file}" ]]; then
   if [[ "${ziti_controller_port}" == "${ziti_controller_hostport}" ]]; then
     ziti_controller_port="443"
   fi
-  ziti_enrollment_resolve_host="${ziti_controller_host}"
-  ziti_enrollment_controller_ip="$(getent ahostsv4 "${ziti_controller_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
-  if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
-    ziti_enrollment_controller_ip="$(awk -v host="${ziti_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) { print $1; exit } }' "${hosts_file}")"
+  ziti_enrollment_controller_port="${ziti_controller_port}"
+  if [[ -n "${enrollment_controller_port_override}" ]]; then
+    ziti_enrollment_controller_port="${enrollment_controller_port_override}"
   fi
-  if [[ -z "${ziti_enrollment_controller_ip}" && -n "${runtime_controller_resolve_host}" ]]; then
-    ziti_enrollment_resolve_host="${runtime_controller_resolve_host}"
-    ziti_enrollment_controller_ip="$(getent ahostsv4 "${runtime_controller_resolve_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
+  ziti_enrollment_resolve_host="${ziti_controller_host}"
+  if [[ -n "${enrollment_controller_resolve_host}" ]]; then
+    ziti_enrollment_resolve_host="${enrollment_controller_resolve_host}"
+  fi
+  ziti_enrollment_controller_ip="$(getent ahostsv4 "${ziti_enrollment_resolve_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
+  if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
+    ziti_enrollment_controller_ip="$(awk -v host="${ziti_enrollment_resolve_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) { print $1; exit } }' "${hosts_file}")"
   fi
   if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
     echo "expected resolved controller address for ${ziti_enrollment_resolve_host}" >&2
@@ -121,9 +132,9 @@ if [[ ! -s "${identity_file}" ]]; then
   if [[ -n "${runtime_controller_port_override}" ]]; then
     ziti_runtime_controller_port="${runtime_controller_port_override}"
   fi
-  ziti_enroll_url="${ziti_controller_url%/}/edge/client/v1/enroll?method=${ziti_enrollment_method}&token=${ziti_enrollment_token_id}"
+  ziti_enroll_url="https://${ziti_controller_host}:${ziti_enrollment_controller_port}/edge/client/v1/enroll?method=${ziti_enrollment_method}&token=${ziti_enrollment_token_id}"
 
-  openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_enrollment_controller_ip}:${ziti_controller_port}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
+  openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_enrollment_controller_ip}:${ziti_enrollment_controller_port}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
   if [[ ! -s "${ziti_controller_cert}" ]]; then
     echo "expected controller certificate from ${ziti_controller_hostport}" >&2
     exit 1
@@ -134,7 +145,7 @@ if [[ ! -s "${identity_file}" ]]; then
   fi
   openssl ecparam -name secp384r1 -genkey -noout -out "${ziti_key_file}"
   openssl req -new -key "${ziti_key_file}" -subj "/C=US/O=NetFoundry/CN=${ziti_identity_subject}" -out "${ziti_csr_file}"
-  enroll_response="$(curl --fail-with-body --show-error --silent --cacert "${ziti_tls_ca_cert}" --resolve "${ziti_controller_host}:${ziti_controller_port}:${ziti_enrollment_controller_ip}" -H 'content-type: application/x-pem-file' --data-binary "@${ziti_csr_file}" "${ziti_enroll_url}")"
+  enroll_response="$(curl --fail-with-body --show-error --silent --cacert "${ziti_tls_ca_cert}" --resolve "${ziti_controller_host}:${ziti_enrollment_controller_port}:${ziti_enrollment_controller_ip}" -H 'content-type: application/x-pem-file' --data-binary "@${ziti_csr_file}" "${ziti_enroll_url}")"
   if printf '%s' "${enroll_response}" | jq -e . >/dev/null 2>&1; then
     printf '%s' "${enroll_response}" | jq -r '.data.cert // empty' > "${ziti_cert_file}"
   else
@@ -327,9 +338,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiEnroll := &runnerv1.ContainerSpec{
 			Image:      a.cfg.ZitiSidecarImage,
 			Name:       ZitiEnrollContainerName,
-			Cmd:        buildZitiEnrollCommand(a.cfg.ZitiEnrollmentDNSUpstream, a.cfg.ZitiRuntimeControllerResolveHost, a.cfg.ZitiRuntimeControllerPort),
+			Cmd:        buildZitiEnrollCommand(a.cfg.ZitiEnrollmentDNSUpstream, a.cfg.ZitiEnrollmentControllerResolveHost, a.cfg.ZitiEnrollmentControllerPort, a.cfg.ZitiRuntimeControllerResolveHost, a.cfg.ZitiRuntimeControllerPort),
 			Entrypoint: zitiEnrollEntrypoint,
-			Env:        zitiEnvVars(),
+			Env:        zitiEnrollEnvVars(a.cfg.ZitiEnrollmentControllerResolveHost, a.cfg.ZitiEnrollmentControllerPort),
 			Mounts:     []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 		}
 		zitiSidecar := &runnerv1.ContainerSpec{
@@ -476,6 +487,15 @@ func zitiEnvVars() []*runnerv1.EnvVar {
 	}
 }
 
+func zitiEnrollEnvVars(enrollmentControllerResolveHost string, enrollmentControllerPort string) []*runnerv1.EnvVar {
+	envVars := zitiEnvVars()
+	envVars = append(envVars,
+		&runnerv1.EnvVar{Name: ZitiEnrollmentControllerResolveHostEnvVar, Value: enrollmentControllerResolveHost},
+		&runnerv1.EnvVar{Name: ZitiEnrollmentControllerPortEnvVar, Value: enrollmentControllerPort},
+	)
+	return envVars
+}
+
 func zitiSidecarEnvVars(workloadDNSUpstream string, zitiEnrollmentDNSUpstream string) []*runnerv1.EnvVar {
 	envVars := zitiEnvVars()
 	envVars = append(envVars,
@@ -489,13 +509,15 @@ func zitiSidecarEnvVars(workloadDNSUpstream string, zitiEnrollmentDNSUpstream st
 	return envVars
 }
 
-func buildZitiEnrollCommand(workloadDNSUpstream string, runtimeControllerResolveHost string, runtimeControllerPort string) []string {
+func buildZitiEnrollCommand(workloadDNSUpstream string, enrollmentControllerResolveHost string, enrollmentControllerPort string, runtimeControllerResolveHost string, runtimeControllerPort string) []string {
 	return []string{
 		"-ec",
 		zitiEnrollScript,
 		ZitiEnrollContainerName,
 		workloadDNSUpstream,
 		zitiDNSNameserver,
+		enrollmentControllerResolveHost,
+		enrollmentControllerPort,
 		runtimeControllerResolveHost,
 		runtimeControllerPort,
 	}
