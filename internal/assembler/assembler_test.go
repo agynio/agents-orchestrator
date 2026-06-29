@@ -338,7 +338,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if request.DnsConfig == nil {
 		t.Fatal("expected dns config")
 	}
-	expectedNameservers := []string{zitiDNSNameserver}
+	expectedNameservers := []string{zitiDNSNameserver, cfg.WorkloadDNSUpstream}
 	if !equalStringSlice(request.DnsConfig.Nameservers, expectedNameservers) {
 		t.Fatalf("expected dns nameservers %+v, got %+v", expectedNameservers, request.DnsConfig.Nameservers)
 	}
@@ -1752,15 +1752,16 @@ exec "${real_cat}" "$@"
 		t.Fatalf("read identity file: %v", err)
 	}
 	identity := string(identityBytes)
-	if !strings.Contains(identity, "https://controller.example.test:2496/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
-		t.Fatalf("expected enrolled identity json with advertised controller endpoint, got:\n%s", identity)
+	if !strings.Contains(identity, "https://ziti-controller-client.ziti.svc.cluster.local:2496/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
+		t.Fatalf("expected enrolled identity json with cluster-local controller endpoint, got:\n%s", identity)
 	}
-	if strings.Contains(identity, "ziti-controller-client.ziti.svc.cluster.local") {
-		t.Fatalf("expected identity runtime API to avoid cluster-local controller DNS, got:\n%s", identity)
+	if strings.Contains(identity, "https://controller.example.test:2496/edge/client/v1") {
+		t.Fatalf("expected identity runtime API to use cluster-local controller DNS, got:\n%s", identity)
 	}
 	if strings.Contains(identity, "https://10.43.58.17:2496") || strings.Contains(identity, "https://10.43.253.228:2496") {
 		t.Fatalf("expected identity runtime API to avoid direct controller IP, got:\n%s", identity)
 	}
+	assertFileEquals(t, filepath.Join(identityDir, "agent.controller-host"), "ziti-controller-client.ziti.svc.cluster.local\n")
 	assertFileEquals(t, filepath.Join(identityDir, "agent.controller-ip"), "10.43.253.228\n")
 	assertFileEquals(t, filepath.Join(identityDir, "agent.controller-port"), "2496\n")
 }
