@@ -135,12 +135,6 @@ functions:
                   mountPath: /tmp/go-build-cache
                 - name: go-mod-cache
                   mountPath: /tmp/go-mod-cache
-              resources:
-                requests:
-                  cpu: 500m
-                  memory: 1Gi
-                limits:
-                  memory: 3Gi
               securityContext:
                 runAsNonRoot: true
                 runAsUser: 1000
