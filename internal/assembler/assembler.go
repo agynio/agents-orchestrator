@@ -104,19 +104,8 @@ if [[ ! -s "${identity_file}" ]]; then
     echo "expected resolved controller address for ${ziti_controller_host}" >&2
     exit 1
   fi
-  ziti_runtime_controller_host="${ZITI_CONTROLLER_SERVICE_HOST:-${ziti_controller_host}}"
-  ziti_runtime_controller_port="${ZITI_CONTROLLER_SERVICE_PORT:-${ziti_controller_port}}"
-  ziti_runtime_controller_ip="$(getent ahostsv4 "${ziti_runtime_controller_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
-  if [[ -z "${ziti_runtime_controller_ip}" && "${ziti_runtime_controller_host}" == "${ziti_controller_host}" ]]; then
-    ziti_runtime_controller_ip="${ziti_enrollment_controller_ip}"
-  fi
-  if [[ -z "${ziti_runtime_controller_ip}" && "${ziti_runtime_controller_host}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    ziti_runtime_controller_ip="${ziti_runtime_controller_host}"
-  fi
-  if [[ -z "${ziti_runtime_controller_ip}" ]]; then
-    echo "expected resolved controller runtime address for ${ziti_runtime_controller_host}" >&2
-    exit 1
-  fi
+  ziti_runtime_controller_host="${ziti_controller_host}"
+  ziti_runtime_controller_port="${ziti_controller_port}"
   ziti_controller_cert="${identity_dir}/controller-ca.pem"
   ziti_key_file="${identity_dir}/${identity_basename}.key"
   ziti_csr_file="${identity_dir}/${identity_basename}.csr"
@@ -146,9 +135,6 @@ if [[ ! -s "${identity_file}" ]]; then
     exit 1
   fi
   jq -n --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_tls_ca_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
-  printf '%s\n' "${ziti_runtime_controller_host}" > "${identity_dir}/${identity_basename}.controller-host"
-  printf '%s\n' "${ziti_runtime_controller_ip}" > "${identity_dir}/${identity_basename}.controller-ip"
-  printf '%s\n' "${ziti_runtime_controller_port}" > "${identity_dir}/${identity_basename}.controller-port"
 fi
 
 if [[ ! -s "${identity_file}" ]]; then
@@ -159,39 +145,6 @@ fi
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
 	zitiSidecarScript = `workload_dns_upstream="$1"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
-controller_host="${ZITI_CONTROLLER_HOST:-}"
-controller_port="${ZITI_CONTROLLER_PORT:-}"
-controller_ip="${ZITI_CONTROLLER_IP:-}"
-
-if [[ -z "${controller_host}" && -s "${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.controller-host" ]]; then
-  controller_host="$(cat "${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.controller-host")"
-fi
-if [[ -z "${controller_port}" && -s "${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.controller-port" ]]; then
-  controller_port="$(cat "${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.controller-port")"
-fi
-if [[ -z "${controller_ip}" && -s "${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.controller-ip" ]]; then
-  controller_ip="$(cat "${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.controller-ip")"
-fi
-if [[ -z "${controller_host}" || -z "${controller_port}" || -z "${controller_ip}" ]]; then
-  echo "expected Ziti controller host, port, and IP" >&2
-  exit 1
-fi
-
-awk -v host="${controller_host}" -v ip="${controller_ip}" '
-  BEGIN { print ip, host }
-  {
-    keep = 1
-    for (i = 2; i <= NF; i++) if ($i == host) keep = 0
-    if (keep) print
-  }
-' /etc/hosts > /etc/hosts.tmp
-cat /etc/hosts.tmp > /etc/hosts
-rm -f /etc/hosts.tmp
-
-if ! getent ahostsv4 "${controller_host}" | awk -v ip="${controller_ip}" '$1 == ip { found = 1 } END { exit found ? 0 : 1 }'; then
-  echo "expected ${controller_host} to resolve to ${controller_ip}" >&2
-  exit 1
-fi
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --dnsUpstream "tcp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
