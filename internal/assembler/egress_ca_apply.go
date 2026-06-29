@@ -40,3 +40,23 @@ func applyEgressCA(container *runnerv1.ContainerSpec, cert []byte) {
 	container.Env = appendEgressCAEnvVars(container.GetEnv())
 	container.InlineFileMounts = append(container.GetInlineFileMounts(), egressCAInlineFileMounts(cert)...)
 }
+
+func applyZitiEnrollmentCA(container *runnerv1.ContainerSpec, cert []byte) {
+	if len(cert) == 0 {
+		return
+	}
+	container.Env = appendPlatformEnvVar(container.GetEnv(), &runnerv1.EnvVar{Name: "ZITI_ENROLLMENT_CA_FILE", Value: zitiEnrollmentCAFilePath})
+	container.InlineFileMounts = append(container.GetInlineFileMounts(), &runnerv1.InlineFileMount{Path: zitiEnrollmentCAFilePath})
+}
+
+func (a *Assembler) inlineFiles() map[string][]byte {
+	files := egressCAInlineFiles(a.egressCACert)
+	if !a.cfg.ZitiEnabled || len(a.egressCACert) == 0 {
+		return files
+	}
+	if files == nil {
+		files = map[string][]byte{}
+	}
+	files[zitiEnrollmentCAFilePath] = append([]byte(nil), a.egressCACert...)
+	return files
+}

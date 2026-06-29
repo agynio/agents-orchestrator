@@ -388,7 +388,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], "nameserver %s\\nsearch svc.cluster.local cluster.local\\noptions ndots:5\\n") {
 		t.Fatalf("expected ziti enroll script to write workload DNS upstream resolver, got %q", zitiEnroll.Cmd[1])
 	}
-	if !strings.Contains(zitiEnroll.Cmd[1], "ziti edge enroll --jwt") {
+	if !strings.Contains(zitiEnroll.Cmd[1], "enroll_args=(edge enroll --jwt") {
 		t.Fatalf("expected ziti enroll script to run ziti edge enroll, got %q", zitiEnroll.Cmd[1])
 	}
 	if strings.Contains(zitiEnroll.Cmd[1], "ziti.agyn.dev") {
@@ -1538,6 +1538,9 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 	if string(request.GetInlineFiles()[egressCACertPath]) != string(cert) {
 		t.Fatalf("expected egress CA inline file bytes")
 	}
+	if string(request.GetInlineFiles()[zitiEnrollmentCAFilePath]) != string(cert) {
+		t.Fatalf("expected ziti enrollment CA inline file bytes")
+	}
 	containers := []*runnerv1.ContainerSpec{request.Main}
 	containers = append(containers, request.GetSidecars()...)
 	containers = append(containers, request.GetInitContainers()...)
@@ -1545,6 +1548,12 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 		assertEgressCAEnv(t, container)
 		assertInlineFileMount(t, container, egressCACertPath)
 	}
+	zitiEnroll := testutil.FindInitContainer(request.GetInitContainers(), ZitiEnrollContainerName)
+	if zitiEnroll == nil {
+		t.Fatal("expected ziti-enroll init container")
+	}
+	assertEnv(t, envMap(zitiEnroll.GetEnv()), "ZITI_ENROLLMENT_CA_FILE", zitiEnrollmentCAFilePath)
+	assertInlineFileMount(t, zitiEnroll, zitiEnrollmentCAFilePath)
 }
 
 func assertEgressCAEnv(t *testing.T, container *runnerv1.ContainerSpec) {
@@ -1631,6 +1640,7 @@ exec "${real_cat}" "$@"
 		ZitiIdentityDirEnvVar+"="+identityDir,
 		"ZITI_RESOLV_CONF="+resolvPath,
 		"ZITI_HOSTS_FILE="+hostsPath,
+		"ZITI_ENROLLMENT_CA_FILE="+zitiEnrollmentCAFilePath,
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1657,7 +1667,7 @@ exec "${real_cat}" "$@"
 		t.Fatalf("read ziti log: %v", err)
 	}
 	log := string(logBytes)
-	if !strings.Contains(log, "args=edge enroll --jwt "+filepath.Join(identityDir, "agent.jwt")+" --out "+filepath.Join(identityDir, "agent.json")) {
+	if !strings.Contains(log, "args=edge enroll --jwt "+filepath.Join(identityDir, "agent.jwt")+" --out "+filepath.Join(identityDir, "agent.json")+" --ca "+zitiEnrollmentCAFilePath) {
 		t.Fatalf("expected ziti enroll args in log, got:\n%s", log)
 	}
 	if !strings.Contains(log, "jwt="+jwt) {

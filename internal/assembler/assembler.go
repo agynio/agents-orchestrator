@@ -30,6 +30,7 @@ const (
 	zitiIdentityVolumeName           = "ziti-identity"
 	zitiIdentityMountPath            = "/netfoundry"
 	ZitiIdentityBasename             = "agent"
+	zitiEnrollmentCAFilePath         = "/netfoundry/enrollment-ca.pem"
 	ZitiEnrollmentTokenEnvVar        = "ZITI_ENROLL_TOKEN"
 	ZitiIdentityBasenameEnvVar       = "ZITI_IDENTITY_BASENAME"
 	ZitiIdentityDirEnvVar            = "ZITI_IDENTITY_DIR"
@@ -75,7 +76,11 @@ if [[ ! -s "${identity_file}" ]]; then
   fi
   printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 
-  ziti edge enroll --jwt "${jwt_file}" --out "${identity_file}"
+  enroll_args=(edge enroll --jwt "${jwt_file}" --out "${identity_file}")
+  if [[ -n "${ZITI_ENROLLMENT_CA_FILE:-}" ]]; then
+    enroll_args+=(--ca "${ZITI_ENROLLMENT_CA_FILE}")
+  fi
+  ziti "${enroll_args[@]}"
 fi
 
 if [[ ! -s "${identity_file}" ]]; then
@@ -244,6 +249,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
 		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
+		applyZitiEnrollmentCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
 		applyEgressCA(zitiGatewayWait, a.egressCACert)
 		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, initContainer}
@@ -335,7 +341,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		InitContainers:       initContainers,
 		ImagePullCredentials: imagePullCredentials,
 		Capabilities:         append([]string(nil), agent.GetCapabilities()...),
-		InlineFiles:          egressCAInlineFiles(a.egressCACert),
+		InlineFiles:          a.inlineFiles(),
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
