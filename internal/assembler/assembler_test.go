@@ -1715,8 +1715,8 @@ exec "${real_cat}" "$@"
 	if !strings.Contains(log, "openssl_resolv=nameserver 10.43.0.10") || !strings.Contains(log, "curl_resolv=nameserver 10.43.0.10") {
 		t.Fatalf("expected enrollment to use upstream resolver, got:\n%s", log)
 	}
-	if !strings.Contains(log, "--cacert "+filepath.Join(identityDir, "controller-ca.pem")) {
-		t.Fatalf("expected enrollment curl to trust observed controller cert when SSL_CERT_FILE is absent, got:\n%s", log)
+	if !strings.Contains(log, "--cacert "+filepath.Join(identityDir, "controller-tls-ca.pem")) {
+		t.Fatalf("expected enrollment curl to trust combined controller CA bundle, got:\n%s", log)
 	}
 	identityBytes, err := os.ReadFile(filepath.Join(identityDir, "agent.json"))
 	if err != nil {

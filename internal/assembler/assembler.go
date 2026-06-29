@@ -100,9 +100,10 @@ if [[ ! -s "${identity_file}" ]]; then
     echo "expected controller certificate from ${ziti_controller_hostport}" >&2
     exit 1
   fi
-  ziti_tls_ca_cert="${ziti_controller_cert}"
+  ziti_tls_ca_cert="${identity_dir}/controller-tls-ca.pem"
+  cat "${ziti_controller_cert}" > "${ziti_tls_ca_cert}"
   if [[ -s "${SSL_CERT_FILE:-}" ]]; then
-    ziti_tls_ca_cert="${SSL_CERT_FILE}"
+    cat "${SSL_CERT_FILE}" >> "${ziti_tls_ca_cert}"
   fi
   openssl ecparam -name secp384r1 -genkey -noout -out "${ziti_key_file}"
   openssl req -new -key "${ziti_key_file}" -subj "/C=US/O=NetFoundry/CN=${ziti_identity_subject}" -out "${ziti_csr_file}"
