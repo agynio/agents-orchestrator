@@ -44,6 +44,7 @@ const (
 	zitiSidecarCommand                              = "tunnel"
 	zitiSidecarMode                                 = "tproxy"
 	zitiSidecarServicePollRate                      = "1"
+	zitiSidecarResolverTestEnvVar                   = "ZITI_SIDECAR_SKIP_RESOLVER_TEST"
 	zitiEnrollScript                                = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
 enrollment_controller_resolve_host="$3"
@@ -529,6 +530,7 @@ func zitiSidecarEnvVars(workloadDNSUpstream string, zitiEnrollmentDNSUpstream st
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_COMMAND", Value: zitiSidecarCommand},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_MODE", Value: zitiSidecarMode},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_SERVICE_POLL_RATE", Value: zitiSidecarServicePollRate},
+		&runnerv1.EnvVar{Name: zitiSidecarResolverTestEnvVar, Value: "true"},
 	)
 	return envVars
 }
