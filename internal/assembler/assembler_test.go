@@ -1735,8 +1735,11 @@ exec "${real_cat}" "$@"
 		t.Fatalf("read identity file: %v", err)
 	}
 	identity := string(identityBytes)
-	if !strings.Contains(identity, "https://"+controllerHost+":2496/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
-		t.Fatalf("expected enrolled identity json, got:\n%s", identity)
+	if !strings.Contains(identity, "https://10.43.58.17:2496/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
+		t.Fatalf("expected enrolled identity json with direct controller endpoint, got:\n%s", identity)
+	}
+	if strings.Contains(identity, controllerHost) {
+		t.Fatalf("expected identity runtime API to avoid controller DNS, got:\n%s", identity)
 	}
 }
 

@@ -107,7 +107,6 @@ if [[ ! -s "${identity_file}" ]]; then
   ziti_csr_file="${identity_dir}/${identity_basename}.csr"
   ziti_cert_file="${identity_dir}/${identity_basename}.crt"
   ziti_enroll_url="${ziti_controller_url%/}/edge/client/v1/enroll?method=${ziti_enrollment_method}&token=${ziti_enrollment_token_id}"
-  ziti_api_url="${ziti_controller_url%/}/edge/client/v1"
 
   openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_controller_ip}:${ziti_controller_port}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
   if [[ ! -s "${ziti_controller_cert}" ]]; then
@@ -131,7 +130,7 @@ if [[ ! -s "${identity_file}" ]]; then
     echo "expected certificate in ziti enrollment response" >&2
     exit 1
   fi
-  jq -n --arg ztAPI "${ziti_api_url}" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_tls_ca_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
+  jq -n --arg ztAPI "https://${ziti_controller_ip}:${ziti_controller_port}/edge/client/v1" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_tls_ca_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
   printf '%s\n' "${ziti_controller_host}" > "${identity_dir}/${identity_basename}.controller-host"
   printf '%s\n' "${ziti_controller_port}" > "${identity_dir}/${identity_basename}.controller-port"
   printf '%s\n' "${ziti_controller_ip}" > "${identity_dir}/${identity_basename}.controller-ip"
