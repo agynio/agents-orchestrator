@@ -1787,11 +1787,11 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}"`) {
 		t.Fatalf("expected sidecar script to exec ziti tunnel directly, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `getent ahostsv4`) || !strings.Contains(zitiSidecarScript, `timeout 5 openssl s_client`) || !strings.Contains(zitiSidecarScript, `GODEBUG`) || !strings.Contains(zitiSidecarScript, `controller_ip`) {
+	if !strings.Contains(zitiSidecarScript, `getent ahostsv4`) || !strings.Contains(zitiSidecarScript, `GODEBUG`) || !strings.Contains(zitiSidecarScript, `controller_ip`) {
 		t.Fatalf("expected sidecar script to assert controller host routing, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `-CAfile "${ZITI_IDENTITY_DIR}/controller-tls-ca.pem"`) || !strings.Contains(zitiSidecarScript, `-verify_return_error`) {
-		t.Fatalf("expected sidecar preflight to verify with configured CA bundle, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `openssl s_client`) {
+		t.Fatalf("expected sidecar startup not to fail before tunnel retry handling, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`) {
 		t.Fatalf("expected sidecar script to enable service polling, got %q", zitiSidecarScript)

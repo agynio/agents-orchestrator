@@ -178,7 +178,6 @@ if ! getent ahostsv4 "${controller_host}" | awk -v ip="${controller_ip}" '$1 == 
   echo "expected ${controller_host} to resolve to ${controller_ip}" >&2
   exit 1
 fi
-timeout 5 openssl s_client -CAfile "${ZITI_IDENTITY_DIR}/controller-tls-ca.pem" -verify_return_error -servername "${controller_host}" -connect "${controller_host}:${controller_port}" </dev/null >/dev/null
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
