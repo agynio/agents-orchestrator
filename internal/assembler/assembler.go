@@ -162,12 +162,26 @@ if [[ -z "${controller_host}" || -z "${controller_port}" || -z "${controller_ip}
   exit 1
 fi
 
-awk -v host="${controller_host}" '$1 == "127.0.0.2" { for (i = 2; i <= NF; i++) if ($i == host) found = 1 } { print } END { if (!found) print "127.0.0.2", host }' /etc/hosts > /etc/hosts.tmp
+controller_alias="127.0.0.2"
+awk -v host="${controller_host}" -v alias="${controller_alias}" '
+  BEGIN { print alias, host }
+  {
+    keep = 1
+    for (i = 2; i <= NF; i++) if ($i == host) keep = 0
+    if (keep) print
+  }
+' /etc/hosts > /etc/hosts.tmp
 cat /etc/hosts.tmp > /etc/hosts
 rm -f /etc/hosts.tmp
 
-iptables -t nat -C OUTPUT -p tcp -d 127.0.0.2 --dport "${controller_port}" -j DNAT --to-destination "${controller_ip}:${controller_port}" 2>/dev/null || \
-  iptables -t nat -A OUTPUT -p tcp -d 127.0.0.2 --dport "${controller_port}" -j DNAT --to-destination "${controller_ip}:${controller_port}"
+iptables -t nat -C OUTPUT -p tcp -d "${controller_alias}" --dport "${controller_port}" -j DNAT --to-destination "${controller_ip}:${controller_port}" 2>/dev/null || \
+  iptables -t nat -A OUTPUT -p tcp -d "${controller_alias}" --dport "${controller_port}" -j DNAT --to-destination "${controller_ip}:${controller_port}"
+if ! getent ahostsv4 "${controller_host}" | awk -v alias="${controller_alias}" '$1 == alias { found = 1 } END { exit found ? 0 : 1 }'; then
+  echo "expected ${controller_host} to resolve to ${controller_alias}" >&2
+  exit 1
+fi
+timeout 5 openssl s_client -servername "${controller_host}" -connect "${controller_alias}:${controller_port}" </dev/null >/dev/null
+export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"

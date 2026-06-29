@@ -1783,6 +1783,9 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}"`) {
 		t.Fatalf("expected sidecar script to exec ziti tunnel directly, got %q", zitiSidecarScript)
 	}
+	if !strings.Contains(zitiSidecarScript, `getent ahostsv4`) || !strings.Contains(zitiSidecarScript, `timeout 5 openssl s_client`) || !strings.Contains(zitiSidecarScript, `GODEBUG`) {
+		t.Fatalf("expected sidecar script to assert controller host routing, got %q", zitiSidecarScript)
+	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
 		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)
 	}
