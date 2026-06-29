@@ -1654,6 +1654,18 @@ printf 'curl_args=%%s\n' "$*" >> %s
 printf 'curl_resolv=%%s\n' "$(cat %s)" >> %s
 printf '{"data":{"cert":"agent-cert"}}'
 `, logPath, resolvPath, logPath))
+	_ = writeExecutable(t, workDir, "getent", `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" != "ahostsv4" ]]; then
+  echo "unexpected getent args: $*" >&2
+  exit 1
+fi
+case "${2:-}" in
+  controller.example.test) printf '10.43.58.17 STREAM controller.example.test\n' ;;
+  ziti-controller-client.ziti.svc.cluster.local) printf '10.43.253.228 STREAM ziti-controller-client.ziti.svc.cluster.local\n' ;;
+  *) exit 2 ;;
+esac
+`)
 	_ = writeExecutable(t, workDir, "jq", `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" == "-e" ]]; then
@@ -1702,7 +1714,7 @@ exec "${real_cat}" "$@"
 		"ZITI_RESOLV_CONF="+resolvPath,
 		"ZITI_HOSTS_FILE="+hostsPath,
 		ZitiControllerServiceHostEnvVar+"=ziti-controller-client.ziti.svc.cluster.local",
-		ZitiControllerServicePortEnvVar+"=1280",
+		ZitiControllerServicePortEnvVar+"=2496",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1740,15 +1752,17 @@ exec "${real_cat}" "$@"
 		t.Fatalf("read identity file: %v", err)
 	}
 	identity := string(identityBytes)
-	if !strings.Contains(identity, "https://ziti-controller-client.ziti.svc.cluster.local:1280/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
-		t.Fatalf("expected enrolled identity json with direct controller endpoint, got:\n%s", identity)
+	if !strings.Contains(identity, "https://controller.example.test:2496/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
+		t.Fatalf("expected enrolled identity json with advertised controller endpoint, got:\n%s", identity)
 	}
-	if strings.Contains(identity, controllerHost) {
-		t.Fatalf("expected identity runtime API to avoid JWT controller DNS, got:\n%s", identity)
+	if strings.Contains(identity, "ziti-controller-client.ziti.svc.cluster.local") {
+		t.Fatalf("expected identity runtime API to avoid cluster-local controller DNS, got:\n%s", identity)
 	}
-	if strings.Contains(identity, "https://10.43.58.17:2496") {
-		t.Fatalf("expected identity runtime API to avoid advertised ingress service port, got:\n%s", identity)
+	if strings.Contains(identity, "https://10.43.58.17:2496") || strings.Contains(identity, "https://10.43.253.228:2496") {
+		t.Fatalf("expected identity runtime API to avoid direct controller IP, got:\n%s", identity)
 	}
+	assertFileEquals(t, filepath.Join(identityDir, "agent.controller-ip"), "10.43.253.228\n")
+	assertFileEquals(t, filepath.Join(identityDir, "agent.controller-port"), "2496\n")
 }
 
 func testJWTWithIssuer(t *testing.T, issuer string) string {

@@ -94,7 +94,7 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if envs[assembler.ZitiControllerServiceHostEnvVar] != "ziti-controller-client.ziti.svc.cluster.local" {
 				return nil, errors.New("missing ZITI_CONTROLLER_SERVICE_HOST")
 			}
-			if envs[assembler.ZitiControllerServicePortEnvVar] != "1280" {
+			if envs[assembler.ZitiControllerServicePortEnvVar] != "2496" {
 				return nil, errors.New("missing ZITI_CONTROLLER_SERVICE_PORT")
 			}
 			zitiSidecar := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarContainerName)

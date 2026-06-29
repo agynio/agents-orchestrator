@@ -104,8 +104,22 @@ if [[ ! -s "${identity_file}" ]]; then
     echo "expected resolved controller address for ${ziti_controller_host}" >&2
     exit 1
   fi
-  ziti_runtime_controller_host="${ZITI_CONTROLLER_SERVICE_HOST:-${ziti_controller_host}}"
-  ziti_runtime_controller_port="${ZITI_CONTROLLER_SERVICE_PORT:-${ziti_controller_port}}"
+  ziti_runtime_controller_host="${ziti_controller_host}"
+  ziti_runtime_controller_port="${ziti_controller_port}"
+  ziti_underlay_controller_host="${ZITI_CONTROLLER_SERVICE_HOST:-}"
+  ziti_underlay_controller_port="${ZITI_CONTROLLER_SERVICE_PORT:-${ziti_controller_port}}"
+  if [[ -n "${ziti_underlay_controller_host}" ]]; then
+    ziti_runtime_controller_ip="$(getent ahostsv4 "${ziti_underlay_controller_host}" 2>/dev/null | awk '{ print $1; exit }' || true)"
+    if [[ -z "${ziti_runtime_controller_ip}" && "${ziti_underlay_controller_host}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      ziti_runtime_controller_ip="${ziti_underlay_controller_host}"
+    fi
+    if [[ -z "${ziti_runtime_controller_ip}" ]]; then
+      echo "expected resolved controller underlay address for ${ziti_underlay_controller_host}" >&2
+      exit 1
+    fi
+  else
+    ziti_runtime_controller_ip="${ziti_enrollment_controller_ip}"
+  fi
   ziti_controller_cert="${identity_dir}/controller-ca.pem"
   ziti_key_file="${identity_dir}/${identity_basename}.key"
   ziti_csr_file="${identity_dir}/${identity_basename}.csr"
@@ -136,8 +150,8 @@ if [[ ! -s "${identity_file}" ]]; then
   fi
   jq -n --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_tls_ca_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
   printf '%s\n' "${ziti_controller_host}" > "${identity_dir}/${identity_basename}.controller-host"
-  printf '%s\n' "${ziti_controller_port}" > "${identity_dir}/${identity_basename}.controller-port"
-  printf '%s\n' "${ziti_enrollment_controller_ip}" > "${identity_dir}/${identity_basename}.controller-ip"
+  printf '%s\n' "${ziti_runtime_controller_ip}" > "${identity_dir}/${identity_basename}.controller-ip"
+  printf '%s\n' "${ziti_underlay_controller_port}" > "${identity_dir}/${identity_basename}.controller-port"
 fi
 
 if [[ ! -s "${identity_file}" ]]; then
