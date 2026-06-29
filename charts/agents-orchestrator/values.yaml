@@ -86,6 +86,8 @@ env:
     value: "2m"
   - name: ZITI_ENROLLMENT_TIMEOUT
     value: "2m"
+  - name: ZITI_SIDECAR_IMAGE
+    value: "openziti/ziti-tunnel:2.0.0"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: "ziti-management:50051"
   - name: GROUP_SYNC_ENABLED

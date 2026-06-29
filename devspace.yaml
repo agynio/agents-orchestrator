@@ -80,6 +80,8 @@ functions:
                   value: "10s"
                 - name: EGRESS_CA_NAMESPACE
                   value: "__EGRESS_CA_NAMESPACE__"
+                - name: ZITI_SIDECAR_IMAGE
+                  value: "openziti/ziti-tunnel:2.0.0"
               command:
                 - sh
                 - -c
