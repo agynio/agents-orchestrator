@@ -106,12 +106,24 @@ jobs:
             exit 1
           fi
           kubectl delete pod ziti-dns-preflight -n agyn-workloads --ignore-not-found
-          kubectl run ziti-dns-preflight \
-            -n agyn-workloads \
-            --image=busybox:1.37.0 \
-            --restart=Never \
-            --labels=agyn.dev/managed-by=agents-orchestrator \
-            --command -- sh -c "timeout 30 nslookup ziti.agyn.dev ${ziti_dns_ip} && timeout 30 nslookup ziti-router.agyn.dev ${ziti_dns_ip}"
+          cat <<EOF_POD | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ziti-dns-preflight
+            namespace: agyn-workloads
+            labels:
+              agyn.dev/managed-by: agents-orchestrator
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: ziti-dns-preflight
+                image: busybox:1.37.0
+                command:
+                  - sh
+                  - -c
+                  - timeout 30 nslookup ziti.agyn.dev ${ziti_dns_ip} && timeout 30 nslookup ziti-router.agyn.dev ${ziti_dns_ip}
+          EOF_POD
           if ! kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
             kubectl get pod ziti-dns-preflight -n agyn-workloads -o yaml >&2 || true
             kubectl logs pod/ziti-dns-preflight -n agyn-workloads >&2 || true
