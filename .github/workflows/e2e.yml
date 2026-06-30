@@ -42,6 +42,17 @@ jobs:
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@main
 
+      - name: Checkout k8s-runner
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/k8s-runner
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF }}
+          path: .e2e-deps/k8s-runner
+
+      - name: Deploy k8s-runner from source
+        working-directory: .e2e-deps/k8s-runner
+        run: devspace run deploy
+
       - name: Allow workload Ziti egress
         run: |-
           set -euo pipefail
@@ -77,17 +88,6 @@ jobs:
           ]
           EOF_PATCH
           )"
-
-      - name: Checkout k8s-runner
-        uses: actions/checkout@v4
-        with:
-          repository: agynio/k8s-runner
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF }}
-          path: .e2e-deps/k8s-runner
-
-      - name: Deploy k8s-runner from source
-        working-directory: .e2e-deps/k8s-runner
-        run: devspace run deploy
 
       - name: Deploy orchestrator from source
         run: devspace run deploy
