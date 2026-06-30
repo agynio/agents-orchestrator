@@ -61,7 +61,7 @@ ziti_csr_file="${identity_dir}/${identity_basename}.csr"
 ziti_cert_file="${identity_dir}/${identity_basename}.crt"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
-runtime_hosts_file="${ZITI_RUNTIME_HOSTS_FILE:-/etc/ziti-runtime-hosts}"
+runtime_hosts_file="${ZITI_RUNTIME_HOSTS_FILE:-${identity_dir}/runtime-hosts}"
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 mkdir -p "${identity_dir}"
@@ -223,8 +223,11 @@ enrollment_controller_resolve_host="$4"
 runtime_controller_dns_upstream="${ZITI_DNS_UPSTREAM:-${workload_dns_upstream}}"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
-runtime_hosts_file="${ZITI_RUNTIME_HOSTS_FILE:-/etc/ziti-runtime-hosts}"
+runtime_hosts_file="${ZITI_RUNTIME_HOSTS_FILE:-${ZITI_IDENTITY_DIR}/runtime-hosts}"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
+if [[ ! -s "${runtime_hosts_file}" ]]; then
+  cat "${hosts_file}" > "${runtime_hosts_file}"
+fi
 if [[ -n "${runtime_controller_resolve_host}" ]]; then
   printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${runtime_controller_dns_upstream}" > "${resolv_file}"
   ziti_runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
