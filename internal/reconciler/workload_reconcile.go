@@ -343,11 +343,11 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 			if isConfigInvalidFailure(container) {
 				return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
 			}
+			if isImagePullFailure(container) && startAge > startGracePeriod {
+				return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
+			}
 			switch status {
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING:
-				if isImagePullFailure(container) {
-					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
-				}
 				initBlocked = true
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:
 				if container.GetExitCode() != 0 {

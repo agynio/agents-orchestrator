@@ -10,7 +10,7 @@ import (
 
 func TestClassifyStartingContainersInitImagePullFailure(t *testing.T) {
 	now := time.Now().UTC()
-	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now)}}
+	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now.Add(-startGracePeriod - time.Second))}}
 	containers := []*runnersv1.Container{
 		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_INIT, runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING, "ImagePullBackOff", "", 0, nil),
 		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
@@ -28,6 +28,26 @@ func TestClassifyStartingContainersInitImagePullFailure(t *testing.T) {
 	}
 	if failure.reason != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED {
 		t.Fatalf("unexpected failure reason: %v", failure.reason)
+	}
+}
+
+func TestClassifyStartingContainersInitImagePullWithinGrace(t *testing.T) {
+	now := time.Now().UTC()
+	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now)}}
+	containers := []*runnersv1.Container{
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_INIT, runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING, "ImagePullBackOff", "", 0, nil),
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
+	}
+
+	ready, failure, err := classifyStartingContainers(containers, workload, now)
+	if err != nil {
+		t.Fatalf("classify starting containers: %v", err)
+	}
+	if ready {
+		t.Fatal("expected workload to be not ready")
+	}
+	if failure != nil {
+		t.Fatalf("unexpected failure: %+v", failure)
 	}
 }
 
