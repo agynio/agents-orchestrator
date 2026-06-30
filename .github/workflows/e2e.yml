@@ -61,6 +61,11 @@ jobs:
             echo "ziti-workload-dns ClusterIP is empty" >&2
             exit 1
           fi
+          ziti_dns_endpoint_ip="$(kubectl get endpoints ziti-workload-dns -n ziti -o jsonpath='{.subsets[0].addresses[0].ip}')"
+          if [ -z "${ziti_dns_endpoint_ip}" ]; then
+            echo "ziti-workload-dns endpoint IP is empty" >&2
+            exit 1
+          fi
           ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
           if [ -z "${ziti_controller_ip}" ]; then
             echo "ziti-controller-client ClusterIP is empty" >&2
@@ -81,7 +86,7 @@ jobs:
             --type=json \
             -p "$(cat <<EOF_PATCH
           [
-            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_dns_ip}/32"}},{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ziti"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"ziti-workload-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},
+            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_dns_ip}/32"}},{"ipBlock":{"cidr":"${ziti_dns_endpoint_ip}/32"}},{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ziti"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"ziti-workload-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_controller_ip}/32"}}],"ports":[{"protocol":"TCP","port":2496}]}},
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_router_ip}/32"}}],"ports":[{"protocol":"TCP","port":2496}]}},
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${istio_gateway_ip}/32"}}],"ports":[{"protocol":"TCP","port":443}]}}
@@ -107,7 +112,6 @@ jobs:
             --restart=Never \
             --labels=agyn.dev/managed-by=agents-orchestrator \
             --command -- sh -c "timeout 30 nslookup ziti.agyn.dev ${ziti_dns_ip} && timeout 30 nslookup ziti-router.agyn.dev ${ziti_dns_ip}"
-          kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=condition=Ready --timeout=120s || true
           if ! kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
             kubectl get pod ziti-dns-preflight -n agyn-workloads -o yaml >&2 || true
             kubectl logs pod/ziti-dns-preflight -n agyn-workloads >&2 || true
