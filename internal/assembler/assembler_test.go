@@ -2009,8 +2009,11 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `--dnsUpstream "udp://${workload_dns_upstream}:53"`) || !strings.Contains(zitiSidecarScript, `--dnsUpstream "tcp://${workload_dns_upstream}:53"`) {
 		t.Fatalf("expected sidecar script to configure UDP and TCP DNS upstreams, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --dnsUpstreamMode serial`) {
+	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`) {
 		t.Fatalf("expected sidecar script to enable service polling, got %q", zitiSidecarScript)
+	}
+	if strings.Contains(zitiSidecarScript, `--dnsUpstreamMode`) {
+		t.Fatalf("expected sidecar script not to use unsupported dns upstream mode flag, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || !strings.Contains(zitiSidecarScript, `--to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"`) {
 		t.Fatalf("expected sidecar script to pin enrollment underlay runtime traffic to runtime controller, got %q", zitiSidecarScript)
