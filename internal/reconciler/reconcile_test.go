@@ -1306,3 +1306,27 @@ func TestReconcileVolumesTTLExpires(t *testing.T) {
 		t.Fatal("expected remove volume")
 	}
 }
+
+func TestRunnerIdentityForWorkloadsUsesTrackedWorkloadForClusterRunner(t *testing.T) {
+	workloads := map[string]*runnersv1.Workload{
+		"workload-1": {AgentId: testAgentID},
+	}
+	identityID, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, workloads)
+	if err != nil {
+		t.Fatalf("runner identity: %v", err)
+	}
+	if identityID != testAgentID {
+		t.Fatalf("expected workload identity %s, got %s", testAgentID, identityID)
+	}
+}
+
+func TestRunnerIdentityForWorkloadsRejectsAmbiguousClusterRunner(t *testing.T) {
+	otherAgentID := uuid.New().String()
+	workloads := map[string]*runnersv1.Workload{
+		"workload-1": {AgentId: testAgentID},
+		"workload-2": {AgentId: otherAgentID},
+	}
+	if _, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, workloads); err == nil {
+		t.Fatal("expected multiple identities error")
+	}
+}

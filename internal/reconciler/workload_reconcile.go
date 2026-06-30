@@ -13,6 +13,35 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+func runnerIdentityForWorkloads(runnerID string, runnerOrganizationID string, orgIdentities map[string]string, workloads map[string]*runnersv1.Workload) (string, error) {
+	orgID := strings.TrimSpace(runnerOrganizationID)
+	if orgID != "" {
+		identityID, ok := orgIdentities[orgID]
+		if !ok {
+			return "", fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
+		}
+		return identityID, nil
+	}
+	if len(workloads) == 0 {
+		return "", fmt.Errorf("runner %s organization id missing", runnerID)
+	}
+	var identityID string
+	for workloadID, workload := range workloads {
+		workloadIdentityID := strings.TrimSpace(workload.GetAgentId())
+		if workloadIdentityID == "" {
+			return "", fmt.Errorf("workload %s missing agent id", workloadID)
+		}
+		if identityID == "" {
+			identityID = workloadIdentityID
+			continue
+		}
+		if identityID != workloadIdentityID {
+			return "", fmt.Errorf("runner %s has workloads for multiple identities", runnerID)
+		}
+	}
+	return identityID, nil
+}
+
 func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 	orgIdentities, err := r.agentIdentityByOrg(ctx)
 	if err != nil {
@@ -70,13 +99,9 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		if _, ok := runnerIdentities[runnerID]; ok {
 			continue
 		}
-		orgID := strings.TrimSpace(runner.GetOrganizationId())
-		if orgID == "" {
-			return fmt.Errorf("runner %s organization id missing", runnerID)
-		}
-		identityID, ok := orgIdentities[orgID]
-		if !ok {
-			return fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
+		identityID, err := runnerIdentityForWorkloads(runnerID, runner.GetOrganizationId(), orgIdentities, workloadsByRunner[runnerID])
+		if err != nil {
+			return err
 		}
 		runnerIdentities[runnerID] = identityID
 	}
