@@ -93,7 +93,7 @@ jobs:
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_dns_ip}/32"}},{"ipBlock":{"cidr":"${ziti_dns_endpoint_ip}/32"}},{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ziti"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"ziti-workload-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_controller_ip}/32"}}],"ports":[{"protocol":"TCP","port":2496}]}},
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_router_ip}/32"}}],"ports":[{"protocol":"TCP","port":2496}]}},
-            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${istio_gateway_ip}/32"}}],"ports":[{"protocol":"TCP","port":443}]}}
+            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${istio_gateway_ip}/32"}},{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"istio-gateway"}},"podSelector":{"matchLabels":{"app":"istio-ingressgateway"}}}],"ports":[{"protocol":"TCP","port":443}]}}
           ]
           EOF_PATCH
           )"
@@ -136,6 +136,48 @@ jobs:
           fi
           kubectl logs pod/ziti-dns-preflight -n agyn-workloads
           kubectl delete pod ziti-dns-preflight -n agyn-workloads --wait=false
+
+      - name: Verify workload Ziti runtime TCP
+        run: |-
+          set -euo pipefail
+          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_dns_ip}" ]; then
+            echo "ziti-workload-dns ClusterIP is empty" >&2
+            exit 1
+          fi
+          kubectl delete pod ziti-runtime-preflight -n agyn-workloads --ignore-not-found
+          cat <<EOF_POD | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ziti-runtime-preflight
+            namespace: agyn-workloads
+            labels:
+              agyn.dev/managed-by: agents-orchestrator
+          spec:
+            restartPolicy: Never
+            dnsPolicy: None
+            dnsConfig:
+              nameservers:
+                - ${ziti_dns_ip}
+            containers:
+              - name: ziti-runtime-preflight
+                image: curlimages/curl:8.16.0
+                command:
+                  - sh
+                  - -c
+                  - curl --insecure --fail --show-error --verbose --connect-timeout 10 --max-time 30 https://ziti.agyn.dev:443/edge/client/v1/version
+          EOF_POD
+          if ! kubectl wait pod/ziti-runtime-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
+            echo "ziti runtime TCP preflight failed with selector-aware ingressgateway policy present" >&2
+            kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml >&2 || true
+            kubectl get service,endpoints,pods -n istio-gateway -l app=istio-ingressgateway -o wide >&2 || true
+            kubectl get pod ziti-runtime-preflight -n agyn-workloads -o yaml >&2 || true
+            kubectl logs pod/ziti-runtime-preflight -n agyn-workloads >&2 || true
+            exit 1
+          fi
+          kubectl logs pod/ziti-runtime-preflight -n agyn-workloads
+          kubectl delete pod ziti-runtime-preflight -n agyn-workloads --wait=false
 
       - name: Deploy orchestrator from source
         run: devspace run deploy
