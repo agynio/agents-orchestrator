@@ -350,11 +350,8 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 				}
 				initBlocked = true
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:
-				if container.GetExitCode() != 0 && container.GetRestartCount() >= initRetryThreshold {
-					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: containerFailureMessage(container)}, nil
-				}
 				if container.GetExitCode() != 0 {
-					initBlocked = true
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: containerFailureMessage(container)}, nil
 				}
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING:
 			default:
