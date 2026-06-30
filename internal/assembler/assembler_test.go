@@ -2015,7 +2015,7 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || !strings.Contains(zitiSidecarScript, `--to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"`) {
 		t.Fatalf("expected sidecar script to pin enrollment underlay runtime traffic to runtime controller, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" > "${resolv_file}"`) {
+	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"`) {
 		t.Fatalf("expected sidecar script to restore the local tunnel resolver before ziti starts, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
