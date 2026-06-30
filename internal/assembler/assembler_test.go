@@ -1944,6 +1944,20 @@ esac
 	}
 }
 
+func TestZitiEnrollmentScriptPatchesOnlyRuntimeAPI(t *testing.T) {
+	if !strings.Contains(zitiEnrollScript, `ziti edge enroll "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
+		t.Fatalf("expected canonical ziti edge enrollment, got %q", zitiEnrollScript)
+	}
+	if !strings.Contains(zitiEnrollScript, `jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI' "${identity_file}"`) {
+		t.Fatalf("expected runtime patch to update only ztAPI, got %q", zitiEnrollScript)
+	}
+	for _, forbidden := range []string{`openssl ecparam`, `openssl req`, `/edge/client/v1/enroll`, `id:{`, `cert:`, `key:`, `ca:`} {
+		if strings.Contains(zitiEnrollScript, forbidden) {
+			t.Fatalf("expected enrollment script not to hand-build identity field %q, got %q", forbidden, zitiEnrollScript)
+		}
+	}
+}
+
 func testJWTWithIssuer(t *testing.T, issuer string) string {
 	t.Helper()
 	encode := base64.RawURLEncoding.EncodeToString
