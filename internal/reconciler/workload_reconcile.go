@@ -95,14 +95,18 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			continue
 		}
 		enrolledRunnerIDs[runnerID] = struct{}{}
-		runnerIDs[runnerID] = struct{}{}
 		if _, ok := runnerIdentities[runnerID]; ok {
+			runnerIDs[runnerID] = struct{}{}
+			continue
+		}
+		if runner.GetOrganizationId() == "" && len(workloadsByRunner[runnerID]) == 0 {
 			continue
 		}
 		identityID, err := runnerIdentityForWorkloads(runnerID, runner.GetOrganizationId(), orgIdentities, workloadsByRunner[runnerID])
 		if err != nil {
 			return err
 		}
+		runnerIDs[runnerID] = struct{}{}
 		runnerIdentities[runnerID] = identityID
 	}
 

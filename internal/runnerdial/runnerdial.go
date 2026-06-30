@@ -208,5 +208,5 @@ func isAuthFailure(err error) bool {
 		return false
 	}
 	msg := err.Error()
-	return strings.Contains(msg, "INVALID_AUTH") || strings.Contains(msg, "no apiSession")
+	return strings.Contains(msg, "INVALID_AUTH") || strings.Contains(msg, "no apiSession") || strings.Contains(strings.ToLower(msg), "invalid session")
 }

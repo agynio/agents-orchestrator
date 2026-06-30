@@ -1320,6 +1320,16 @@ func TestRunnerIdentityForWorkloadsUsesTrackedWorkloadForClusterRunner(t *testin
 	}
 }
 
+func TestRunnerIdentityForWorkloadsIgnoresUntrackedClusterRunner(t *testing.T) {
+	identityID, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, nil)
+	if err == nil {
+		t.Fatal("expected missing organization error")
+	}
+	if identityID != "" {
+		t.Fatalf("expected empty identity, got %s", identityID)
+	}
+}
+
 func TestRunnerIdentityForWorkloadsRejectsAmbiguousClusterRunner(t *testing.T) {
 	otherAgentID := uuid.New().String()
 	workloads := map[string]*runnersv1.Workload{

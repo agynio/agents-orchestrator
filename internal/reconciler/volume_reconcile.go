@@ -114,14 +114,18 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			continue
 		}
 		enrolledRunnerIDs[runnerID] = struct{}{}
-		runnerIDs[runnerID] = struct{}{}
 		if _, ok := runnerIdentities[runnerID]; ok {
+			runnerIDs[runnerID] = struct{}{}
+			continue
+		}
+		if runner.GetOrganizationId() == "" && len(volumesByRunner[runnerID]) == 0 {
 			continue
 		}
 		identityID, err := runnerIdentityForVolumes(runnerID, runner.GetOrganizationId(), orgIdentities, volumesByRunner[runnerID])
 		if err != nil {
 			return err
 		}
+		runnerIDs[runnerID] = struct{}{}
 		runnerIdentities[runnerID] = identityID
 	}
 

@@ -199,6 +199,11 @@ func TestIsAuthFailure(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "invalid session",
+			err:      errors.New("dial failed: invalid session"),
+			expected: true,
+		},
+		{
 			name:     "other",
 			err:      errors.New("other"),
 			expected: false,
