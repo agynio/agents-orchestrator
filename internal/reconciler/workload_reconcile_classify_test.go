@@ -10,7 +10,7 @@ import (
 
 func TestClassifyStartingContainersInitImagePullFailure(t *testing.T) {
 	now := time.Now().UTC()
-	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now.Add(-startGracePeriod - time.Second))}}
+	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now)}}
 	containers := []*runnersv1.Container{
 		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_INIT, runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING, "ImagePullBackOff", "", 0, nil),
 		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
@@ -33,7 +33,7 @@ func TestClassifyStartingContainersInitImagePullFailure(t *testing.T) {
 
 func TestClassifyStartingContainersInitConfigInvalid(t *testing.T) {
 	now := time.Now().UTC()
-	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now.Add(-startGracePeriod - time.Second))}}
+	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now)}}
 	containers := []*runnersv1.Container{
 		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_INIT, runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING, "CreateContainerConfigError", "bad init", 0, nil),
 		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),

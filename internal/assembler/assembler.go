@@ -61,7 +61,6 @@ ziti_csr_file="${identity_dir}/${identity_basename}.csr"
 ziti_cert_file="${identity_dir}/${identity_basename}.crt"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
-runtime_hosts_file="${ZITI_RUNTIME_HOSTS_FILE:-${identity_dir}/runtime-hosts}"
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 mkdir -p "${identity_dir}"
@@ -164,9 +163,6 @@ if [[ ! -s "${identity_file}" ]]; then
   exit 1
 fi
 
-if [[ ! -s "${runtime_hosts_file}" ]]; then
-  cat "${hosts_file}" > "${runtime_hosts_file}"
-fi
 if [[ -n "${runtime_controller_resolve_host}" ]]; then
   if [[ ! -s "${ziti_tls_ca_cert}" ]]; then
     echo "expected controller CA bundle ${ziti_tls_ca_cert}" >&2
@@ -177,21 +173,6 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
     echo "expected resolved runtime controller address for ${runtime_controller_resolve_host}" >&2
     exit 1
   fi
-  add_runtime_controller_dnat() {
-    ziti_controller_source_ip="$1"
-    if [[ -n "${ziti_controller_source_ip}" && "${ziti_controller_source_ip}" != "${ziti_runtime_controller_ip}" ]]; then
-      echo "pinning ziti runtime controller ${ziti_controller_source_ip}:${ziti_runtime_controller_port} to ${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"
-      iptables -t nat -C OUTPUT -p tcp -d "${ziti_controller_source_ip}" --dport "${ziti_runtime_controller_port}" -j DNAT --to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}" 2>/dev/null || \
-        iptables -t nat -A OUTPUT -p tcp -d "${ziti_controller_source_ip}" --dport "${ziti_runtime_controller_port}" -j DNAT --to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"
-    fi
-  }
-  add_runtime_controller_dnat() {
-    ziti_controller_source_ip="$1"
-    if [[ -n "${ziti_controller_source_ip}" && "${ziti_controller_source_ip}" != "${ziti_runtime_controller_ip}" ]]; then
-      iptables -t nat -C OUTPUT -p tcp -d "${ziti_controller_source_ip}" --dport "${ziti_runtime_controller_port}" -j DNAT --to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}" 2>/dev/null || \
-        iptables -t nat -A OUTPUT -p tcp -d "${ziti_controller_source_ip}" --dport "${ziti_runtime_controller_port}" -j DNAT --to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"
-    fi
-  }
   ziti_runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
   ziti_runtime_controller_hostport="$(printf '%s\n' "${ziti_runtime_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
   if [[ -z "${ziti_runtime_controller_hostport}" ]]; then
@@ -209,10 +190,6 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
     cat "${identity_file}.tmp" > "${identity_file}"
     rm -f "${identity_file}.tmp"
   fi
-  awk -v host="${ziti_runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${runtime_hosts_file}" > "${runtime_hosts_file}.tmp"
-  printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" >> "${runtime_hosts_file}.tmp"
-  cat "${runtime_hosts_file}.tmp" > "${runtime_hosts_file}"
-  rm -f "${runtime_hosts_file}.tmp"
 fi
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
@@ -223,11 +200,7 @@ enrollment_controller_resolve_host="$4"
 runtime_controller_dns_upstream="${ZITI_DNS_UPSTREAM:-${workload_dns_upstream}}"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
-runtime_hosts_file="${ZITI_RUNTIME_HOSTS_FILE:-${ZITI_IDENTITY_DIR}/runtime-hosts}"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
-if [[ ! -s "${runtime_hosts_file}" ]]; then
-  cat "${hosts_file}" > "${runtime_hosts_file}"
-fi
 if [[ -n "${runtime_controller_resolve_host}" ]]; then
   printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${runtime_controller_dns_upstream}" > "${resolv_file}"
   ziti_runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
@@ -249,34 +222,8 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
     echo "expected resolved runtime controller address for ${runtime_controller_resolve_host}" >&2
     exit 1
   fi
-  add_runtime_controller_dnat() {
-    ziti_controller_source_ip="$1"
-    if [[ -n "${ziti_controller_source_ip}" && "${ziti_controller_source_ip}" != "${ziti_runtime_controller_ip}" ]]; then
-      iptables -t nat -C OUTPUT -p tcp -d "${ziti_controller_source_ip}" --dport "${ziti_runtime_controller_port}" -j DNAT --to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}" 2>/dev/null || \
-        iptables -t nat -A OUTPUT -p tcp -d "${ziti_controller_source_ip}" --dport "${ziti_runtime_controller_port}" -j DNAT --to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"
-    fi
-  }
-  if [[ -n "${enrollment_controller_resolve_host}" ]]; then
-    ziti_enrollment_controller_ip="$(getent ahostsv4 "${enrollment_controller_resolve_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
-    if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
-      echo "expected resolved enrollment controller address for ${enrollment_controller_resolve_host}" >&2
-      exit 1
-    fi
-    add_runtime_controller_dnat "${ziti_enrollment_controller_ip}"
-  fi
-  for ziti_controller_source_ip in $(getent ahostsv4 "${ziti_runtime_controller_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1 }' | sort -u); do
-    add_runtime_controller_dnat "${ziti_controller_source_ip}"
-  done
-  awk -v host="${ziti_runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${runtime_hosts_file}" > "${runtime_hosts_file}.tmp"
-  printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" >> "${runtime_hosts_file}.tmp"
-  cat "${runtime_hosts_file}.tmp" > "${runtime_hosts_file}"
-  rm -f "${runtime_hosts_file}.tmp"
-  cat "${runtime_hosts_file}" > "${hosts_file}"
   printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
   getent hosts "${ziti_runtime_controller_host}" || true
-  for ziti_controller_source_ip in $(getent ahostsv4 "${ziti_runtime_controller_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1 }' | sort -u); do
-    add_runtime_controller_dnat "${ziti_controller_source_ip}"
-  done
 fi
 printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"

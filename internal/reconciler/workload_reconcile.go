@@ -342,10 +342,10 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 			status := container.GetStatus()
 			switch status {
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING:
-				if isImagePullFailure(container) && startAge > startGracePeriod {
+				if isImagePullFailure(container) {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
 				}
-				if isConfigInvalidFailure(container) && startAge > startGracePeriod {
+				if isConfigInvalidFailure(container) {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
 				}
 				initBlocked = true
