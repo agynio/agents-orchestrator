@@ -9,15 +9,15 @@ on:
       bootstrap_ref:
         description: Bootstrap ref to provision from.
         required: false
-        default: e9e44b4c083bf989a664e73000ac8d9e7fda2afe
+        default: 16fe4f32ed40d193047a13ad051d91af5f49962b
       k8s_runner_ref:
         description: k8s-runner ref to deploy from.
         required: false
-        default: 974d1792c4caa2855c08e01b71fe0ec537c2a0e4
+        default: 74e00e9d56ae1fe5d21b7e29b7cf704522cfe3bd
 
 env:
-  BOOTSTRAP_REF: e9e44b4c083bf989a664e73000ac8d9e7fda2afe
-  K8S_RUNNER_REF: 974d1792c4caa2855c08e01b71fe0ec537c2a0e4
+  BOOTSTRAP_REF: 16fe4f32ed40d193047a13ad051d91af5f49962b
+  K8S_RUNNER_REF: 74e00e9d56ae1fe5d21b7e29b7cf704522cfe3bd
 
 permissions:
   contents: read
@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@e9e44b4c083bf989a664e73000ac8d9e7fda2afe
+        uses: agynio/bootstrap/.github/actions/provision@16fe4f32ed40d193047a13ad051d91af5f49962b
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF }}
 
