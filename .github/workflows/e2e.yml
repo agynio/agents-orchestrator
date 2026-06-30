@@ -81,6 +81,10 @@ jobs:
             echo "istio-ingressgateway ClusterIP is empty" >&2
             exit 1
           fi
+          kubectl patch networkpolicy ziti-workload-dns \
+            -n ziti \
+            --type=json \
+            -p '[{"op":"add","path":"/spec/ingress/-","value":{"from":[{"ipBlock":{"cidr":"10.42.0.0/16"}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}}]'
           kubectl patch networkpolicy agent-workload-egress \
             -n agyn-workloads \
             --type=json \
@@ -95,6 +99,7 @@ jobs:
           )"
           kubectl wait deployment/ziti-workload-dns -n ziti --for=condition=Available --timeout=180s
           kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml
+          kubectl get networkpolicy ziti-workload-dns -n ziti -o yaml
           kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
 
       - name: Verify workload Ziti DNS
