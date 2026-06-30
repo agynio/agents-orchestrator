@@ -2013,9 +2013,6 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `openssl s_client`) {
 		t.Fatalf("expected sidecar startup not to fail before tunnel retry handling, got %q", zitiSidecarScript)
 	}
-	if strings.Contains(zitiSidecarScript, `nameserver %s\nnameserver %s`) {
-		t.Fatalf("expected sidecar script not to put local tunnel DNS before runtime bootstrap DNS, got %q", zitiSidecarScript)
-	}
 	if !strings.Contains(zitiSidecarScript, `--dnsUpstream "udp://${workload_dns_upstream}:53"`) || !strings.Contains(zitiSidecarScript, `--dnsUpstream "tcp://${workload_dns_upstream}:53"`) {
 		t.Fatalf("expected sidecar script to configure UDP and TCP DNS upstreams, got %q", zitiSidecarScript)
 	}
@@ -2028,8 +2025,8 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `iptables -t nat`) || strings.Contains(zitiSidecarScript, `ZITI_RUNTIME_HOSTS_FILE`) {
 		t.Fatalf("expected sidecar script not to pin stale runtime controller hosts, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"`) {
-		t.Fatalf("expected sidecar script to leave workload DNS as runtime resolver before ziti starts, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"`) {
+		t.Fatalf("expected sidecar script to restore local tunnel DNS before ziti starts, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
 		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)
