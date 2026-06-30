@@ -340,13 +340,13 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 		switch container.GetRole() {
 		case runnersv1.ContainerRole_CONTAINER_ROLE_INIT:
 			status := container.GetStatus()
+			if isConfigInvalidFailure(container) {
+				return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
+			}
 			switch status {
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING:
 				if isImagePullFailure(container) {
 					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
-				}
-				if isConfigInvalidFailure(container) {
-					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
 				}
 				initBlocked = true
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:
