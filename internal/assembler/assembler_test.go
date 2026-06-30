@@ -398,8 +398,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if strings.Contains(zitiEnroll.Cmd[1], "ziti.agyn.dev") || strings.Contains(zitiEnroll.Cmd[1], "istio-ingressgateway") || strings.Contains(zitiEnroll.Cmd[1], "ziti-controller-client") {
 		t.Fatalf("expected ziti enroll script not to hard-code controller endpoints, got %q", zitiEnroll.Cmd[1])
 	}
-	if !strings.Contains(zitiEnroll.Cmd[1], "getent ahostsv4") || !strings.Contains(zitiEnroll.Cmd[1], "--resolve") {
-		t.Fatalf("expected ziti enroll script to persist resolved controller address, got %q", zitiEnroll.Cmd[1])
+	if !strings.Contains(zitiEnroll.Cmd[1], "getent ahostsv4") {
+		t.Fatalf("expected ziti enroll script to resolve controller addresses, got %q", zitiEnroll.Cmd[1])
 	}
 	if !strings.Contains(zitiEnroll.Cmd[1], `--arg ca "pem:$(cat "${ziti_tls_ca_cert}")"`) {
 		t.Fatalf("expected ziti enroll script to retain the full TLS CA bundle in identity config, got %q", zitiEnroll.Cmd[1])
@@ -1644,6 +1644,7 @@ func TestZitiEnrollScriptRemovesOnlyJwtControllerLoopbackAlias(t *testing.T) {
 	identityDir := filepath.Join(workDir, "netfoundry")
 	resolvPath := filepath.Join(workDir, "resolv.conf")
 	hostsPath := filepath.Join(workDir, "hosts")
+	runtimeHostsPath := filepath.Join(workDir, "runtime-hosts")
 	logPath := filepath.Join(workDir, "enroll.log")
 	controllerHost := "controller.example.test"
 	otherHost := "other.example.test"
@@ -1755,6 +1756,7 @@ exec "${real_cat}" "$@"
 		ZitiIdentityDirEnvVar+"="+identityDir,
 		"ZITI_RESOLV_CONF="+resolvPath,
 		"ZITI_HOSTS_FILE="+hostsPath,
+		"ZITI_RUNTIME_HOSTS_FILE="+runtimeHostsPath,
 		ZitiEnrollmentControllerResolveHostEnvVar+"=ziti-controller-client.ziti.svc.cluster.local",
 		ZitiEnrollmentControllerPortEnvVar+"=2496",
 	)
@@ -1764,7 +1766,7 @@ exec "${real_cat}" "$@"
 	}
 
 	assertFileEquals(t, resolvPath, "nameserver 127.0.0.1\nsearch svc.cluster.local cluster.local\noptions ndots:5\n")
-	hostsBytes, err := os.ReadFile(hostsPath)
+	hostsBytes, err := os.ReadFile(runtimeHostsPath)
 	if err != nil {
 		t.Fatalf("read hosts: %v", err)
 	}
@@ -1813,6 +1815,7 @@ func TestZitiEnrollScriptSplitsEnrollmentAndRuntimeControllers(t *testing.T) {
 	identityDir := filepath.Join(workDir, "netfoundry")
 	resolvPath := filepath.Join(workDir, "resolv.conf")
 	hostsPath := filepath.Join(workDir, "hosts")
+	runtimeHostsPath := filepath.Join(workDir, "runtime-hosts")
 	logPath := filepath.Join(workDir, "enroll.log")
 	controllerHost := "controller.example.test"
 	enrollmentResolveHost := "ziti-controller-client.ziti.svc.cluster.local"
@@ -1856,6 +1859,7 @@ case "${2:-}" in
   controller.example.test) exit 2 ;;
   ziti-controller-client.ziti.svc.cluster.local) printf '10.43.253.228 STREAM ziti-controller-client.ziti.svc.cluster.local\n' ;;
   istio-ingressgateway.istio-gateway.svc.cluster.local) printf '10.43.0.99 STREAM istio-ingressgateway.istio-gateway.svc.cluster.local\n' ;;
+  controller.example.test) printf '10.43.253.228 STREAM controller.example.test\n' ;;
   *) exit 2 ;;
 esac
 `)
@@ -1906,13 +1910,14 @@ esac
 		ZitiIdentityDirEnvVar+"="+identityDir,
 		"ZITI_RESOLV_CONF="+resolvPath,
 		"ZITI_HOSTS_FILE="+hostsPath,
+		"ZITI_RUNTIME_HOSTS_FILE="+runtimeHostsPath,
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run ziti enroll script: %v\n%s", err, string(output))
 	}
 
-	hostsBytes, err := os.ReadFile(hostsPath)
+	hostsBytes, err := os.ReadFile(runtimeHostsPath)
 	if err != nil {
 		t.Fatalf("read hosts: %v", err)
 	}
@@ -2015,7 +2020,7 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `--dnsUpstreamMode`) {
 		t.Fatalf("expected sidecar script not to use unsupported dns upstream mode flag, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || !strings.Contains(zitiSidecarScript, `--to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"`) {
+	if !strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || !strings.Contains(zitiSidecarScript, `--to-destination "${ziti_runtime_controller_ip}:${ziti_runtime_controller_port}"`) || !strings.Contains(zitiSidecarScript, `ZITI_RUNTIME_HOSTS_FILE`) {
 		t.Fatalf("expected sidecar script to pin enrollment underlay runtime traffic to runtime controller, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"`) {
