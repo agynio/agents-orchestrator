@@ -267,16 +267,16 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
   for ziti_controller_source_ip in $(getent ahostsv4 "${ziti_runtime_controller_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1 }' | sort -u); do
     add_runtime_controller_dnat "${ziti_controller_source_ip}"
   done
-  getent hosts "${ziti_runtime_controller_host}" || true
-  getent hosts "${ziti_runtime_controller_host}" || true
-  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
-  for ziti_controller_source_ip in $(getent ahostsv4 "${ziti_runtime_controller_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1 }' | sort -u); do
-    add_runtime_controller_dnat "${ziti_controller_source_ip}"
-  done
   awk -v host="${ziti_runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${runtime_hosts_file}" > "${runtime_hosts_file}.tmp"
   printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" >> "${runtime_hosts_file}.tmp"
   cat "${runtime_hosts_file}.tmp" > "${runtime_hosts_file}"
   rm -f "${runtime_hosts_file}.tmp"
+  cat "${runtime_hosts_file}" > "${hosts_file}"
+  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+  getent hosts "${ziti_runtime_controller_host}" || true
+  for ziti_controller_source_ip in $(getent ahostsv4 "${ziti_runtime_controller_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1 }' | sort -u); do
+    add_runtime_controller_dnat "${ziti_controller_source_ip}"
+  done
 fi
 printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
