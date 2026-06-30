@@ -245,7 +245,7 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
 fi
 printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
-exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --dnsUpstream "tcp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
+exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --dnsUpstream "tcp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --dnsUpstreamMode serial`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
