@@ -2007,6 +2007,9 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${runtime_controller_dns_upstream}" > "${resolv_file}"`) {
 		t.Fatalf("expected sidecar script to write runtime controller bootstrap resolver, got %q", zitiSidecarScript)
 	}
+	if strings.Contains(zitiSidecarScript, `expected resolved runtime controller address`) {
+		t.Fatalf("expected sidecar script not to fail before tunnel retry handling when runtime DNS is not ready, got %q", zitiSidecarScript)
+	}
 	if strings.Contains(zitiSidecarScript, `openssl s_client`) {
 		t.Fatalf("expected sidecar startup not to fail before tunnel retry handling, got %q", zitiSidecarScript)
 	}

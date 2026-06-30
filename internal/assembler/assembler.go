@@ -214,17 +214,12 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
   if [[ "${ziti_runtime_controller_port}" == "${ziti_runtime_controller_hostport}" ]]; then
     ziti_runtime_controller_port="443"
   fi
-  if [[ -n "${runtime_controller_port_override}" ]]; then
-    ziti_runtime_controller_port="${runtime_controller_port_override}"
-  fi
-  ziti_runtime_controller_ip="$(getent ahostsv4 "${runtime_controller_resolve_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
-  if [[ -z "${ziti_runtime_controller_ip}" ]]; then
-    echo "expected resolved runtime controller address for ${runtime_controller_resolve_host}" >&2
-    exit 1
-  fi
-  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
-  getent hosts "${ziti_runtime_controller_host}" || true
-fi
+	  if [[ -n "${runtime_controller_port_override}" ]]; then
+	    ziti_runtime_controller_port="${runtime_controller_port_override}"
+	  fi
+	  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+	  getent hosts "${ziti_runtime_controller_host}" || true
+	fi
 printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --dnsUpstream "tcp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
