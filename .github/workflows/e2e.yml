@@ -42,6 +42,42 @@ jobs:
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@main
 
+      - name: Allow workload Ziti egress
+        run: |-
+          set -euo pipefail
+          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_dns_ip}" ]; then
+            echo "ziti-workload-dns ClusterIP is empty" >&2
+            exit 1
+          fi
+          ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_controller_ip}" ]; then
+            echo "ziti-controller-client ClusterIP is empty" >&2
+            exit 1
+          fi
+          ziti_router_ip="$(kubectl get service ziti-router-edge -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_router_ip}" ]; then
+            echo "ziti-router-edge ClusterIP is empty" >&2
+            exit 1
+          fi
+          istio_gateway_ip="$(kubectl get service istio-ingressgateway -n istio-gateway -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${istio_gateway_ip}" ]; then
+            echo "istio-ingressgateway ClusterIP is empty" >&2
+            exit 1
+          fi
+          kubectl patch networkpolicy agent-workload-egress \
+            -n agyn-workloads \
+            --type=json \
+            -p "$(cat <<EOF_PATCH
+          [
+            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_dns_ip}/32"}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},
+            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_controller_ip}/32"}}],"ports":[{"protocol":"TCP","port":2496}]}},
+            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_router_ip}/32"}}],"ports":[{"protocol":"TCP","port":2496}]}},
+            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${istio_gateway_ip}/32"}}],"ports":[{"protocol":"TCP","port":443}]}}
+          ]
+          EOF_PATCH
+          )"
+
       - name: Checkout k8s-runner
         uses: actions/checkout@v4
         with:
