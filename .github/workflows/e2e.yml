@@ -56,11 +56,6 @@ jobs:
       - name: Allow workload Ziti egress
         run: |-
           set -euo pipefail
-          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
-          if [ -z "${ziti_dns_ip}" ]; then
-            echo "ziti-workload-dns ClusterIP is empty" >&2
-            exit 1
-          fi
           ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
           if [ -z "${ziti_controller_ip}" ]; then
             echo "ziti-controller-client ClusterIP is empty" >&2
@@ -81,13 +76,36 @@ jobs:
             --type=json \
             -p "$(cat <<EOF_PATCH
           [
-            {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_dns_ip}/32"}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},
+            {"op":"add","path":"/spec/egress/-","value":{"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ziti"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"ziti-workload-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_controller_ip}/32"}}],"ports":[{"protocol":"TCP","port":2496}]}},
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${ziti_router_ip}/32"}}],"ports":[{"protocol":"TCP","port":2496}]}},
             {"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"${istio_gateway_ip}/32"}}],"ports":[{"protocol":"TCP","port":443}]}}
           ]
           EOF_PATCH
           )"
+          kubectl wait deployment/ziti-workload-dns -n ziti --for=condition=Available --timeout=180s
+          kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml
+          kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
+
+      - name: Verify workload Ziti DNS
+        run: |-
+          set -euo pipefail
+          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_dns_ip}" ]; then
+            echo "ziti-workload-dns ClusterIP is empty" >&2
+            exit 1
+          fi
+          kubectl delete pod ziti-dns-preflight -n agyn-workloads --ignore-not-found
+          kubectl run ziti-dns-preflight \
+            -n agyn-workloads \
+            --image=busybox:1.37.0 \
+            --restart=Never \
+            --labels=agyn.dev/managed-by=agents-orchestrator \
+            --command -- sh -c "nslookup ziti.agyn.dev ${ziti_dns_ip} && nslookup ziti-router.agyn.dev ${ziti_dns_ip}"
+          kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=condition=Ready --timeout=120s || true
+          kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s
+          kubectl logs pod/ziti-dns-preflight -n agyn-workloads
+          kubectl delete pod ziti-dns-preflight -n agyn-workloads --wait=false
 
       - name: Deploy orchestrator from source
         run: devspace run deploy
