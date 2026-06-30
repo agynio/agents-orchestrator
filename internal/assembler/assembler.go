@@ -56,9 +56,6 @@ identity_file="${identity_dir}/${identity_basename}.json"
 jwt_file="${identity_dir}/${identity_basename}.jwt"
 ziti_controller_cert="${identity_dir}/controller-ca.pem"
 ziti_tls_ca_cert="${identity_dir}/controller-tls-ca.pem"
-ziti_key_file="${identity_dir}/${identity_basename}.key"
-ziti_csr_file="${identity_dir}/${identity_basename}.csr"
-ziti_cert_file="${identity_dir}/${identity_basename}.crt"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
 
@@ -132,7 +129,6 @@ if [[ ! -s "${identity_file}" ]]; then
   if [[ -n "${runtime_controller_port_override}" ]]; then
     ziti_runtime_controller_port="${runtime_controller_port_override}"
   fi
-  ziti_enroll_url="https://${ziti_controller_host}:${ziti_enrollment_controller_port}/edge/client/v1/enroll?method=${ziti_enrollment_method}&token=${ziti_enrollment_token_id}"
 
   openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_enrollment_controller_ip}:${ziti_enrollment_controller_port}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
   if [[ ! -s "${ziti_controller_cert}" ]]; then
@@ -143,19 +139,19 @@ if [[ ! -s "${identity_file}" ]]; then
   if [[ -s "${SSL_CERT_FILE:-}" ]]; then
     cat "${SSL_CERT_FILE}" >> "${ziti_tls_ca_cert}"
   fi
-  openssl ecparam -name secp384r1 -genkey -noout -out "${ziti_key_file}"
-  openssl req -new -key "${ziti_key_file}" -subj "/C=US/O=NetFoundry/CN=${ziti_identity_subject}" -out "${ziti_csr_file}"
-  enroll_response="$(curl --fail-with-body --show-error --silent --cacert "${ziti_tls_ca_cert}" --resolve "${ziti_controller_host}:${ziti_enrollment_controller_port}:${ziti_enrollment_controller_ip}" -H 'content-type: application/x-pem-file' --data-binary "@${ziti_csr_file}" "${ziti_enroll_url}")"
-  if printf '%s' "${enroll_response}" | jq -e . >/dev/null 2>&1; then
-    printf '%s' "${enroll_response}" | jq -r '.data.cert // empty' > "${ziti_cert_file}"
-  else
-    printf '%s' "${enroll_response}" > "${ziti_cert_file}"
-  fi
-  if [[ ! -s "${ziti_cert_file}" ]]; then
-    echo "expected certificate in ziti enrollment response" >&2
-    exit 1
-  fi
-  jq -n --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" --arg cert "pem:$(cat "${ziti_cert_file}")" --arg key "pem:$(cat "${ziti_key_file}")" --arg ca "pem:$(cat "${ziti_tls_ca_cert}")" '{ztAPI: $ztAPI, id: {cert: $cert, key: $key, ca: $ca}}' > "${identity_file}"
+  hosts_backup="${identity_dir}/${identity_basename}.hosts"
+  cat "${hosts_file}" > "${hosts_backup}"
+  restore_hosts() {
+    if [[ -s "${hosts_backup}" ]]; then
+      cat "${hosts_backup}" > "${hosts_file}"
+      rm -f "${hosts_backup}"
+    fi
+  }
+  trap restore_hosts EXIT
+  printf '%s\t%s\n' "${ziti_enrollment_controller_ip}" "${ziti_controller_host}" >> "${hosts_file}"
+  ziti edge enroll "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"
+  restore_hosts
+  trap - EXIT
 fi
 
 if [[ ! -s "${identity_file}" ]]; then
@@ -186,10 +182,10 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
   fi
   if [[ -n "${runtime_controller_port_override}" ]]; then
     ziti_runtime_controller_port="${runtime_controller_port_override}"
-    jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI' "${identity_file}" > "${identity_file}.tmp"
-    cat "${identity_file}.tmp" > "${identity_file}"
-    rm -f "${identity_file}.tmp"
   fi
+  jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI' "${identity_file}" > "${identity_file}.tmp"
+  cat "${identity_file}.tmp" > "${identity_file}"
+  rm -f "${identity_file}.tmp"
 fi
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`

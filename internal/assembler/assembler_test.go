@@ -392,8 +392,14 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], "nameserver %s\\nsearch svc.cluster.local cluster.local\\noptions ndots:5\\n") {
 		t.Fatalf("expected ziti enroll script to write workload DNS upstream resolver, got %q", zitiEnroll.Cmd[1])
 	}
-	if !strings.Contains(zitiEnroll.Cmd[1], "curl --fail-with-body") || !strings.Contains(zitiEnroll.Cmd[1], "/edge/client/v1/enroll?method=") {
-		t.Fatalf("expected ziti enroll script to post CSR to controller enrollment endpoint, got %q", zitiEnroll.Cmd[1])
+	if !strings.Contains(zitiEnroll.Cmd[1], `ziti edge enroll "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
+		t.Fatalf("expected ziti enroll script to use canonical ziti edge enrollment, got %q", zitiEnroll.Cmd[1])
+	}
+	if strings.Contains(zitiEnroll.Cmd[1], "curl --fail-with-body") || strings.Contains(zitiEnroll.Cmd[1], "/edge/client/v1/enroll?method=") {
+		t.Fatalf("expected ziti enroll script not to hand-post CSR enrollment requests, got %q", zitiEnroll.Cmd[1])
+	}
+	if strings.Contains(zitiEnroll.Cmd[1], `id: {cert: $cert, key: $key, ca: $ca}`) || strings.Contains(zitiEnroll.Cmd[1], `--arg cert`) || strings.Contains(zitiEnroll.Cmd[1], `--arg key`) {
+		t.Fatalf("expected ziti enroll script not to hand-construct identity cert/key/ca JSON, got %q", zitiEnroll.Cmd[1])
 	}
 	if strings.Contains(zitiEnroll.Cmd[1], "ziti.agyn.dev") || strings.Contains(zitiEnroll.Cmd[1], "istio-ingressgateway") || strings.Contains(zitiEnroll.Cmd[1], "ziti-controller-client") {
 		t.Fatalf("expected ziti enroll script not to hard-code controller endpoints, got %q", zitiEnroll.Cmd[1])
@@ -401,8 +407,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], "getent ahostsv4") {
 		t.Fatalf("expected ziti enroll script to resolve controller addresses, got %q", zitiEnroll.Cmd[1])
 	}
-	if !strings.Contains(zitiEnroll.Cmd[1], `--arg ca "pem:$(cat "${ziti_tls_ca_cert}")"`) {
-		t.Fatalf("expected ziti enroll script to retain the full TLS CA bundle in identity config, got %q", zitiEnroll.Cmd[1])
+	if !strings.Contains(zitiEnroll.Cmd[1], `--ca "${ziti_tls_ca_cert}"`) {
+		t.Fatalf("expected ziti enroll script to pass the controller CA bundle to canonical enrollment, got %q", zitiEnroll.Cmd[1])
 	}
 	if !strings.Contains(zitiEnroll.Cmd[1], ".iss") || !strings.Contains(zitiEnroll.Cmd[1], ".em") || !strings.Contains(zitiEnroll.Cmd[1], ".jti") || !strings.Contains(zitiEnroll.Cmd[1], ".sub") {
 		t.Fatalf("expected ziti enroll script to derive enrollment request from JWT claims, got %q", zitiEnroll.Cmd[1])
@@ -1682,12 +1688,22 @@ CERT
     ;;
 esac
 `, resolvPath, logPath))
-	_ = writeExecutable(t, workDir, "curl", fmt.Sprintf(`#!/usr/bin/env bash
+	_ = writeExecutable(t, workDir, "ziti", fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
-printf 'curl_args=%%s\n' "$*" >> %s
-printf 'curl_resolv=%%s\n' "$(cat %s)" >> %s
-printf '{"data":{"cert":"agent-cert"}}'
-`, logPath, resolvPath, logPath))
+printf 'ziti_args=%%s\n' "$*" >> %s
+printf 'ziti_hosts=%%s\n' "$(cat %s)" >> %s
+if [[ "$*" != "edge enroll "* ]]; then
+  echo "unexpected ziti args: $*" >&2
+  exit 1
+fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out) shift; out="$1" ;;
+  esac
+  shift || true
+done
+printf '{"ztAPI":"https://controller.example.test:2496/edge/client/v1","id":{"cert":"agent-cert","key":"agent-key","ca":"controller-ca"}}' > "${out}"
+`, logPath, hostsPath, logPath))
 	_ = writeExecutable(t, workDir, "getent", `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" != "ahostsv4" ]]; then
@@ -1702,20 +1718,6 @@ esac
 `)
 	_ = writeExecutable(t, workDir, "jq", `#!/usr/bin/env bash
 set -euo pipefail
-if [[ "$1" == "-e" ]]; then
-  cat >/dev/null
-  exit 0
-fi
-if [[ "$1" == "-n" ]]; then
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --arg) shift; name="$1"; shift; value="$1"; printf -v "$name" '%s' "$value" ;;
-    esac
-    shift || true
-  done
-  printf '{"ztAPI":"%s","id":{"cert":"%s","key":"%s","ca":"%s"}}\n' "$ztAPI" "$cert" "$key" "$ca"
-  exit 0
-fi
 if [[ "$1" == "-r" ]]; then
   shift
 fi
@@ -1734,7 +1736,6 @@ case "$filter" in
   ".jti // empty") sed -nE 's/.*"jti":"([^"]+)".*/\1/p' "$file" ;;
   ".sub // empty") sed -nE 's/.*"sub":"([^"]+)".*/\1/p' "$file" ;;
   ".ztAPI // empty") sed -nE 's/.*"ztAPI":"([^"]+)".*/\1/p' "$file" ;;
-  ".data.cert // empty") sed -nE 's/.*"cert":"([^"]+)".*/\1/p' ;;
   *) echo "unexpected jq filter: $filter" >&2; exit 1 ;;
 esac
 `)
@@ -1783,14 +1784,17 @@ exec "${real_cat}" "$@"
 		t.Fatalf("read enroll log: %v", err)
 	}
 	log := string(logBytes)
-	if !strings.Contains(log, "openssl_resolv=nameserver 10.43.0.10") || !strings.Contains(log, "curl_resolv=nameserver 10.43.0.10") {
+	if !strings.Contains(log, "openssl_resolv=nameserver 10.43.0.10") || !strings.Contains(log, "ziti_args=edge enroll") {
 		t.Fatalf("expected enrollment to use upstream resolver, got:\n%s", log)
 	}
-	if !strings.Contains(log, "--cacert "+filepath.Join(identityDir, "controller-tls-ca.pem")) {
-		t.Fatalf("expected enrollment curl to trust combined controller CA bundle, got:\n%s", log)
+	if !strings.Contains(log, " --ca "+filepath.Join(identityDir, "controller-tls-ca.pem")) {
+		t.Fatalf("expected canonical enrollment to trust combined controller CA bundle, got:\n%s", log)
 	}
-	if !strings.Contains(log, "--resolve "+controllerHost+":2496:10.43.253.228") {
-		t.Fatalf("expected enrollment curl to resolve advertised host through enrollment controller service, got:\n%s", log)
+	if !strings.Contains(log, "ziti_args=edge enroll "+filepath.Join(identityDir, "agent.jwt")+" --ca "+filepath.Join(identityDir, "controller-tls-ca.pem")+" --out "+filepath.Join(identityDir, "agent.json")) {
+		t.Fatalf("expected canonical ziti enrollment with controller CA bundle, got:\n%s", log)
+	}
+	if !strings.Contains(log, "10.43.253.228\t"+controllerHost) {
+		t.Fatalf("expected canonical ziti enrollment to resolve advertised host through enrollment controller service, got:\n%s", log)
 	}
 	identityBytes, err := os.ReadFile(filepath.Join(identityDir, "agent.json"))
 	if err != nil {
@@ -1799,6 +1803,9 @@ exec "${real_cat}" "$@"
 	identity := string(identityBytes)
 	if !strings.Contains(identity, "https://controller.example.test:2496/edge/client/v1") || !strings.Contains(identity, "agent-cert") || !strings.Contains(identity, "controller-ca") {
 		t.Fatalf("expected enrolled identity json with advertised controller endpoint, got:\n%s", identity)
+	}
+	if !strings.Contains(identity, "agent-key") {
+		t.Fatalf("expected canonical enrolled identity to preserve private key material, got:\n%s", identity)
 	}
 	if strings.Contains(identity, "ziti-controller-client.ziti.svc.cluster.local") {
 		t.Fatalf("expected identity runtime API to avoid cluster-local controller DNS, got:\n%s", identity)
@@ -1845,11 +1852,18 @@ CERT
     ;;
 esac
 `, logPath))
-	_ = writeExecutable(t, workDir, "curl", fmt.Sprintf(`#!/usr/bin/env bash
+	_ = writeExecutable(t, workDir, "ziti", fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
-printf 'curl_args=%%s\n' "$*" >> %s
-printf '{"data":{"cert":"agent-cert"}}'
-`, logPath))
+printf 'ziti_args=%%s\n' "$*" >> %s
+printf 'ziti_hosts=%%s\n' "$(cat %s)" >> %s
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out) shift; out="$1" ;;
+  esac
+  shift || true
+done
+printf '{"ztAPI":"https://controller.example.test:2496/edge/client/v1","id":{"cert":"agent-cert","key":"agent-key","ca":"controller-ca"}}' > "${out}"
+`, logPath, hostsPath, logPath))
 	_ = writeExecutable(t, workDir, "getent", `#!/usr/bin/env bash
 set -euo pipefail
 case "${2:-}" in
@@ -1862,20 +1876,6 @@ esac
 `)
 	_ = writeExecutable(t, workDir, "jq", `#!/usr/bin/env bash
 set -euo pipefail
-if [[ "$1" == "-e" ]]; then
-  cat >/dev/null
-  exit 0
-fi
-if [[ "$1" == "-n" ]]; then
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --arg) shift; name="$1"; shift; value="$1"; printf -v "$name" '%s' "$value" ;;
-    esac
-    shift || true
-  done
-  printf '{"ztAPI":"%s","id":{"cert":"%s","key":"%s","ca":"%s"}}\n' "$ztAPI" "$cert" "$key" "$ca"
-  exit 0
-fi
 if [[ "$1" == "-r" ]]; then
   shift
 fi
@@ -1894,7 +1894,6 @@ case "$filter" in
   ".jti // empty") sed -nE 's/.*"jti":"([^"]+)".*/\1/p' "$file" ;;
   ".sub // empty") sed -nE 's/.*"sub":"([^"]+)".*/\1/p' "$file" ;;
   ".ztAPI // empty") sed -nE 's/.*"ztAPI":"([^"]+)".*/\1/p' "$file" ;;
-  ".data.cert // empty") sed -nE 's/.*"cert":"([^"]+)".*/\1/p' ;;
   *) echo "unexpected jq filter: $filter" >&2; exit 1 ;;
 esac
 `)
@@ -1929,7 +1928,7 @@ esac
 		t.Fatalf("read enroll log: %v", err)
 	}
 	log := string(logBytes)
-	if !strings.Contains(log, "-connect 10.43.253.228:2496") || !strings.Contains(log, "--resolve "+controllerHost+":2496:10.43.253.228") {
+	if !strings.Contains(log, "-connect 10.43.253.228:2496") || !strings.Contains(log, "10.43.253.228\t"+controllerHost) {
 		t.Fatalf("expected enrollment to use enrollment-resolved controller underlay, got:\n%s", log)
 	}
 	if strings.Contains(log, "--resolve "+controllerHost+":443:10.43.253.228") || strings.Contains(log, "-connect 10.43.0.99:2496") {
