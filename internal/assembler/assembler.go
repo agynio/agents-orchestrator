@@ -209,7 +209,6 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
     cat "${identity_file}.tmp" > "${identity_file}"
     rm -f "${identity_file}.tmp"
   fi
-  curl --fail --show-error --silent --output /dev/null --cacert "${ziti_tls_ca_cert}" --resolve "${ziti_runtime_controller_host}:${ziti_runtime_controller_port}:${ziti_runtime_controller_ip}" "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1/version"
   awk -v host="${ziti_runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${runtime_hosts_file}" > "${runtime_hosts_file}.tmp"
   printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" >> "${runtime_hosts_file}.tmp"
   cat "${runtime_hosts_file}.tmp" > "${runtime_hosts_file}"
