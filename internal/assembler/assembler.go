@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -237,6 +238,9 @@ exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" -
 	zitiGatewayWaitContainerName   = "ziti-gateway-wait"
 	zitiGatewayWaitImage           = "busybox:1.37.0"
 	zitiGatewayWaitTimeoutSeconds  = 60
+	zitiServiceWaitContainerName   = "ziti-service-wait"
+	zitiServiceWaitImage           = "curlimages/curl:8.16.0"
+	zitiServiceWaitTimeoutSeconds  = 60
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -362,6 +366,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		if err != nil {
 			return nil, err
 		}
+		llmProxyURL, err := zitiServiceHealthURL(a.cfg.AgentLLMBaseURL)
+		if err != nil {
+			return nil, err
+		}
 		zitiEnroll := &runnerv1.ContainerSpec{
 			Image:      a.cfg.ZitiSidecarImage,
 			Name:       ZitiEnrollContainerName,
@@ -388,10 +396,16 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			Name:  zitiGatewayWaitContainerName,
 			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
 		}
+		zitiServiceWait := &runnerv1.ContainerSpec{
+			Image: zitiServiceWaitImage,
+			Name:  zitiServiceWaitContainerName,
+			Cmd:   buildZitiServiceWaitCommand(llmProxyURL),
+		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
 		applyEgressCA(zitiGatewayWait, a.egressCACert)
-		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, initContainer}
+		applyEgressCA(zitiServiceWait, a.egressCACert)
+		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, zitiServiceWait, initContainer}
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -867,6 +881,33 @@ func buildZitiGatewayWaitCommand(host string) []string {
 		host,
 	)
 	return []string{"/bin/sh", "-c", script}
+}
+
+func zitiServiceHealthURL(rawURL string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse ziti service health URL from %q: %w", rawURL, err)
+	}
+	if parsed.Scheme == "" {
+		return "", fmt.Errorf("ziti service health URL %q missing scheme", rawURL)
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("ziti service health URL %q missing host", rawURL)
+	}
+	parsed.Path = "/v1/models"
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
+}
+
+func buildZitiServiceWaitCommand(healthURL string) []string {
+	script := fmt.Sprintf(
+		"i=0; while [ $i -lt %d ]; do curl --silent --show-error --max-time 5 -o /dev/null %s && exit 0; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s\" >&2; exit 1",
+		zitiServiceWaitTimeoutSeconds,
+		strconv.Quote(healthURL),
+		healthURL,
+	)
+	return []string{"sh", "-c", script}
 }
 
 func mergeEnvVars(platformEnv, userEnv []*runnerv1.EnvVar, owner string) []*runnerv1.EnvVar {

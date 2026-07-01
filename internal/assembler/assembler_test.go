@@ -350,8 +350,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
 		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
 	}
-	if len(request.InitContainers) != 4 {
-		t.Fatalf("expected 4 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 5 {
+		t.Fatalf("expected 5 init containers, got %d", len(request.InitContainers))
 	}
 	if request.InitContainers[0].GetName() != ZitiEnrollContainerName {
 		t.Fatalf("expected %s to be first init container", ZitiEnrollContainerName)
@@ -362,8 +362,11 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName {
 		t.Fatalf("expected %s to be third init container", zitiGatewayWaitContainerName)
 	}
-	if request.InitContainers[3].GetName() != "agent-init" {
-		t.Fatalf("expected agent-init to be fourth init container")
+	if request.InitContainers[3].GetName() != zitiServiceWaitContainerName {
+		t.Fatalf("expected %s to be fourth init container", zitiServiceWaitContainerName)
+	}
+	if request.InitContainers[4].GetName() != "agent-init" {
+		t.Fatalf("expected agent-init to be fifth init container")
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
 	if initContainer == nil {
@@ -487,8 +490,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringMap(zitiSidecar.AdditionalProperties, expectedProperties) {
 		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiSidecar.AdditionalProperties)
 	}
-	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName || request.InitContainers[3].GetName() != "agent-init" {
-		t.Fatalf("expected restartable ziti sidecar init to be followed by later init containers, got %s then %s", request.InitContainers[2].GetName(), request.InitContainers[3].GetName())
+	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName || request.InitContainers[3].GetName() != zitiServiceWaitContainerName || request.InitContainers[4].GetName() != "agent-init" {
+		t.Fatalf("expected restartable ziti sidecar init to be followed by ziti wait containers and agent-init, got %s, %s, then %s", request.InitContainers[2].GetName(), request.InitContainers[3].GetName(), request.InitContainers[4].GetName())
 	}
 	assertSameZitiIdentityMount(t, zitiSidecar)
 	zitiGatewayWait := testutil.FindInitContainer(request.InitContainers, zitiGatewayWaitContainerName)
@@ -505,6 +508,21 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	expectedWaitCmd := buildZitiGatewayWaitCommand(gatewayHost)
 	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
 		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
+	}
+	zitiServiceWait := testutil.FindInitContainer(request.InitContainers, zitiServiceWaitContainerName)
+	if zitiServiceWait == nil {
+		t.Fatal("expected ziti-service-wait init container")
+	}
+	if zitiServiceWait.Image != zitiServiceWaitImage {
+		t.Fatalf("expected ziti service wait image %q, got %q", zitiServiceWaitImage, zitiServiceWait.Image)
+	}
+	llmProxyURL, err := zitiServiceHealthURL(cfg.AgentLLMBaseURL)
+	if err != nil {
+		t.Fatalf("build llm proxy health URL: %v", err)
+	}
+	expectedServiceWaitCmd := buildZitiServiceWaitCommand(llmProxyURL)
+	if !equalStringSlice(zitiServiceWait.Cmd, expectedServiceWaitCmd) {
+		t.Fatalf("expected ziti service wait cmd %+v, got %+v", expectedServiceWaitCmd, zitiServiceWait.Cmd)
 	}
 	if len(request.Volumes) != 2 {
 		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
@@ -1986,6 +2004,20 @@ func assertFileEquals(t *testing.T, path, expected string) {
 	}
 	if string(actual) != expected {
 		t.Fatalf("expected %s to contain %q, got %q", path, expected, string(actual))
+	}
+}
+
+func TestZitiServiceWaitTargetsLLMProxyHealth(t *testing.T) {
+	got, err := zitiServiceHealthURL("http://llm-proxy.ziti/v1")
+	if err != nil {
+		t.Fatalf("zitiServiceHealthURL: %v", err)
+	}
+	if got != "http://llm-proxy.ziti/v1/models" {
+		t.Fatalf("expected health URL %q, got %q", "http://llm-proxy.ziti/v1/models", got)
+	}
+	cmd := buildZitiServiceWaitCommand(got)
+	if !strings.Contains(cmd[2], "curl --silent --show-error --max-time 5 -o /dev/null \"http://llm-proxy.ziti/v1/models\"") {
+		t.Fatalf("expected ziti service wait to curl health URL, got %+v", cmd)
 	}
 }
 
