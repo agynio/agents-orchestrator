@@ -193,11 +193,29 @@ runtime_controller_port_override="$3"
 enrollment_controller_resolve_host="$4"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
+hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
 if [[ ! -s "${identity_file}" ]]; then
   echo "expected identity file ${identity_file}" >&2
   exit 1
 fi
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
+runtime_controller_hostport="$(printf '%s\n' "${runtime_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
+runtime_controller_host="${runtime_controller_hostport%%:*}"
+if [[ -z "${runtime_controller_host}" ]]; then
+  echo "expected runtime controller endpoint in ${identity_file}" >&2
+  exit 1
+fi
+runtime_controller_ip="$(getent ahostsv4 "${runtime_controller_resolve_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
+if [[ -z "${runtime_controller_ip}" ]]; then
+  echo "expected resolved runtime controller address for ${runtime_controller_resolve_host}" >&2
+  exit 1
+fi
+awk -v host="${runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${hosts_file}" > "${hosts_file}.tmp"
+cat "${hosts_file}.tmp" > "${hosts_file}"
+rm -f "${hosts_file}.tmp"
+printf '%s\t%s\n' "${runtime_controller_ip}" "${runtime_controller_host}" >> "${hosts_file}"
+printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
