@@ -76,7 +76,7 @@ jobs:
                 in_edge_api = 1
                 edge_api_indent = current_indent
                 print
-                printf "%*sdisableOidcAutoBinding: true\n", edge_api_indent + 2, ""
+                printf "%*sdisableOidcAutoBinding: \"true\"\n", edge_api_indent + 2, ""
                 next
               } else if (in_edge_api && current_indent <= edge_api_indent && $0 !~ /^[ ]*$/) {
                 in_edge_api = 0
@@ -87,7 +87,7 @@ jobs:
               }
             }
           ' /tmp/ziti-controller.yaml > /tmp/ziti-controller-no-oidc.yaml
-          if ! grep -q "disableOidcAutoBinding: true" /tmp/ziti-controller-no-oidc.yaml; then
+          if ! grep -q "disableOidcAutoBinding: \"true\"" /tmp/ziti-controller-no-oidc.yaml; then
             echo "expected disableOidcAutoBinding in patched Ziti controller config" >&2
             exit 1
           fi
