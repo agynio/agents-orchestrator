@@ -141,6 +141,9 @@ jobs:
         run: |-
           set -euo pipefail
           dump_ziti_dns_preflight_diagnostics() {
+            kubectl get pod ziti-dns-preflight -n agyn-workloads -o wide || true
+            kubectl describe pod ziti-dns-preflight -n agyn-workloads || true
+            kubectl logs pod/ziti-dns-preflight -n agyn-workloads --all-containers=true --tail=-1 || true
             kubectl get configmap ziti-workload-dns -n ziti -o yaml || true
             kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide || true
             kubectl get service,endpoints -n ziti ziti-workload-dns ziti-controller-client ziti-router-edge -o wide || true
