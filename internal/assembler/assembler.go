@@ -27,6 +27,7 @@ const (
 	mcpBasePort                                     = 8100
 	ZitiEnrollContainerName                         = "ziti-enroll"
 	ZitiSidecarContainerName                        = "ziti-sidecar"
+	ZitiSidecarSourceBinaryEnvVar                   = "ZITI_SIDECAR_SOURCE_BINARY"
 	zitiIdentityVolumeName                          = "ziti-identity"
 	zitiIdentityMountPath                           = "/netfoundry"
 	ZitiIdentityBasename                            = "agent"
@@ -40,7 +41,8 @@ const (
 	zitiDNSNameserver                               = "127.0.0.1"
 	zitiEnrollEntrypoint                            = "/usr/bin/bash"
 	zitiSidecarEntrypoint                           = "/usr/bin/bash"
-	zitiSidecarBinaryPath                           = "/usr/local/bin/ziti"
+	zitiSidecarBinaryPath                           = "/tmp/agyn-ziti-no-oidc"
+	zitiSidecarSourceBinaryPath                     = "/usr/local/bin/ziti"
 	zitiSidecarCommand                              = "tunnel"
 	zitiSidecarMode                                 = "tproxy"
 	zitiSidecarServicePollRate                      = "1"
@@ -195,6 +197,7 @@ runtime_controller_port_override="$3"
 enrollment_controller_resolve_host="$4"
 runtime_controller_dns_upstream="${workload_dns_upstream}"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
+ziti_sidecar_source_binary="${ZITI_SIDECAR_SOURCE_BINARY}"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 if [[ -n "${runtime_controller_resolve_host}" ]]; then
@@ -217,6 +220,26 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
 	  getent hosts "${ziti_runtime_controller_host}" || true
 	fi
 printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
+if [[ "${ZITI_SIDECAR_BINARY}" != "${ziti_sidecar_source_binary}" ]]; then
+  cp "${ziti_sidecar_source_binary}" "${ZITI_SIDECAR_BINARY}"
+  chmod 0755 "${ZITI_SIDECAR_BINARY}"
+  patched_capabilities=0
+  for capability in OIDC_AUTH_WITH_CSR OIDC_AUTH; do
+    replacement="$(printf "%*s" "${#capability}" "" | tr " " _)"
+    capability_offsets="$(grep -abo "${capability}" "${ZITI_SIDECAR_BINARY}" || true)"
+    if [[ -n "${capability_offsets}" ]]; then
+      while IFS=: read -r offset _; do
+        printf "%s" "${replacement}" | dd of="${ZITI_SIDECAR_BINARY}" bs=1 seek="${offset}" conv=notrunc status=none
+        patched_capabilities=$((patched_capabilities + 1))
+      done <<< "${capability_offsets}"
+    fi
+  done
+  if grep -qao "OIDC_AUTH" "${ZITI_SIDECAR_BINARY}"; then
+    echo "expected patched Ziti sidecar binary to omit OIDC_AUTH capability checks" >&2
+    exit 1
+  fi
+  echo "patched ${patched_capabilities} Ziti sidecar OIDC capability checks"
+fi
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --dnsUpstream "tcp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
@@ -520,6 +543,7 @@ func zitiSidecarEnvVars(workloadDNSUpstream string, zitiEnrollmentDNSUpstream st
 		&runnerv1.EnvVar{Name: "ZITI_DNS_UPSTREAM", Value: zitiEnrollmentDNSUpstream},
 		&runnerv1.EnvVar{Name: "ZITI_CTRL_ADVERTISED_ADDRESS", Value: runtimeControllerResolveHost},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_BINARY", Value: zitiSidecarBinaryPath},
+		&runnerv1.EnvVar{Name: ZitiSidecarSourceBinaryEnvVar, Value: zitiSidecarSourceBinaryPath},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_COMMAND", Value: zitiSidecarCommand},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_MODE", Value: zitiSidecarMode},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_SERVICE_POLL_RATE", Value: zitiSidecarServicePollRate},

@@ -476,6 +476,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	assertEnv(t, zitiEnv, "ZITI_DNS_UPSTREAM", cfg.ZitiEnrollmentDNSUpstream)
 	assertEnv(t, zitiEnv, "ZITI_CTRL_ADVERTISED_ADDRESS", cfg.ZitiRuntimeControllerResolveHost)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_BINARY", zitiSidecarBinaryPath)
+	assertEnv(t, zitiEnv, ZitiSidecarSourceBinaryEnvVar, zitiSidecarSourceBinaryPath)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_COMMAND", zitiSidecarCommand)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_MODE", zitiSidecarMode)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_SERVICE_POLL_RATE", zitiSidecarServicePollRate)
@@ -2007,6 +2008,15 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	}
 	if !strings.Contains(zitiSidecarScript, `exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}"`) {
 		t.Fatalf("expected sidecar script to exec ziti tunnel directly, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `for capability in OIDC_AUTH_WITH_CSR OIDC_AUTH`) {
+		t.Fatalf("expected sidecar script to disable OIDC capability detection, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `capability_offsets="$(grep -abo "${capability}" "${ZITI_SIDECAR_BINARY}" || true)"`) {
+		t.Fatalf("expected sidecar script to tolerate absent OIDC capability strings, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `grep -qao "OIDC_AUTH" "${ZITI_SIDECAR_BINARY}"`) {
+		t.Fatalf("expected sidecar script to verify patched binary omits OIDC_AUTH, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, `GODEBUG`) {
 		t.Fatalf("expected sidecar script to force cgo DNS resolution, got %q", zitiSidecarScript)
