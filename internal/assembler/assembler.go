@@ -185,7 +185,7 @@ if [[ -n "${runtime_controller_resolve_host}" ]]; then
   if [[ -n "${runtime_controller_port_override}" ]]; then
     ziti_runtime_controller_port="${runtime_controller_port_override}"
   fi
-  jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI' "${identity_file}" > "${identity_file}.tmp"
+  jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' "${identity_file}" > "${identity_file}.tmp"
   cat "${identity_file}.tmp" > "${identity_file}"
   rm -f "${identity_file}.tmp"
 fi

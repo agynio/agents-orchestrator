@@ -1724,8 +1724,8 @@ if [[ "$1" == "-r" ]]; then
 fi
 if [[ "$1" == "--arg" ]]; then
   shift; name="$1"; shift; value="$1"; shift
-  if [[ "${1:-}" == '.ztAPI = $ztAPI' ]]; then
-    sed -E "s#\"ztAPI\":\"[^\"]+\"#\"ztAPI\":\"${value}\"#" "${2:-}"
+  if [[ "${1:-}" == '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' ]]; then
+    sed -E "s#\"ztAPI\":\"[^\"]+\"#\"ztAPI\":\"${value}\",\"ztAPIs\":[\"${value}\"]#" "${2:-}"
     exit 0
   fi
 fi
@@ -1882,8 +1882,8 @@ if [[ "$1" == "-r" ]]; then
 fi
 if [[ "$1" == "--arg" ]]; then
   shift; name="$1"; shift; value="$1"; shift
-  if [[ "${1:-}" == '.ztAPI = $ztAPI' ]]; then
-    sed -E "s#\"ztAPI\":\"[^\"]+\"#\"ztAPI\":\"${value}\"#" "${2:-}"
+  if [[ "${1:-}" == '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' ]]; then
+    sed -E "s#\"ztAPI\":\"[^\"]+\"#\"ztAPI\":\"${value}\",\"ztAPIs\":[\"${value}\"]#" "${2:-}"
     exit 0
   fi
 fi
@@ -1949,8 +1949,8 @@ func TestZitiEnrollmentScriptPatchesOnlyRuntimeAPI(t *testing.T) {
 	if !strings.Contains(zitiEnrollScript, `ziti edge enroll --jwt "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
 		t.Fatalf("expected canonical ziti edge enrollment, got %q", zitiEnrollScript)
 	}
-	if !strings.Contains(zitiEnrollScript, `jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI' "${identity_file}"`) {
-		t.Fatalf("expected runtime patch to update only ztAPI, got %q", zitiEnrollScript)
+	if !strings.Contains(zitiEnrollScript, `jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' "${identity_file}"`) {
+		t.Fatalf("expected runtime patch to update only controller API endpoints, got %q", zitiEnrollScript)
 	}
 	for _, forbidden := range []string{`openssl ecparam`, `openssl req`, `/edge/client/v1/enroll`, `id:{`, `cert:`, `key:`, `ca:`} {
 		if strings.Contains(zitiEnrollScript, forbidden) {
