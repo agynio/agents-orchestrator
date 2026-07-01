@@ -44,10 +44,59 @@ jobs:
           set -euo pipefail
           kubectl get configmap ziti-controller-config -n ziti -o jsonpath='{.data.ziti-controller\.yaml}' > /tmp/ziti-controller.yaml
           awk '
-            index($0, "- binding: edge-oidc") > 0 { skip = 1; next }
-            skip == 1 && index($0, "options:") > 0 { skip = 0; next }
-            { skip = 0; print }
+            function indent_len(line) {
+              match(line, /^[ ]*/)
+              return RLENGTH
+            }
+            function skip_oidc_block(current_indent) {
+              return skip_oidc && current_indent > oidc_indent
+            }
+            {
+              current_indent = indent_len($0)
+              if (skip_oidc && skip_oidc_block(current_indent)) {
+                next
+              }
+              skip_oidc = 0
+              if ($0 ~ /^[ ]*- binding: edge-oidc[ ]*$/) {
+                skip_oidc = 1
+                oidc_indent = current_indent
+                next
+              }
+
+              if ($0 ~ /^[ ]*edge:[ ]*$/) {
+                in_edge = 1
+                edge_indent = current_indent
+                in_edge_api = 0
+              } else if (in_edge && current_indent <= edge_indent && $0 !~ /^[ ]*$/) {
+                in_edge = 0
+                in_edge_api = 0
+              }
+
+              if (in_edge && $0 ~ /^[ ]*api:[ ]*$/) {
+                in_edge_api = 1
+                edge_api_indent = current_indent
+                print
+                printf "%*sdisableOidcAutoBinding: true\n", edge_api_indent + 2, ""
+                next
+              } else if (in_edge_api && current_indent <= edge_api_indent && $0 !~ /^[ ]*$/) {
+                in_edge_api = 0
+              }
+
+              if (!(in_edge_api && $0 ~ /^[ ]*disableOidcAutoBinding:/)) {
+                print
+              }
+            }
           ' /tmp/ziti-controller.yaml > /tmp/ziti-controller-no-oidc.yaml
+          if ! grep -q "disableOidcAutoBinding: true" /tmp/ziti-controller-no-oidc.yaml; then
+            echo "expected disableOidcAutoBinding in patched Ziti controller config" >&2
+            exit 1
+          fi
+          if grep -q "edge-oidc" /tmp/ziti-controller-no-oidc.yaml; then
+            echo "expected patched Ziti controller config to remove edge-oidc bindings" >&2
+            grep -n "edge-oidc" /tmp/ziti-controller-no-oidc.yaml >&2
+            exit 1
+          fi
+          grep -n -A4 -B2 "disableOidcAutoBinding" /tmp/ziti-controller-no-oidc.yaml
           kubectl create configmap ziti-controller-config -n ziti \
             --from-file=ziti-controller.yaml=/tmp/ziti-controller-no-oidc.yaml \
             --dry-run=client -o yaml | kubectl apply -f -
