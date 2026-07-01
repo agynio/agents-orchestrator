@@ -195,20 +195,20 @@ jobs:
                   - |-
                     set -eu
                     run_lookup() {
-                      host="${1}"
-                      server_name="${2}"
-                      server_ip="${3}"
-                      echo "== nslookup ${host} via ${server_name} ${server_ip} =="
-                      timeout 30 nslookup "${host}" "${server_ip}"
+                      host="\${1}"
+                      server_name="\${2}"
+                      server_ip="\${3}"
+                      echo "== nslookup \${host} via \${server_name} \${server_ip} =="
+                      timeout 30 nslookup "\${host}" "\${server_ip}"
                     }
-                    run_lookup ziti.agyn.dev service-cluster-ip "${ZITI_DNS_SERVICE_IP}"
-                    run_lookup ziti-router.agyn.dev service-cluster-ip "${ZITI_DNS_SERVICE_IP}"
-                    run_lookup ziti.agyn.dev endpoint-pod-ip "${ZITI_DNS_ENDPOINT_IP}"
-                    run_lookup ziti-router.agyn.dev endpoint-pod-ip "${ZITI_DNS_ENDPOINT_IP}"
-                    echo "== tcp connect to service-cluster-ip ${ZITI_DNS_SERVICE_IP}:53 =="
-                    timeout 10 nc -vz -w 5 "${ZITI_DNS_SERVICE_IP}" 53
-                    echo "== tcp connect to endpoint-pod-ip ${ZITI_DNS_ENDPOINT_IP}:53 =="
-                    timeout 10 nc -vz -w 5 "${ZITI_DNS_ENDPOINT_IP}" 53
+                    run_lookup ziti.agyn.dev service-cluster-ip "\${ZITI_DNS_SERVICE_IP}"
+                    run_lookup ziti-router.agyn.dev service-cluster-ip "\${ZITI_DNS_SERVICE_IP}"
+                    run_lookup ziti.agyn.dev endpoint-pod-ip "\${ZITI_DNS_ENDPOINT_IP}"
+                    run_lookup ziti-router.agyn.dev endpoint-pod-ip "\${ZITI_DNS_ENDPOINT_IP}"
+                    echo "== tcp connect to service-cluster-ip \${ZITI_DNS_SERVICE_IP}:53 =="
+                    timeout 10 nc -vz -w 5 "\${ZITI_DNS_SERVICE_IP}" 53
+                    echo "== tcp connect to endpoint-pod-ip \${ZITI_DNS_ENDPOINT_IP}:53 =="
+                    timeout 10 nc -vz -w 5 "\${ZITI_DNS_ENDPOINT_IP}" 53
           EOF_POD
           if ! kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
             echo "ziti-workload-dns UDP/TCP 53 preflight failed from agyn-workloads" >&2
