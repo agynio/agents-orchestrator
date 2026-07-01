@@ -238,7 +238,7 @@ if [[ "${ZITI_SIDECAR_BINARY}" != "${ziti_sidecar_source_binary}" ]]; then
     echo "expected patched Ziti sidecar binary to omit OIDC_AUTH capability checks" >&2
     exit 1
   fi
-  if ! "${ZITI_SIDECAR_BINARY}" edge version >/dev/null 2>&1; then
+  if ! "${ZITI_SIDECAR_BINARY}" version -v >/dev/null 2>&1; then
     echo "expected patched Ziti sidecar binary to remain executable" >&2
     exit 1
   fi
