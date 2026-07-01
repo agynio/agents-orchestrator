@@ -18,6 +18,11 @@ on:
 env:
   BOOTSTRAP_REF: 16fe4f32ed40d193047a13ad051d91af5f49962b
   K8S_RUNNER_REF: f54d45ec902c9e3e584c7a6f1436a2499848f53a
+  CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
+  AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
+  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.5
+  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.5
+  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.29
 
 permissions:
   contents: read
