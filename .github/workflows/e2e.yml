@@ -160,6 +160,16 @@ jobs:
             dump_ziti_dns_preflight_diagnostics
             exit 1
           fi
+          ziti_dns_endpoint_ip="$(kubectl get endpoints ziti-workload-dns -n ziti -o jsonpath='{.subsets[0].addresses[0].ip}')"
+          if [ -z "${ziti_dns_endpoint_ip}" ]; then
+            echo "ziti-workload-dns endpoint IP is empty" >&2
+            dump_ziti_dns_preflight_diagnostics
+            exit 1
+          fi
+          echo "ziti-workload-dns service ClusterIP: ${ziti_dns_ip}"
+          echo "ziti-workload-dns first endpoint IP: ${ziti_dns_endpoint_ip}"
+          kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
+          kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml
           kubectl delete pod ziti-dns-preflight -n agyn-workloads --ignore-not-found
           cat <<EOF_POD | kubectl apply -f -
           apiVersion: v1
@@ -174,10 +184,31 @@ jobs:
             containers:
               - name: ziti-dns-preflight
                 image: busybox:1.37.0
+                env:
+                  - name: ZITI_DNS_SERVICE_IP
+                    value: "${ziti_dns_ip}"
+                  - name: ZITI_DNS_ENDPOINT_IP
+                    value: "${ziti_dns_endpoint_ip}"
                 command:
                   - sh
                   - -c
-                  - timeout 30 nslookup ziti.agyn.dev ${ziti_dns_ip} && timeout 30 nslookup ziti-router.agyn.dev ${ziti_dns_ip} && timeout 10 nc -vz -w 5 ${ziti_dns_ip} 53
+                  - |-
+                    set -eu
+                    run_lookup() {
+                      host="$1"
+                      server_name="$2"
+                      server_ip="$3"
+                      echo "== nslookup ${host} via ${server_name} ${server_ip} =="
+                      timeout 30 nslookup "${host}" "${server_ip}"
+                    }
+                    run_lookup ziti.agyn.dev service-cluster-ip "${ZITI_DNS_SERVICE_IP}"
+                    run_lookup ziti-router.agyn.dev service-cluster-ip "${ZITI_DNS_SERVICE_IP}"
+                    run_lookup ziti.agyn.dev endpoint-pod-ip "${ZITI_DNS_ENDPOINT_IP}"
+                    run_lookup ziti-router.agyn.dev endpoint-pod-ip "${ZITI_DNS_ENDPOINT_IP}"
+                    echo "== tcp connect to service-cluster-ip ${ZITI_DNS_SERVICE_IP}:53 =="
+                    timeout 10 nc -vz -w 5 "${ZITI_DNS_SERVICE_IP}" 53
+                    echo "== tcp connect to endpoint-pod-ip ${ZITI_DNS_ENDPOINT_IP}:53 =="
+                    timeout 10 nc -vz -w 5 "${ZITI_DNS_ENDPOINT_IP}" 53
           EOF_POD
           if ! kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
             echo "ziti-workload-dns UDP/TCP 53 preflight failed from agyn-workloads" >&2
