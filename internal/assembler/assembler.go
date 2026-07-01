@@ -195,30 +195,13 @@ printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n
 runtime_controller_resolve_host="$2"
 runtime_controller_port_override="$3"
 enrollment_controller_resolve_host="$4"
-runtime_controller_dns_upstream="${workload_dns_upstream}"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
 ziti_sidecar_source_binary="${ZITI_SIDECAR_SOURCE_BINARY}"
-hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
-if [[ -n "${runtime_controller_resolve_host}" ]]; then
-  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${runtime_controller_dns_upstream}" > "${resolv_file}"
-  ziti_runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
-  ziti_runtime_controller_hostport="$(printf '%s\n' "${ziti_runtime_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
-  if [[ -z "${ziti_runtime_controller_hostport}" ]]; then
-    echo "expected runtime controller endpoint in ${identity_file}" >&2
-    exit 1
-  fi
-  ziti_runtime_controller_host="${ziti_runtime_controller_hostport%%:*}"
-  ziti_runtime_controller_port="${ziti_runtime_controller_hostport##:*}"
-  if [[ "${ziti_runtime_controller_port}" == "${ziti_runtime_controller_hostport}" ]]; then
-    ziti_runtime_controller_port="443"
-  fi
-	  if [[ -n "${runtime_controller_port_override}" ]]; then
-	    ziti_runtime_controller_port="${runtime_controller_port_override}"
-	  fi
-	  printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
-	  getent hosts "${ziti_runtime_controller_host}" || true
-	fi
+if [[ ! -s "${identity_file}" ]]; then
+  echo "expected identity file ${identity_file}" >&2
+  exit 1
+fi
 printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
 if [[ "${ZITI_SIDECAR_BINARY}" != "${ziti_sidecar_source_binary}" ]]; then
   cp "${ziti_sidecar_source_binary}" "${ZITI_SIDECAR_BINARY}"

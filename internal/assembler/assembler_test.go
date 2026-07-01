@@ -2027,11 +2027,11 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `runtime_controller_dns_upstream="${ZITI_DNS_UPSTREAM:-${workload_dns_upstream}}"`) {
 		t.Fatalf("expected sidecar script not to use enrollment DNS for runtime controller resolution, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `runtime_controller_dns_upstream="${workload_dns_upstream}"`) {
-		t.Fatalf("expected sidecar script to resolve runtime controller through workload DNS, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `runtime_controller_dns_upstream=`) {
+		t.Fatalf("expected sidecar script to avoid pre-resolving runtime controller outside tunnel DNS, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${runtime_controller_dns_upstream}" > "${resolv_file}"`) {
-		t.Fatalf("expected sidecar script to write runtime controller bootstrap resolver, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `getent hosts`) {
+		t.Fatalf("expected sidecar script not to cache runtime controller DNS before tunnel startup, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `expected resolved runtime controller address`) {
 		t.Fatalf("expected sidecar script not to fail before tunnel retry handling when runtime DNS is not ready, got %q", zitiSidecarScript)
