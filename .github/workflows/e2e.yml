@@ -9,15 +9,15 @@ on:
       bootstrap_ref:
         description: Bootstrap ref to provision from.
         required: false
-        default: 16fe4f32ed40d193047a13ad051d91af5f49962b
+        default: noa/issue-577
       k8s_runner_ref:
         description: k8s-runner ref to deploy from.
         required: false
-        default: f54d45ec902c9e3e584c7a6f1436a2499848f53a
+        default: noa/issue-73
 
 env:
-  BOOTSTRAP_REF: 16fe4f32ed40d193047a13ad051d91af5f49962b
-  K8S_RUNNER_REF: f54d45ec902c9e3e584c7a6f1436a2499848f53a
+  BOOTSTRAP_REF: noa/issue-577
+  K8S_RUNNER_REF: noa/issue-73
   CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
   AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
   AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@16fe4f32ed40d193047a13ad051d91af5f49962b
+        uses: agynio/bootstrap/.github/actions/provision@main
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF }}
 

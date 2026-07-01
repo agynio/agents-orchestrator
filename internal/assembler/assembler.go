@@ -28,7 +28,6 @@ const (
 	mcpBasePort                                     = 8100
 	ZitiEnrollContainerName                         = "ziti-enroll"
 	ZitiSidecarContainerName                        = "ziti-sidecar"
-	ZitiSidecarSourceBinaryEnvVar                   = "ZITI_SIDECAR_SOURCE_BINARY"
 	zitiIdentityVolumeName                          = "ziti-identity"
 	zitiIdentityMountPath                           = "/netfoundry"
 	ZitiIdentityBasename                            = "agent"
@@ -42,8 +41,7 @@ const (
 	zitiDNSNameserver                               = "127.0.0.1"
 	zitiEnrollEntrypoint                            = "/usr/bin/bash"
 	zitiSidecarEntrypoint                           = "/usr/bin/bash"
-	zitiSidecarBinaryPath                           = "/tmp/agyn-ziti-no-oidc"
-	zitiSidecarSourceBinaryPath                     = "/usr/local/bin/ziti"
+	zitiSidecarBinaryPath                           = "/usr/local/bin/ziti"
 	zitiSidecarCommand                              = "tunnel"
 	zitiSidecarMode                                 = "tproxy"
 	zitiSidecarServicePollRate                      = "1"
@@ -61,6 +59,8 @@ ziti_controller_cert="${identity_dir}/controller-ca.pem"
 ziti_tls_ca_cert="${identity_dir}/controller-tls-ca.pem"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
+ziti_runtime_controller_host=""
+ziti_runtime_controller_port=""
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 mkdir -p "${identity_dir}"
@@ -162,34 +162,29 @@ if [[ ! -s "${identity_file}" ]]; then
   exit 1
 fi
 
-if [[ -n "${runtime_controller_resolve_host}" ]]; then
-  if [[ ! -s "${ziti_tls_ca_cert}" ]]; then
-    echo "expected controller CA bundle ${ziti_tls_ca_cert}" >&2
-    exit 1
-  fi
-  ziti_runtime_controller_ip="$(getent ahostsv4 "${runtime_controller_resolve_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
-  if [[ -z "${ziti_runtime_controller_ip}" ]]; then
-    echo "expected resolved runtime controller address for ${runtime_controller_resolve_host}" >&2
-    exit 1
-  fi
+if [[ -n "${runtime_controller_port_override}" ]]; then
+  ziti_runtime_controller_port="${runtime_controller_port_override}"
+fi
+if [[ -z "${ziti_runtime_controller_host}" || -z "${ziti_runtime_controller_port}" ]]; then
   ziti_runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
   ziti_runtime_controller_hostport="$(printf '%s\n' "${ziti_runtime_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
   if [[ -z "${ziti_runtime_controller_hostport}" ]]; then
     echo "expected runtime controller endpoint in ${identity_file}" >&2
     exit 1
   fi
-  ziti_runtime_controller_host="${ziti_runtime_controller_hostport%%:*}"
-  ziti_runtime_controller_port="${ziti_runtime_controller_hostport##*:}"
-  if [[ "${ziti_runtime_controller_port}" == "${ziti_runtime_controller_hostport}" ]]; then
-    ziti_runtime_controller_port="443"
+  if [[ -z "${ziti_runtime_controller_host}" ]]; then
+    ziti_runtime_controller_host="${ziti_runtime_controller_hostport%%:*}"
   fi
-  if [[ -n "${runtime_controller_port_override}" ]]; then
-    ziti_runtime_controller_port="${runtime_controller_port_override}"
+  if [[ -z "${ziti_runtime_controller_port}" ]]; then
+    ziti_runtime_controller_port="${ziti_runtime_controller_hostport##*:}"
+    if [[ "${ziti_runtime_controller_port}" == "${ziti_runtime_controller_hostport}" ]]; then
+      ziti_runtime_controller_port="443"
+    fi
   fi
-  jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' "${identity_file}" > "${identity_file}.tmp"
-  cat "${identity_file}.tmp" > "${identity_file}"
-  rm -f "${identity_file}.tmp"
 fi
+jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' "${identity_file}" > "${identity_file}.tmp"
+cat "${identity_file}.tmp" > "${identity_file}"
+rm -f "${identity_file}.tmp"
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
 	zitiSidecarScript = `workload_dns_upstream="$1"
@@ -197,37 +192,12 @@ runtime_controller_resolve_host="$2"
 runtime_controller_port_override="$3"
 enrollment_controller_resolve_host="$4"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
-ziti_sidecar_source_binary="${ZITI_SIDECAR_SOURCE_BINARY}"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 if [[ ! -s "${identity_file}" ]]; then
   echo "expected identity file ${identity_file}" >&2
   exit 1
 fi
 printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
-if [[ "${ZITI_SIDECAR_BINARY}" != "${ziti_sidecar_source_binary}" ]]; then
-  cp "${ziti_sidecar_source_binary}" "${ZITI_SIDECAR_BINARY}"
-  chmod 0755 "${ZITI_SIDECAR_BINARY}"
-  patched_capabilities=0
-  for capability in OIDC_AUTH_WITH_CSR OIDC_AUTH; do
-    replacement="$(printf "%*s" "${#capability}" "" | tr " " _)"
-    capability_offsets="$(grep -abo "${capability}" "${ZITI_SIDECAR_BINARY}" || true)"
-    if [[ -n "${capability_offsets}" ]]; then
-      while IFS=: read -r offset _; do
-        printf "%s" "${replacement}" | dd of="${ZITI_SIDECAR_BINARY}" bs=1 seek="${offset}" conv=notrunc status=none
-        patched_capabilities=$((patched_capabilities + 1))
-      done <<< "${capability_offsets}"
-    fi
-  done
-  if grep -qao "OIDC_AUTH" "${ZITI_SIDECAR_BINARY}"; then
-    echo "expected patched Ziti sidecar binary to omit OIDC_AUTH capability checks" >&2
-    exit 1
-  fi
-  if ! "${ZITI_SIDECAR_BINARY}" version -v >/dev/null 2>&1; then
-    echo "expected patched Ziti sidecar binary to remain executable" >&2
-    exit 1
-  fi
-  echo "patched ${patched_capabilities} Ziti sidecar OIDC capability checks"
-fi
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --dnsUpstream "udp://${workload_dns_upstream}:53" --dnsUpstream "tcp://${workload_dns_upstream}:53" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
@@ -544,7 +514,6 @@ func zitiSidecarEnvVars(workloadDNSUpstream string, zitiEnrollmentDNSUpstream st
 		&runnerv1.EnvVar{Name: "ZITI_DNS_UPSTREAM", Value: zitiEnrollmentDNSUpstream},
 		&runnerv1.EnvVar{Name: "ZITI_CTRL_ADVERTISED_ADDRESS", Value: runtimeControllerResolveHost},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_BINARY", Value: zitiSidecarBinaryPath},
-		&runnerv1.EnvVar{Name: ZitiSidecarSourceBinaryEnvVar, Value: zitiSidecarSourceBinaryPath},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_COMMAND", Value: zitiSidecarCommand},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_MODE", Value: zitiSidecarMode},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_SERVICE_POLL_RATE", Value: zitiSidecarServicePollRate},
