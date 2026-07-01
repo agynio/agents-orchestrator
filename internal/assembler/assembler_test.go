@@ -2060,10 +2060,10 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `getent hosts`) {
 		t.Fatalf("expected sidecar script to use canonical IPv4 stream resolution, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `getent ahostsv4 "${runtime_controller_resolve_host}"`) {
-		t.Fatalf("expected sidecar script to resolve runtime controller through workload DNS before installing host alias, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `getent ahostsv4 "${runtime_controller_host}"`) {
+		t.Fatalf("expected sidecar script to resolve advertised runtime controller through workload DNS before installing host alias, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `expected resolved runtime controller address for ${runtime_controller_resolve_host}`) {
+	if !strings.Contains(zitiSidecarScript, `expected resolved runtime controller address for ${runtime_controller_host}`) {
 		t.Fatalf("expected sidecar script to fail loudly when runtime controller DNS is unavailable, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, `printf '%s\t%s\n' "${runtime_controller_ip}" "${runtime_controller_host}" >> "${hosts_file}"`) {

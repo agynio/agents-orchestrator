@@ -206,9 +206,9 @@ if [[ -z "${runtime_controller_host}" ]]; then
   echo "expected runtime controller endpoint in ${identity_file}" >&2
   exit 1
 fi
-runtime_controller_ip="$(getent ahostsv4 "${runtime_controller_resolve_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
+runtime_controller_ip="$(getent ahostsv4 "${runtime_controller_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
 if [[ -z "${runtime_controller_ip}" ]]; then
-  echo "expected resolved runtime controller address for ${runtime_controller_resolve_host}" >&2
+  echo "expected resolved runtime controller address for ${runtime_controller_host}" >&2
   exit 1
 fi
 awk -v host="${runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) next } { print }' "${hosts_file}" > "${hosts_file}.tmp"
