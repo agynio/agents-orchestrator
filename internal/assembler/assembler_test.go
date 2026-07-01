@@ -2018,6 +2018,9 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `grep -qao "OIDC_AUTH" "${ZITI_SIDECAR_BINARY}"`) {
 		t.Fatalf("expected sidecar script to verify patched binary omits OIDC_AUTH, got %q", zitiSidecarScript)
 	}
+	if !strings.Contains(zitiSidecarScript, `"${ZITI_SIDECAR_BINARY}" edge version`) {
+		t.Fatalf("expected sidecar script to verify patched binary remains executable, got %q", zitiSidecarScript)
+	}
 	if !strings.Contains(zitiSidecarScript, `GODEBUG`) {
 		t.Fatalf("expected sidecar script to force cgo DNS resolution, got %q", zitiSidecarScript)
 	}
