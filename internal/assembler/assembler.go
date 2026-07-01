@@ -197,7 +197,7 @@ if [[ ! -s "${identity_file}" ]]; then
   echo "expected identity file ${identity_file}" >&2
   exit 1
 fi
-printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
