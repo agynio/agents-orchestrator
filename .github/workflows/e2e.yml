@@ -53,8 +53,7 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           kubectl rollout restart deployment/ziti-controller -n ziti
           kubectl rollout status deployment/ziti-controller -n ziti --timeout=300s
-          ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
-          version_json="$(curl --insecure --fail --show-error --silent --resolve ziti.agyn.dev:443:${ziti_controller_ip} https://ziti.agyn.dev:443/edge/client/v1/version)"
+          version_json="$(kubectl exec -n ziti deployment/ziti-controller -- curl --insecure --fail --show-error --silent https://127.0.0.1:1280/edge/client/v1/version)"
           echo "${version_json}"
           if echo "${version_json}" | grep -q OIDC_AUTH; then
             echo "Ziti OIDC capability still advertised after removing edge-oidc bindings" >&2
