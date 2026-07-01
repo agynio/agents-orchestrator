@@ -2069,8 +2069,8 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `--dnsUpstream`) {
 		t.Fatalf("expected sidecar script not to use unsupported dns upstream flags on the pinned tunnel image, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}"`) {
-		t.Fatalf("expected sidecar script to enable service polling, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`) {
+		t.Fatalf("expected sidecar script to enable service polling and supported DNS resolver, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `--dnsUpstreamMode`) {
 		t.Fatalf("expected sidecar script not to use unsupported dns upstream mode flag, got %q", zitiSidecarScript)
