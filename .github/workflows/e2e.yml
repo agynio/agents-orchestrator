@@ -195,9 +195,9 @@ jobs:
                   - |-
                     set -eu
                     run_lookup() {
-                      host="$1"
-                      server_name="$2"
-                      server_ip="$3"
+                      host="${1}"
+                      server_name="${2}"
+                      server_ip="${3}"
                       echo "== nslookup ${host} via ${server_name} ${server_ip} =="
                       timeout 30 nslookup "${host}" "${server_ip}"
                     }
