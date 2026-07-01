@@ -149,7 +149,7 @@ if [[ ! -s "${identity_file}" ]]; then
   }
   trap restore_hosts EXIT
   printf '%s\t%s\n' "${ziti_enrollment_controller_ip}" "${ziti_controller_host}" >> "${hosts_file}"
-  ziti edge enroll "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"
+  ziti edge enroll --jwt "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"
   restore_hosts
   trap - EXIT
 fi

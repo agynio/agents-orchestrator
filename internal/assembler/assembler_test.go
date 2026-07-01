@@ -392,7 +392,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiEnroll.Cmd[1], "nameserver %s\\nsearch svc.cluster.local cluster.local\\noptions ndots:5\\n") {
 		t.Fatalf("expected ziti enroll script to write workload DNS upstream resolver, got %q", zitiEnroll.Cmd[1])
 	}
-	if !strings.Contains(zitiEnroll.Cmd[1], `ziti edge enroll "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
+	if !strings.Contains(zitiEnroll.Cmd[1], `ziti edge enroll --jwt "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
 		t.Fatalf("expected ziti enroll script to use canonical ziti edge enrollment, got %q", zitiEnroll.Cmd[1])
 	}
 	if strings.Contains(zitiEnroll.Cmd[1], "curl --fail-with-body") || strings.Contains(zitiEnroll.Cmd[1], "/edge/client/v1/enroll?method=") {
@@ -1692,7 +1692,7 @@ esac
 set -euo pipefail
 printf 'ziti_args=%%s\n' "$*" >> %s
 printf 'ziti_hosts=%%s\n' "$(cat %s)" >> %s
-if [[ "$*" != "edge enroll "* ]]; then
+if [[ "$*" != "edge enroll --jwt "* ]]; then
   echo "unexpected ziti args: $*" >&2
   exit 1
 fi
@@ -1790,7 +1790,7 @@ exec "${real_cat}" "$@"
 	if !strings.Contains(log, " --ca "+filepath.Join(identityDir, "controller-tls-ca.pem")) {
 		t.Fatalf("expected canonical enrollment to trust combined controller CA bundle, got:\n%s", log)
 	}
-	if !strings.Contains(log, "ziti_args=edge enroll "+filepath.Join(identityDir, "agent.jwt")+" --ca "+filepath.Join(identityDir, "controller-tls-ca.pem")+" --out "+filepath.Join(identityDir, "agent.json")) {
+	if !strings.Contains(log, "ziti_args=edge enroll --jwt "+filepath.Join(identityDir, "agent.jwt")+" --ca "+filepath.Join(identityDir, "controller-tls-ca.pem")+" --out "+filepath.Join(identityDir, "agent.json")) {
 		t.Fatalf("expected canonical ziti enrollment with controller CA bundle, got:\n%s", log)
 	}
 	if !strings.Contains(log, "10.43.253.228\t"+controllerHost) {
@@ -1945,7 +1945,7 @@ esac
 }
 
 func TestZitiEnrollmentScriptPatchesOnlyRuntimeAPI(t *testing.T) {
-	if !strings.Contains(zitiEnrollScript, `ziti edge enroll "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
+	if !strings.Contains(zitiEnrollScript, `ziti edge enroll --jwt "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
 		t.Fatalf("expected canonical ziti edge enrollment, got %q", zitiEnrollScript)
 	}
 	if !strings.Contains(zitiEnrollScript, `jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI' "${identity_file}"`) {
