@@ -154,6 +154,31 @@ jobs:
           kubectl get networkpolicy ziti-workload-dns -n ziti -o yaml
           kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
 
+      - name: Patch workload Ziti DNS runtime target
+        run: |-
+          set -euo pipefail
+          current_target="$(kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti\.db}' | awk '$1 == "@" && $2 == "IN" && $3 == "A" {print $4; exit}')"
+          istio_gateway_ip="$(kubectl get service istio-ingressgateway -n istio-gateway -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${current_target}" ]; then
+            echo "ziti-workload-dns ziti.db target is empty" >&2
+            kubectl get configmap ziti-workload-dns -n ziti -o yaml >&2 || true
+            exit 1
+          fi
+          if [ -z "${istio_gateway_ip}" ]; then
+            echo "istio-ingressgateway ClusterIP is empty" >&2
+            kubectl get service istio-ingressgateway -n istio-gateway -o yaml >&2 || true
+            exit 1
+          fi
+          if [ "${current_target}" != "${istio_gateway_ip}" ]; then
+            echo "Patching ziti.agyn.dev workload DNS from ${current_target} to ingressgateway ${istio_gateway_ip} for source-of-truth PR validation."
+            kubectl get configmap ziti-workload-dns -n ziti -o yaml \
+              | sed -E "s/^([[:space:]]*(@|ns) IN A )[^[:space:]]+/\1${istio_gateway_ip}/" \
+              | kubectl apply -f -
+            kubectl rollout restart deployment/ziti-workload-dns -n ziti
+          fi
+          kubectl rollout status deployment/ziti-workload-dns -n ziti --timeout=180s
+          kubectl get configmap ziti-workload-dns -n ziti -o yaml
+
       - name: Verify workload Ziti DNS
         run: |-
           set -euo pipefail

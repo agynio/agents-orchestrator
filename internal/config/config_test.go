@@ -150,6 +150,7 @@ func TestZitiSidecarImageWorkflowsBuildAndRelease(t *testing.T) {
 		"github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF",
 		"github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF",
 		"name: Build Ziti sidecar image",
+		"name: Patch workload Ziti DNS runtime target",
 		"k3d image import \"${ZITI_SIDECAR_IMAGE}\"",
 	} {
 		if !strings.Contains(e2eWorkflow, expected) {
