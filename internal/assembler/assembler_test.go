@@ -2020,8 +2020,11 @@ func TestZitiServiceWaitTargetsLLMProxyHealth(t *testing.T) {
 		t.Fatalf("expected health URL %q, got %q", "http://llm-proxy.ziti/v1/models", got)
 	}
 	cmd := buildZitiServiceWaitCommand(got)
-	if !strings.Contains(cmd[2], "curl --silent --show-error --max-time 5 -o /dev/null \"http://llm-proxy.ziti/v1/models\"") {
+	if !strings.Contains(cmd[2], "curl --silent --show-error --max-time 5 --output /dev/null --write-out '%{http_code}' \"http://llm-proxy.ziti/v1/models\"") {
 		t.Fatalf("expected ziti service wait to curl health URL, got %+v", cmd)
+	}
+	if !strings.Contains(cmd[2], "case ${status} in 2*|3*|4*) exit 0") {
+		t.Fatalf("expected ziti service wait to accept reachable HTTP status codes, got %+v", cmd)
 	}
 }
 

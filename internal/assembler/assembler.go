@@ -895,7 +895,7 @@ func zitiServiceHealthURL(rawURL string) (string, error) {
 
 func buildZitiServiceWaitCommand(healthURL string) []string {
 	script := fmt.Sprintf(
-		"i=0; while [ $i -lt %d ]; do curl --silent --show-error --max-time 5 -o /dev/null %s && exit 0; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s\" >&2; exit 1",
+		"i=0; while [ $i -lt %d ]; do status=$(curl --silent --show-error --max-time 5 --output /dev/null --write-out '%%{http_code}' %s); case ${status} in 2*|3*|4*) exit 0 ;; esac; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s\" >&2; exit 1",
 		zitiServiceWaitTimeoutSeconds,
 		strconv.Quote(healthURL),
 		healthURL,
