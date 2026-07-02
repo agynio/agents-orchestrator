@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -165,6 +167,30 @@ func TestFromEnvAgentTracingAddress(t *testing.T) {
 	}
 	if cfg.AgentTracingAddress != "tracing:50051" {
 		t.Fatalf("expected tracing address %q, got %q", "tracing:50051", cfg.AgentTracingAddress)
+	}
+}
+
+func TestChartLeavesWorkloadAddressesToConfigDefaults(t *testing.T) {
+	values, err := os.ReadFile("../../charts/agents-orchestrator/values.yaml")
+	if err != nil {
+		t.Fatalf("read chart values: %v", err)
+	}
+	chartValues := string(values)
+	for _, forbidden := range []string{
+		"name: AGENT_GATEWAY_ADDRESS\n    value: \"gateway:8080\"",
+		"name: AGENT_TRACING_ADDRESS\n    value: \"tracing:50051\"",
+	} {
+		if strings.Contains(chartValues, forbidden) {
+			t.Fatalf("expected chart not to pin non-Ziti workload address %q", forbidden)
+		}
+	}
+	for _, expected := range []string{
+		"name: AGENT_GATEWAY_ADDRESS\n    value: \"\"",
+		"name: AGENT_TRACING_ADDRESS\n    value: \"\"",
+	} {
+		if !strings.Contains(chartValues, expected) {
+			t.Fatalf("expected chart to leave workload address empty for config defaults: %q", expected)
+		}
 	}
 }
 

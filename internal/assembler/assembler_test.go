@@ -315,8 +315,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		AgentGatewayAddress:                 "gateway:50051",
-		AgentLLMBaseURL:                     "http://llm:8080/v1",
+		AgentGatewayAddress:                 "gateway.ziti:443",
+		AgentTracingAddress:                 "tracing.ziti:443",
+		AgentLLMBaseURL:                     "http://llm-proxy.ziti/v1",
 		ZitiEnabled:                         true,
 		ZitiSidecarImage:                    "ziti-image",
 		WorkloadDNSUpstream:                 "10.43.0.10",
@@ -507,6 +508,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	expectedWaitCmd := buildZitiGatewayWaitCommand(gatewayHost)
 	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
 		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
+	}
+	if !strings.Contains(zitiGatewayWait.Cmd[2], "nslookup gateway.ziti 127.0.0.1") {
+		t.Fatalf("expected ziti gateway wait to resolve gateway.ziti through tunnel DNS, got %+v", zitiGatewayWait.Cmd)
 	}
 	zitiServiceWait := testutil.FindInitContainer(request.InitContainers, zitiServiceWaitContainerName)
 	if zitiServiceWait == nil {

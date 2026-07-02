@@ -117,10 +117,12 @@ env:
   # Deprecated: use WORKLOAD_DNS_UPSTREAM instead.
   - name: CLUSTER_DNS
     value: ""
+  # Leave workload-facing addresses empty so config.go selects coherent
+  # Ziti service names when ZITI_ENABLED=true and cluster names otherwise.
   - name: AGENT_GATEWAY_ADDRESS
-    value: "gateway:8080"
+    value: ""
   - name: AGENT_TRACING_ADDRESS
-    value: "tracing:50051"
+    value: ""
   - name: POLL_INTERVAL
     value: "5s"
   - name: IDLE_TIMEOUT

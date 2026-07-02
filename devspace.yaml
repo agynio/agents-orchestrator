@@ -94,6 +94,12 @@ functions:
                   value: "__ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST__"
                 - name: ZITI_RUNTIME_CONTROLLER_PORT
                   value: "__ZITI_RUNTIME_CONTROLLER_PORT__"
+                - name: AGENT_GATEWAY_ADDRESS
+                  value: "gateway.ziti:443"
+                - name: AGENT_TRACING_ADDRESS
+                  value: "tracing.ziti:443"
+                - name: AGENT_LLM_BASE_URL
+                  value: "http://llm-proxy.ziti/v1"
                 - name: GOCACHE
                   value: /tmp/go-build-cache
                 - name: GOMODCACHE
