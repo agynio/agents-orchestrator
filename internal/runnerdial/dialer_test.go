@@ -204,6 +204,11 @@ func TestIsAuthFailure(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "x25519 key exchange",
+			err:      errors.New("failed key exchange: crypto/ecdh: bad X25519 remote ECDH input: low order point"),
+			expected: true,
+		},
+		{
 			name:     "other",
 			err:      errors.New("other"),
 			expected: false,

@@ -208,5 +208,9 @@ func isAuthFailure(err error) bool {
 		return false
 	}
 	msg := err.Error()
-	return strings.Contains(msg, "INVALID_AUTH") || strings.Contains(msg, "no apiSession") || strings.Contains(strings.ToLower(msg), "invalid session")
+	lowerMsg := strings.ToLower(msg)
+	return strings.Contains(msg, "INVALID_AUTH") ||
+		strings.Contains(msg, "no apiSession") ||
+		strings.Contains(lowerMsg, "invalid session") ||
+		strings.Contains(lowerMsg, "bad x25519 remote ecdh input")
 }
