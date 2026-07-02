@@ -22,8 +22,8 @@ var (
 	leaseRetryBackoff   = []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
 	reEnrollCooldown    = 200 * time.Millisecond
 
-	newZitiContext = ziti.NewContext
-	disableOIDC    = disableZitiOIDC
+	newZitiContext       = ziti.NewContext
+	configureZitiContext = configureZitiClientContext
 )
 
 type ZitiManager struct {
@@ -245,18 +245,19 @@ func (m *ZitiManager) enroll(ctx context.Context) (ziti.Context, string, error) 
 	if err != nil {
 		return nil, "", fmt.Errorf("load ziti identity: %w", err)
 	}
-	if err := disableOIDC(zitiCtx); err != nil {
+	if err := configureZitiContext(zitiCtx); err != nil {
 		return nil, "", err
 	}
 	return zitiCtx, identityID, nil
 }
 
-func disableZitiOIDC(zitiCtx ziti.Context) error {
+func configureZitiClientContext(zitiCtx ziti.Context) error {
 	ctxImpl, ok := zitiCtx.(*ziti.ContextImpl)
 	if !ok {
-		return fmt.Errorf("unexpected ziti context type %T; cannot disable OIDC", zitiCtx)
+		return fmt.Errorf("unexpected ziti context type %T; cannot configure client context", zitiCtx)
 	}
 	ctxImpl.CtrlClt.SetUseOidc(false)
+	ctxImpl.CtrlClt.ConfigTypes = append(ctxImpl.CtrlClt.ConfigTypes, ziti.InterceptV1, ziti.ClientConfigV1)
 	return nil
 }
 

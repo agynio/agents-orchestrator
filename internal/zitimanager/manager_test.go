@@ -20,6 +20,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func TestConfigureZitiClientContextRequestsIntercepts(t *testing.T) {
+	identityConfig := &ziti.Config{}
+	zitiCtx, err := ziti.NewContext(identityConfig)
+	if err != nil {
+		t.Fatalf("NewContext: %v", err)
+	}
+	defer zitiCtx.Close()
+
+	if err := configureZitiClientContext(zitiCtx); err != nil {
+		t.Fatalf("configureZitiClientContext: %v", err)
+	}
+	ctxImpl := zitiCtx.(*ziti.ContextImpl)
+	assertStringContains(t, ctxImpl.CtrlClt.ConfigTypes, ziti.InterceptV1)
+	assertStringContains(t, ctxImpl.CtrlClt.ConfigTypes, ziti.ClientConfigV1)
+}
+
 func TestNewEnrollsIdentity(t *testing.T) {
 	resetTestHooks(t)
 
@@ -34,9 +50,9 @@ func TestNewEnrollsIdentity(t *testing.T) {
 		gotConfig = cfg
 		return ctx, nil
 	}
-	calledDisable := false
-	disableOIDC = func(ziti.Context) error {
-		calledDisable = true
+	calledConfigure := false
+	configureZitiContext = func(ziti.Context) error {
+		calledConfigure = true
 		return nil
 	}
 
@@ -53,8 +69,8 @@ func TestNewEnrollsIdentity(t *testing.T) {
 	if gotConfig == nil || gotConfig.ZtAPI != "https://example.test" {
 		t.Fatalf("expected identity config to parse ztAPI, got %#v", gotConfig)
 	}
-	if !calledDisable {
-		t.Fatal("expected OIDC to be disabled")
+	if !calledConfigure {
+		t.Fatal("expected Ziti context to be configured")
 	}
 }
 
@@ -85,7 +101,7 @@ func TestRunLeaseRenewalReEnrollsOnNotFound(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, 5*time.Millisecond)
 	if err != nil {
@@ -119,7 +135,7 @@ func TestNotifyAuthFailureReEnrolls(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -157,7 +173,7 @@ func TestNotifyAuthFailureDebounces(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -225,7 +241,7 @@ func TestNotifyAuthFailureKeepsContextOnFailure(t *testing.T) {
 		}
 		return ctx2, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -275,7 +291,7 @@ func TestExtendLeaseWithRetryRetriesOnRetryable(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -307,7 +323,7 @@ func TestExtendLeaseWithRetryStopsOnNonRetryable(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -344,7 +360,7 @@ func TestDialContextUsesCurrentContext(t *testing.T) {
 			},
 		}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -368,6 +384,16 @@ func TestDialContextUsesCurrentContext(t *testing.T) {
 	}
 }
 
+func assertStringContains(t *testing.T, values []string, expected string) {
+	t.Helper()
+	for _, value := range values {
+		if value == expected {
+			return
+		}
+	}
+	t.Fatalf("expected %q in %v", expected, values)
+}
+
 func waitForIdentity(t *testing.T, manager *ZitiManager, expected string) {
 	t.Helper()
 	deadline := time.After(500 * time.Millisecond)
@@ -387,11 +413,11 @@ func waitForIdentity(t *testing.T, manager *ZitiManager, expected string) {
 func resetTestHooks(t *testing.T) {
 	t.Helper()
 	origNew := newZitiContext
-	origDisable := disableOIDC
+	origConfigure := configureZitiContext
 	origLease := leaseRetryBackoff
 	t.Cleanup(func() {
 		newZitiContext = origNew
-		disableOIDC = origDisable
+		configureZitiContext = origConfigure
 		leaseRetryBackoff = origLease
 	})
 }
