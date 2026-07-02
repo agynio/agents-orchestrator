@@ -353,7 +353,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		if _, err := gatewayHost(a.cfg.AgentGatewayAddress); err != nil {
 			return nil, err
 		}
-		llmProxyURL, err := zitiServiceHealthURL(a.cfg.AgentLLMBaseURL)
+		llmProxyTarget, err := zitiServiceWaitTarget(a.cfg.AgentLLMBaseURL)
 		if err != nil {
 			return nil, err
 		}
@@ -386,7 +386,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiServiceWait := &runnerv1.ContainerSpec{
 			Image: zitiServiceWaitImage,
 			Name:  zitiServiceWaitContainerName,
-			Cmd:   buildZitiServiceWaitCommand(llmProxyURL),
+			Cmd:   buildZitiServiceWaitCommand(llmProxyTarget),
 		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
@@ -876,31 +876,52 @@ func buildZitiGatewayWaitCommand(address string) []string {
 	return []string{"/bin/sh", "-c", script}
 }
 
-func zitiServiceHealthURL(rawURL string) (string, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("parse ziti service health URL from %q: %w", rawURL, err)
-	}
-	if parsed.Scheme == "" {
-		return "", fmt.Errorf("ziti service health URL %q missing scheme", rawURL)
-	}
-	if parsed.Host == "" {
-		return "", fmt.Errorf("ziti service health URL %q missing host", rawURL)
-	}
-	parsed.Path = "/v1/models"
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return parsed.String(), nil
+type zitiServiceTarget struct {
+	host string
+	port string
 }
 
-func buildZitiServiceWaitCommand(healthURL string) []string {
+func zitiServiceWaitTarget(rawURL string) (zitiServiceTarget, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return zitiServiceTarget{}, fmt.Errorf("parse ziti service wait target from %q: %w", rawURL, err)
+	}
+	if parsed.Scheme == "" {
+		return zitiServiceTarget{}, fmt.Errorf("ziti service wait target %q missing scheme", rawURL)
+	}
+	if parsed.Host == "" {
+		return zitiServiceTarget{}, fmt.Errorf("ziti service wait target %q missing host", rawURL)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return zitiServiceTarget{}, fmt.Errorf("ziti service wait target %q missing host", rawURL)
+	}
+	port := parsed.Port()
+	if port == "" {
+		switch parsed.Scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		default:
+			return zitiServiceTarget{}, fmt.Errorf("ziti service wait target %q has unsupported scheme %q", rawURL, parsed.Scheme)
+		}
+	}
+	return zitiServiceTarget{host: host, port: port}, nil
+}
+
+func buildZitiServiceWaitCommand(target zitiServiceTarget) []string {
 	script := fmt.Sprintf(
-		"i=0; while [ $i -lt %d ]; do status=$(curl --silent --show-error --max-time 5 --output /dev/null --write-out '%%{http_code}' %s); case ${status} in 2*|3*|4*) exit 0 ;; esac; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s\" >&2; exit 1",
+		`i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && nc -z -w 5 %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s" >&2; exit 1`,
 		zitiServiceWaitTimeoutSeconds,
-		strconv.Quote(healthURL),
-		healthURL,
+		target.host,
+		zitiDNSNameserver,
+		target.host,
+		target.port,
+		target.host,
+		target.port,
 	)
-	return []string{"sh", "-c", script}
+	return []string{"/bin/sh", "-c", script}
 }
 
 func mergeEnvVars(platformEnv, userEnv []*runnerv1.EnvVar, owner string) []*runnerv1.EnvVar {

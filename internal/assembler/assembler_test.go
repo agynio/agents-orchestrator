@@ -517,11 +517,11 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiServiceWait.Image != zitiServiceWaitImage {
 		t.Fatalf("expected ziti service wait image %q, got %q", zitiServiceWaitImage, zitiServiceWait.Image)
 	}
-	llmProxyURL, err := zitiServiceHealthURL(cfg.AgentLLMBaseURL)
+	llmProxyTarget, err := zitiServiceWaitTarget(cfg.AgentLLMBaseURL)
 	if err != nil {
-		t.Fatalf("build llm proxy health URL: %v", err)
+		t.Fatalf("build llm proxy wait target: %v", err)
 	}
-	expectedServiceWaitCmd := buildZitiServiceWaitCommand(llmProxyURL)
+	expectedServiceWaitCmd := buildZitiServiceWaitCommand(llmProxyTarget)
 	if !equalStringSlice(zitiServiceWait.Cmd, expectedServiceWaitCmd) {
 		t.Fatalf("expected ziti service wait cmd %+v, got %+v", expectedServiceWaitCmd, zitiServiceWait.Cmd)
 	}
@@ -2011,20 +2011,33 @@ func assertFileEquals(t *testing.T, path, expected string) {
 	}
 }
 
-func TestZitiServiceWaitTargetsLLMProxyHealth(t *testing.T) {
-	got, err := zitiServiceHealthURL("http://llm-proxy.ziti/v1")
+func TestZitiServiceWaitTargetsLLMProxyTCP(t *testing.T) {
+	target, err := zitiServiceWaitTarget("http://llm-proxy.ziti/v1")
 	if err != nil {
-		t.Fatalf("zitiServiceHealthURL: %v", err)
+		t.Fatalf("zitiServiceWaitTarget: %v", err)
 	}
-	if got != "http://llm-proxy.ziti/v1/models" {
-		t.Fatalf("expected health URL %q, got %q", "http://llm-proxy.ziti/v1/models", got)
+	if target.host != "llm-proxy.ziti" || target.port != "80" {
+		t.Fatalf("expected llm-proxy.ziti:80, got %s:%s", target.host, target.port)
 	}
-	cmd := buildZitiServiceWaitCommand(got)
-	if !strings.Contains(cmd[2], "curl --silent --show-error --max-time 5 --output /dev/null --write-out '%{http_code}' \"http://llm-proxy.ziti/v1/models\"") {
-		t.Fatalf("expected ziti service wait to curl health URL, got %+v", cmd)
+	cmd := buildZitiServiceWaitCommand(target)
+	if !strings.Contains(cmd[2], "nslookup llm-proxy.ziti 127.0.0.1") {
+		t.Fatalf("expected ziti service wait to resolve llm-proxy.ziti through tunnel DNS, got %+v", cmd)
 	}
-	if !strings.Contains(cmd[2], "case ${status} in 2*|3*|4*) exit 0") {
-		t.Fatalf("expected ziti service wait to accept reachable HTTP status codes, got %+v", cmd)
+	if !strings.Contains(cmd[2], "nc -z -w 5 llm-proxy.ziti 80") {
+		t.Fatalf("expected ziti service wait to connect to llm-proxy.ziti:80 through tunnel, got %+v", cmd)
+	}
+	if strings.Contains(cmd[2], "/v1/models") || strings.Contains(cmd[2], "curl") {
+		t.Fatalf("expected ziti service wait not to use HTTP/model-list readiness, got %+v", cmd)
+	}
+}
+
+func TestZitiServiceWaitTargetPreservesExplicitPort(t *testing.T) {
+	target, err := zitiServiceWaitTarget("https://llm-proxy.ziti:8443/v1")
+	if err != nil {
+		t.Fatalf("zitiServiceWaitTarget: %v", err)
+	}
+	if target.host != "llm-proxy.ziti" || target.port != "8443" {
+		t.Fatalf("expected llm-proxy.ziti:8443, got %s:%s", target.host, target.port)
 	}
 }
 
