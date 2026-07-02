@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -501,16 +500,15 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiGatewayWait.Image != zitiGatewayWaitImage {
 		t.Fatalf("expected ziti gateway wait image %q, got %q", zitiGatewayWaitImage, zitiGatewayWait.Image)
 	}
-	gatewayHost, _, err := net.SplitHostPort(cfg.AgentGatewayAddress)
-	if err != nil {
-		t.Fatalf("parse gateway host: %v", err)
-	}
-	expectedWaitCmd := buildZitiGatewayWaitCommand(gatewayHost)
+	expectedWaitCmd := buildZitiGatewayWaitCommand(cfg.AgentGatewayAddress)
 	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
 		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
 	}
 	if !strings.Contains(zitiGatewayWait.Cmd[2], "nslookup gateway.ziti 127.0.0.1") {
 		t.Fatalf("expected ziti gateway wait to resolve gateway.ziti through tunnel DNS, got %+v", zitiGatewayWait.Cmd)
+	}
+	if !strings.Contains(zitiGatewayWait.Cmd[2], "nc -z -w 5 gateway.ziti 443") {
+		t.Fatalf("expected ziti gateway wait to connect to gateway.ziti through tunnel, got %+v", zitiGatewayWait.Cmd)
 	}
 	zitiServiceWait := testutil.FindInitContainer(request.InitContainers, zitiServiceWaitContainerName)
 	if zitiServiceWait == nil {

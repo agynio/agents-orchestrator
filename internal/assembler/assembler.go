@@ -350,8 +350,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	applyEgressCA(initContainer, a.egressCACert)
 	initContainers := []*runnerv1.ContainerSpec{initContainer}
 	if a.cfg.ZitiEnabled {
-		gatewayHostname, err := gatewayHost(a.cfg.AgentGatewayAddress)
-		if err != nil {
+		if _, err := gatewayHost(a.cfg.AgentGatewayAddress); err != nil {
 			return nil, err
 		}
 		llmProxyURL, err := zitiServiceHealthURL(a.cfg.AgentLLMBaseURL)
@@ -382,7 +381,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiGatewayWait := &runnerv1.ContainerSpec{
 			Image: zitiGatewayWaitImage,
 			Name:  zitiGatewayWaitContainerName,
-			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
+			Cmd:   buildZitiGatewayWaitCommand(a.cfg.AgentGatewayAddress),
 		}
 		zitiServiceWait := &runnerv1.ContainerSpec{
 			Image: zitiServiceWaitImage,
@@ -859,13 +858,20 @@ func gatewayHost(address string) (string, error) {
 	return host, nil
 }
 
-func buildZitiGatewayWaitCommand(host string) []string {
+func buildZitiGatewayWaitCommand(address string) []string {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		panic(fmt.Sprintf("parse gateway address %q: %v", address, err))
+	}
 	script := fmt.Sprintf(
-		"i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s\" >&2; exit 1",
+		"i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && nc -z -w 5 %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s:%s\" >&2; exit 1",
 		zitiGatewayWaitTimeoutSeconds,
 		host,
 		zitiDNSNameserver,
 		host,
+		port,
+		host,
+		port,
 	)
 	return []string{"/bin/sh", "-c", script}
 }
