@@ -305,6 +305,44 @@ jobs:
           kubectl logs pod/ziti-runtime-preflight -n agyn-workloads
           kubectl delete pod ziti-runtime-preflight -n agyn-workloads --wait=false
 
+      - name: Ensure llm-proxy Ziti service binding
+        run: |-
+          set -euo pipefail
+          kubectl patch application llm-proxy \
+            -n argocd \
+            --type=merge \
+            -p '{"spec":{"source":{"helm":{"parameters":[{"name":"llmProxy.zitiEnabled","value":"true"}]}}}}'
+          kubectl annotate application llm-proxy \
+            -n argocd \
+            argocd.argoproj.io/refresh=hard \
+            --overwrite
+          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
+          if [ -z "${deployment}" ]; then
+            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
+          fi
+          if [ -z "${deployment}" ]; then
+            echo "llm-proxy deployment not found" >&2
+            kubectl get application llm-proxy -n argocd -o yaml >&2 || true
+            kubectl get deployments -n platform -o wide >&2 || true
+            exit 1
+          fi
+          kubectl set env "deployment/${deployment}" -n platform ZITI_ENABLED=true
+          kubectl rollout restart "deployment/${deployment}" -n platform
+          kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
+          attempts=0
+          while [ "${attempts}" -lt 120 ]; do
+            if kubectl logs "deployment/${deployment}" -n platform --tail=200 2>/dev/null | grep -q 'llm-proxy listening on ziti service llm-proxy'; then
+              kubectl logs "deployment/${deployment}" -n platform --tail=200
+              exit 0
+            fi
+            attempts=$((attempts + 1))
+            sleep 1
+          done
+          echo "llm-proxy did not bind the Ziti llm-proxy service" >&2
+          kubectl get application llm-proxy -n argocd -o yaml >&2 || true
+          kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+          kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=200 >&2 || true
+          exit 1
       - name: Deploy orchestrator from source
         run: devspace run deploy
 
