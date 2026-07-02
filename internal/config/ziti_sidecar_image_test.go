@@ -15,7 +15,9 @@ func TestZitiSidecarImageBuildDisablesDynamicOIDC(t *testing.T) {
 	for _, expected := range []string{
 		"ARG ZITI_VERSION=2.0.0",
 		"FROM openziti/ziti-tunnel:${ZITI_VERSION}",
-		"rootPrivateContext.(*ziti.ContextImpl).CtrlClt.SetUseOidc(false)",
+		"ctxImpl := rootPrivateContext.(*ziti.ContextImpl)",
+		"ctxImpl.CtrlClt.SetAllowOidcDynamicallyEnabled(false)",
+		"ctxImpl.CtrlClt.SetUseOidc(false)",
 		"github.com/openziti/ziti/v2/common/version.Version=v${ZITI_VERSION}",
 		"go build -trimpath",
 	} {

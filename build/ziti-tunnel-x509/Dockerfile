@@ -10,7 +10,9 @@ RUN git clone --depth 1 --branch "v${ZITI_VERSION}" https://github.com/openziti/
 RUN set -eu; \
     needle='pfxlog.Logger().WithError(err).Fatal("could not create ziti sdk context")'; \
     grep -q "${needle}" ziti/tunnel/root.go; \
-    sed -i "/${needle}/a\\\n\\trootPrivateContext.(*ziti.ContextImpl).CtrlClt.SetUseOidc(false)" ziti/tunnel/root.go; \
+    awk '{ print } /^[[:space:]]*}$/ && previous ~ /could not create ziti sdk context/ { print "\tctxImpl := rootPrivateContext.(*ziti.ContextImpl)"; print "\tctxImpl.CtrlClt.SetAllowOidcDynamicallyEnabled(false)"; print "\tctxImpl.CtrlClt.SetUseOidc(false)" } { previous = $0 }' ziti/tunnel/root.go > /tmp/root.go; \
+    mv /tmp/root.go ziti/tunnel/root.go; \
+    grep -q 'SetAllowOidcDynamicallyEnabled(false)' ziti/tunnel/root.go; \
     grep -q 'SetUseOidc(false)' ziti/tunnel/root.go
 ENV CGO_ENABLED=0
 RUN go build -trimpath -ldflags "-s -w -X github.com/openziti/ziti/v2/common/version.Version=v${ZITI_VERSION} -X github.com/openziti/ziti/v2/common/version.Revision=${ZITI_REVISION}" -o /out/ziti ./ziti
