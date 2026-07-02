@@ -223,7 +223,9 @@ pipelines:
       disable_argocd_sync
       ensure_egress_ca_rbac
       patch_deployment
-      start_dev --disable-pod-replace agents-orchestrator-deploy
+      if ! start_dev --disable-pod-replace agents-orchestrator-deploy; then
+        echo "DevSpace deploy sync session exited non-zero; verifying orchestrator readiness before failing."
+      fi
       wait_for_orchestrator
       echo "Deploy complete. Orchestrator is running from source."
 
