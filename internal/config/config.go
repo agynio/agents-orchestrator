@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var releaseVersion = "0.1.4"
+
 type Config struct {
 	ThreadsAddress                      string
 	NotificationsAddress                string
@@ -162,7 +164,7 @@ func FromEnv() (Config, error) {
 	}
 	cfg.ZitiSidecarImage = os.Getenv("ZITI_SIDECAR_IMAGE")
 	if cfg.ZitiSidecarImage == "" {
-		cfg.ZitiSidecarImage = "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-0.1.4"
+		cfg.ZitiSidecarImage = "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-" + releaseVersion
 	}
 	clusterDNS := os.Getenv("CLUSTER_DNS")
 	cfg.WorkloadDNSUpstream = os.Getenv("WORKLOAD_DNS_UPSTREAM")

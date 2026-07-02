@@ -82,8 +82,13 @@ func TestZitiSidecarImageDefaultMatchesReleaseTag(t *testing.T) {
 	if defaultZitiSidecarImage != expectedImage {
 		t.Fatalf("expected test default %q, got %q", expectedImage, defaultZitiSidecarImage)
 	}
+	if !strings.Contains(string(configSource), "ziti-tunnel-\" + releaseVersion") {
+		t.Fatalf("expected config.go to derive ziti sidecar image from releaseVersion")
+	}
+	if strings.Contains(string(configSource), "ziti-tunnel-2.0.0-x509") {
+		t.Fatalf("expected config.go not to use manually published x509 ziti sidecar tag")
+	}
 	for name, content := range map[string]string{
-		"config.go":     string(configSource),
 		"values.yaml":   string(chartValues),
 		"devspace.yaml": string(devspaceConfig),
 	} {
@@ -127,6 +132,7 @@ func TestZitiSidecarImageWorkflowsBuildAndRelease(t *testing.T) {
 		"name: Build and push Ziti tunnel image",
 		"file: build/ziti-tunnel-x509/Dockerfile",
 		"push: true",
+		"VERSION=${{ steps.version.outputs.version }}",
 		"type=semver,pattern=ziti-tunnel-{{version}}",
 		"image=\"${IMAGE_NAME}:ziti-tunnel-${{ steps.version.outputs.version }}\"",
 		"sed -i -E",
