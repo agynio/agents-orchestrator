@@ -87,7 +87,7 @@ env:
   - name: ZITI_ENROLLMENT_TIMEOUT
     value: "2m"
   - name: ZITI_SIDECAR_IMAGE
-    value: "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-2.0.0-x509.2"
+    value: "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-0.1.4"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: "ziti-management:50051"
   - name: GROUP_SYNC_ENABLED

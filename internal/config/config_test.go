@@ -2,10 +2,13 @@ package config
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
+
+const defaultZitiSidecarImage = "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-0.1.4"
 
 func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	setBaseEnv(t)
@@ -27,8 +30,8 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.AgentLLMBaseURL != "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1" {
 		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1", cfg.AgentLLMBaseURL)
 	}
-	if cfg.ZitiSidecarImage != "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-2.0.0-x509.2" {
-		t.Fatalf("expected ziti sidecar image %q, got %q", "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-2.0.0-x509.2", cfg.ZitiSidecarImage)
+	if cfg.ZitiSidecarImage != defaultZitiSidecarImage {
+		t.Fatalf("expected ziti sidecar image %q, got %q", defaultZitiSidecarImage, cfg.ZitiSidecarImage)
 	}
 	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
 		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
@@ -54,6 +57,116 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.WorkloadReconcileInterval != time.Minute {
 		t.Fatalf("expected workload reconcile interval %q, got %q", time.Minute, cfg.WorkloadReconcileInterval)
 	}
+}
+
+func TestZitiSidecarImageDefaultMatchesReleaseTag(t *testing.T) {
+	configSource, err := os.ReadFile("config.go")
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	chartValues, err := os.ReadFile("../../charts/agents-orchestrator/values.yaml")
+	if err != nil {
+		t.Fatalf("read chart values: %v", err)
+	}
+	devspaceConfig, err := os.ReadFile("../../devspace.yaml")
+	if err != nil {
+		t.Fatalf("read devspace config: %v", err)
+	}
+	chart, err := os.ReadFile("../../charts/agents-orchestrator/Chart.yaml")
+	if err != nil {
+		t.Fatalf("read chart metadata: %v", err)
+	}
+
+	version := chartVersion(t, string(chart))
+	expectedImage := "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-" + version
+	if defaultZitiSidecarImage != expectedImage {
+		t.Fatalf("expected test default %q, got %q", expectedImage, defaultZitiSidecarImage)
+	}
+	for name, content := range map[string]string{
+		"config.go":     string(configSource),
+		"values.yaml":   string(chartValues),
+		"devspace.yaml": string(devspaceConfig),
+	} {
+		if !strings.Contains(content, expectedImage) {
+			t.Fatalf("expected %s to use released ziti sidecar image %q", name, expectedImage)
+		}
+		if strings.Contains(content, "ziti-tunnel-2.0.0-x509") {
+			t.Fatalf("expected %s not to use manually published x509 ziti sidecar tag", name)
+		}
+	}
+}
+
+func TestZitiSidecarImageWorkflowsBuildAndRelease(t *testing.T) {
+	ci, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatalf("read CI workflow: %v", err)
+	}
+	release, err := os.ReadFile("../../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+	e2e, err := os.ReadFile("../../.github/workflows/e2e.yml")
+	if err != nil {
+		t.Fatalf("read E2E workflow: %v", err)
+	}
+
+	ciWorkflow := string(ci)
+	for _, expected := range []string{
+		"name: Build Ziti tunnel image",
+		"uses: docker/build-push-action@v6",
+		"file: build/ziti-tunnel-x509/Dockerfile",
+		"push: false",
+	} {
+		if !strings.Contains(ciWorkflow, expected) {
+			t.Fatalf("expected CI workflow to contain %q", expected)
+		}
+	}
+
+	releaseWorkflow := string(release)
+	for _, expected := range []string{
+		"name: Build and push Ziti tunnel image",
+		"file: build/ziti-tunnel-x509/Dockerfile",
+		"push: true",
+		"type=semver,pattern=ziti-tunnel-{{version}}",
+		"image=\"${IMAGE_NAME}:ziti-tunnel-${{ steps.version.outputs.version }}\"",
+		"sed -i -E",
+		"- ziti-tunnel-image",
+	} {
+		if !strings.Contains(releaseWorkflow, expected) {
+			t.Fatalf("expected release workflow to contain %q", expected)
+		}
+	}
+
+	e2eWorkflow := string(e2e)
+	for _, expected := range []string{
+		"BOOTSTRAP_REF: main",
+		"K8S_RUNNER_REF: main",
+		"github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF",
+		"github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF",
+		"name: Build Ziti sidecar image",
+		"k3d image import \"${ZITI_SIDECAR_IMAGE}\"",
+	} {
+		if !strings.Contains(e2eWorkflow, expected) {
+			t.Fatalf("expected E2E workflow to contain %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"BOOTSTRAP_REF: noa/issue-577",
+		"K8S_RUNNER_REF: noa/issue-73",
+	} {
+		if strings.Contains(e2eWorkflow, forbidden) {
+			t.Fatalf("expected E2E workflow not to pin feature ref %q", forbidden)
+		}
+	}
+}
+
+func chartVersion(t *testing.T, chart string) string {
+	t.Helper()
+	match := regexp.MustCompile(`(?m)^version:\s*([^\s]+)\s*$`).FindStringSubmatch(chart)
+	if len(match) != 2 {
+		t.Fatalf("chart version not found in Chart.yaml")
+	}
+	return match[1]
 }
 
 func TestFromEnvDefaultsZiti(t *testing.T) {

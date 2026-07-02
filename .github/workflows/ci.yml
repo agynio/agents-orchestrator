@@ -49,3 +49,21 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+  ziti-tunnel-image:
+    name: Build Ziti tunnel image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Ziti tunnel image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build/ziti-tunnel-x509/Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: ghcr.io/agynio/agents-orchestrator:ziti-tunnel-ci

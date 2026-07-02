@@ -162,7 +162,7 @@ func FromEnv() (Config, error) {
 	}
 	cfg.ZitiSidecarImage = os.Getenv("ZITI_SIDECAR_IMAGE")
 	if cfg.ZitiSidecarImage == "" {
-		cfg.ZitiSidecarImage = "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-2.0.0-x509.2"
+		cfg.ZitiSidecarImage = "ghcr.io/agynio/agents-orchestrator:ziti-tunnel-0.1.4"
 	}
 	clusterDNS := os.Getenv("CLUSTER_DNS")
 	cfg.WorkloadDNSUpstream = os.Getenv("WORKLOAD_DNS_UPSTREAM")

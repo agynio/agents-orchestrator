@@ -9,15 +9,16 @@ on:
       bootstrap_ref:
         description: Bootstrap ref to provision from.
         required: false
-        default: noa/issue-577
+        default: main
       k8s_runner_ref:
         description: k8s-runner ref to deploy from.
         required: false
-        default: noa/issue-73
+        default: main
 
 env:
-  BOOTSTRAP_REF: noa/issue-577
-  K8S_RUNNER_REF: noa/issue-73
+  BOOTSTRAP_REF: main
+  K8S_RUNNER_REF: main
+  ZITI_SIDECAR_IMAGE: ghcr.io/agynio/agents-orchestrator:ziti-tunnel-0.1.4
   CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
   AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
   AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
@@ -57,6 +58,17 @@ jobs:
       - name: Deploy k8s-runner from source
         working-directory: .e2e-deps/k8s-runner
         run: devspace run deploy
+
+      - name: Build Ziti sidecar image
+        run: |-
+          set -euo pipefail
+          docker build \
+            --file build/ziti-tunnel-x509/Dockerfile \
+            --tag "${ZITI_SIDECAR_IMAGE}" \
+            .
+          cluster_name="$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')"
+          cluster_name="${cluster_name#k3d-}"
+          k3d image import "${ZITI_SIDECAR_IMAGE}" --cluster "${cluster_name}"
 
       - name: Allow workload Ziti egress
         run: |-
