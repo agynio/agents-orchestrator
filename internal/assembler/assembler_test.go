@@ -514,8 +514,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiServiceWait == nil {
 		t.Fatal("expected ziti-service-wait init container")
 	}
-	if zitiServiceWait.Image != zitiServiceWaitImage {
-		t.Fatalf("expected ziti service wait image %q, got %q", zitiServiceWaitImage, zitiServiceWait.Image)
+	if zitiServiceWait.Image != zitiGatewayWaitImage {
+		t.Fatalf("expected ziti service wait to use DNS/TCP tools image %q, got %q", zitiGatewayWaitImage, zitiServiceWait.Image)
 	}
 	llmProxyTarget, err := zitiServiceWaitTarget(cfg.AgentLLMBaseURL)
 	if err != nil {

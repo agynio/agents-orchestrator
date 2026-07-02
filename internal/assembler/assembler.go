@@ -227,7 +227,7 @@ exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" -
 	zitiGatewayWaitImage           = "busybox:1.37.0"
 	zitiGatewayWaitTimeoutSeconds  = 180
 	zitiServiceWaitContainerName   = "ziti-service-wait"
-	zitiServiceWaitImage           = "curlimages/curl:8.16.0"
+	zitiServiceWaitImage           = zitiGatewayWaitImage
 	zitiServiceWaitTimeoutSeconds  = 60
 )
 
