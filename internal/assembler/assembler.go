@@ -800,11 +800,11 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	if err != nil {
 		return nil, err
 	}
-	gatewayTarget := buildGatewayTargetEnv(a.cfg.AgentGatewayAddress)
+	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	envVars = mergeEnvVars([]*runnerv1.EnvVar{
 		{Name: "MCP_PORT", Value: strconv.Itoa(port)},
-		{Name: "GATEWAY_ADDRESS", Value: gatewayTarget.address},
-		{Name: "AGYN_GATEWAY_URL", Value: gatewayTarget.url},
+		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
+		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 	}, envVars, fmt.Sprintf("mcp %s", mcpID.String()))
 	envVars = appendEgressCAEnvVars(envVars)
 	return &runnerv1.ContainerSpec{
@@ -840,24 +840,15 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 	}, nil
 }
 
-type gatewayTargetEnv struct {
-	address string
-	url     string
-}
-
-func buildGatewayTargetEnv(address string) gatewayTargetEnv {
+func buildGatewayURL(address string) string {
 	if strings.Contains(address, "://") {
-		return gatewayTargetEnv{address: address, url: address}
+		return address
 	}
-	return gatewayTargetEnv{address: address, url: "http://" + address}
+	return "http://" + address
 }
 
 func gatewayHost(address string) (string, error) {
-	target, err := gatewayHostPortTarget(address)
-	if err != nil {
-		return "", err
-	}
-	host, _, err := net.SplitHostPort(target)
+	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return "", fmt.Errorf("parse gateway host from %q: %w", address, err)
 	}
@@ -867,30 +858,8 @@ func gatewayHost(address string) (string, error) {
 	return host, nil
 }
 
-func gatewayHostPortTarget(address string) (string, error) {
-	if !strings.Contains(address, "://") {
-		return address, nil
-	}
-	parsed, err := url.Parse(address)
-	if err != nil {
-		return "", fmt.Errorf("parse gateway host from %q: %w", address, err)
-	}
-	target := strings.TrimPrefix(parsed.Opaque, "//")
-	if target == "" {
-		target = strings.TrimPrefix(parsed.Path, "/")
-	}
-	if target == "" {
-		target = parsed.Host
-	}
-	return target, nil
-}
-
 func buildZitiGatewayWaitCommand(address string) []string {
-	target, targetErr := gatewayHostPortTarget(address)
-	if targetErr != nil {
-		panic(targetErr.Error())
-	}
-	host, port, err := net.SplitHostPort(target)
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		panic(fmt.Sprintf("parse gateway address %q: %v", address, err))
 	}
@@ -994,7 +963,7 @@ func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runn
 }
 
 func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uuid.UUID) []*runnerv1.EnvVar {
-	gatewayTarget := buildGatewayTargetEnv(a.cfg.AgentGatewayAddress)
+	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_ID", Value: agentID.String()},
 		{Name: "AGENT_NAME", Value: agent.GetName()},
@@ -1002,8 +971,8 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
 		{Name: "THREAD_ID", Value: threadID.String()},
-		{Name: "GATEWAY_ADDRESS", Value: gatewayTarget.address},
-		{Name: "AGYN_GATEWAY_URL", Value: gatewayTarget.url},
+		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
+		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
 	}
 	if a.cfg.AgentTracingAddress != "" {
