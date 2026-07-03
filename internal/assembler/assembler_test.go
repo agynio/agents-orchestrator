@@ -314,7 +314,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		AgentGatewayAddress:                 "gateway.ziti:443",
+		AgentGatewayAddress:                 "dns:///gateway.ziti:443",
 		AgentTracingAddress:                 "tracing.ziti:443",
 		AgentLLMBaseURL:                     "http://llm-proxy.ziti/v1",
 		ZitiEnabled:                         true,
@@ -582,8 +582,8 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 
 	assembler := New(&testutil.FakeAgentsClient{}, &testutil.FakeSecretsClient{}, &cfg)
 	envs := envMap(assembler.baseAgentEnvVars(agent, agentID, threadID))
-	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
-	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
+	assertEnv(t, envs, "GATEWAY_ADDRESS", "dns:///gateway.ziti:443")
+	assertEnv(t, envs, "AGYN_GATEWAY_URL", "dns:///gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
 	assertEnv(t, envs, "TRACING_ADDRESS", "tracing.ziti:443")
 	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")

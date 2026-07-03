@@ -192,8 +192,8 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if !cfg.ZitiEnabled {
 		t.Fatal("expected ZitiEnabled to be true")
 	}
-	if cfg.AgentGatewayAddress != "gateway.ziti:443" {
-		t.Fatalf("expected gateway address %q, got %q", "gateway.ziti:443", cfg.AgentGatewayAddress)
+	if cfg.AgentGatewayAddress != "dns:///gateway.ziti:443" {
+		t.Fatalf("expected gateway address %q, got %q", "dns:///gateway.ziti:443", cfg.AgentGatewayAddress)
 	}
 	if cfg.AgentTracingAddress != "tracing.ziti:443" {
 		t.Fatalf("expected tracing address %q, got %q", "tracing.ziti:443", cfg.AgentTracingAddress)

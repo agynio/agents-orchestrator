@@ -98,7 +98,7 @@ func FromEnv() (Config, error) {
 	cfg.AgentGatewayAddress = os.Getenv("AGENT_GATEWAY_ADDRESS")
 	if cfg.AgentGatewayAddress == "" {
 		if cfg.ZitiEnabled {
-			cfg.AgentGatewayAddress = "gateway.ziti:443"
+			cfg.AgentGatewayAddress = "dns:///gateway.ziti:443"
 		} else {
 			cfg.AgentGatewayAddress = "gateway:8080"
 		}
