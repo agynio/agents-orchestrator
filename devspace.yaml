@@ -95,7 +95,7 @@ functions:
                 - name: ZITI_RUNTIME_CONTROLLER_PORT
                   value: "__ZITI_RUNTIME_CONTROLLER_PORT__"
                 - name: AGENT_GATEWAY_ADDRESS
-                  value: "dns:///gateway.ziti:443"
+                  value: "gateway.ziti:443"
                 - name: AGENT_TRACING_ADDRESS
                   value: "tracing.ziti:443"
                 - name: AGENT_LLM_BASE_URL
