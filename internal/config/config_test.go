@@ -151,6 +151,8 @@ func TestZitiSidecarImageWorkflowsBuildAndRelease(t *testing.T) {
 		"github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF",
 		"name: Build Ziti sidecar image",
 		"name: Patch workload Ziti DNS runtime target",
+		"name: Ensure gateway Ziti service binding",
+		"gateway listening on ziti service gateway",
 		"name: Ensure llm-proxy Ziti service binding",
 		"llmProxy.zitiEnabled",
 		"llm-proxy listening on ziti service llm-proxy",
