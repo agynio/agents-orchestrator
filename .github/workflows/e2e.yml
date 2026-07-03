@@ -158,9 +158,16 @@ jobs:
         run: |-
           set -euo pipefail
           current_target="$(kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti\.db}' | awk '$1 == "@" && $2 == "IN" && $3 == "A" {print $4; exit}')"
+          current_router_target="$(kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti-router\.db}' | awk '$1 == "@" && $2 == "IN" && $3 == "A" {print $4; exit}')"
           istio_gateway_ip="$(kubectl get service istio-ingressgateway -n istio-gateway -o jsonpath='{.spec.clusterIP}')"
+          ziti_router_ip="$(kubectl get service ziti-router-edge -n ziti -o jsonpath='{.spec.clusterIP}')"
           if [ -z "${current_target}" ]; then
             echo "ziti-workload-dns ziti.db target is empty" >&2
+            kubectl get configmap ziti-workload-dns -n ziti -o yaml >&2 || true
+            exit 1
+          fi
+          if [ -z "${current_router_target}" ]; then
+            echo "ziti-workload-dns ziti-router.db target is empty" >&2
             kubectl get configmap ziti-workload-dns -n ziti -o yaml >&2 || true
             exit 1
           fi
@@ -169,11 +176,27 @@ jobs:
             kubectl get service istio-ingressgateway -n istio-gateway -o yaml >&2 || true
             exit 1
           fi
-          if [ "${current_target}" != "${istio_gateway_ip}" ]; then
-            echo "Patching ziti.agyn.dev workload DNS from ${current_target} to ingressgateway ${istio_gateway_ip} for source-of-truth PR validation."
-            kubectl get configmap ziti-workload-dns -n ziti -o yaml \
-              | sed -E "s/^([[:space:]]*(@|ns) IN A )[^[:space:]]+/\1${istio_gateway_ip}/" \
-              | kubectl apply -f -
+          if [ -z "${ziti_router_ip}" ]; then
+            echo "ziti-router-edge ClusterIP is empty" >&2
+            kubectl get service ziti-router-edge -n ziti -o yaml >&2 || true
+            exit 1
+          fi
+          if [ "${current_target}" != "${istio_gateway_ip}" ] || [ "${current_router_target}" != "${ziti_router_ip}" ]; then
+            echo "Patching ziti.agyn.dev workload DNS from ${current_target} to ingressgateway ${istio_gateway_ip} and ziti-router.agyn.dev from ${current_router_target} to ziti-router-edge ${ziti_router_ip}."
+            kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.Corefile}' > /tmp/ziti-workload-Corefile
+            kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti\.db}' \
+              | sed -E "s/^((@|ns) IN A )[^[:space:]]+/\1${istio_gateway_ip}/" \
+              > /tmp/ziti-workload-ziti.db
+            kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti-router\.db}' \
+              | sed -E "s/^((@|ns) IN A )[^[:space:]]+/\1${ziti_router_ip}/" \
+              > /tmp/ziti-workload-ziti-router.db
+            kubectl create configmap ziti-workload-dns \
+              -n ziti \
+              --from-file=Corefile=/tmp/ziti-workload-Corefile \
+              --from-file=ziti.db=/tmp/ziti-workload-ziti.db \
+              --from-file=ziti-router.db=/tmp/ziti-workload-ziti-router.db \
+              --dry-run=client \
+              -o yaml | kubectl apply -f -
             kubectl rollout restart deployment/ziti-workload-dns -n ziti
           fi
           kubectl rollout status deployment/ziti-workload-dns -n ziti --timeout=180s
@@ -223,6 +246,10 @@ jobs:
               agyn.dev/managed-by: agents-orchestrator
           spec:
             restartPolicy: Never
+            dnsPolicy: None
+            dnsConfig:
+              nameservers:
+                - ${ziti_dns_ip}
             containers:
               - name: ziti-dns-preflight
                 image: busybox:1.37.0
@@ -251,6 +278,8 @@ jobs:
                     timeout 10 nc -vz -w 5 "\${ZITI_DNS_SERVICE_IP}" 53
                     echo "== tcp connect to endpoint-pod-ip \${ZITI_DNS_ENDPOINT_IP}:53 =="
                     timeout 10 nc -vz -w 5 "\${ZITI_DNS_ENDPOINT_IP}" 53
+                    echo "== tcp connect to ziti-router.agyn.dev:2496 through workload DNS =="
+                    timeout 10 nc -vz -w 5 ziti-router.agyn.dev 2496
           EOF_POD
           if ! kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
             echo "ziti-workload-dns UDP/TCP 53 preflight failed from agyn-workloads" >&2
