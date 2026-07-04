@@ -367,12 +367,12 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		zitiGatewayWait := &runnerv1.ContainerSpec{
 			Image: zitiGatewayWaitImage,
 			Name:  zitiGatewayWaitContainerName,
-			Cmd:   buildZitiGatewayWaitCommand(a.cfg.AgentGatewayAddress),
+			Cmd:   buildZitiGatewayWaitCommand(a.cfg.AgentGatewayAddress, a.cfg.WorkloadDNSUpstream),
 		}
 		zitiServiceWait := &runnerv1.ContainerSpec{
 			Image: zitiServiceWaitImage,
 			Name:  zitiServiceWaitContainerName,
-			Cmd:   buildZitiServiceWaitCommand(llmProxyTarget),
+			Cmd:   buildZitiServiceWaitCommand(llmProxyTarget, a.cfg.WorkloadDNSUpstream),
 		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
@@ -836,22 +836,12 @@ func gatewayHost(address string) (string, error) {
 	return host, nil
 }
 
-func buildZitiGatewayWaitCommand(address string) []string {
+func buildZitiGatewayWaitCommand(address, workloadDNSUpstream string) []string {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		panic(fmt.Sprintf("parse gateway address %q: %v", address, err))
 	}
-	script := fmt.Sprintf(
-		"i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && nc -z -w 5 %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s:%s\" >&2; exit 1",
-		zitiGatewayWaitTimeoutSeconds,
-		host,
-		zitiDNSNameserver,
-		host,
-		port,
-		host,
-		port,
-	)
-	return []string{"/bin/sh", "-c", script}
+	return buildZitiTCPWaitCommand(zitiGatewayWaitTimeoutSeconds, host, port, workloadDNSUpstream)
 }
 
 type zitiServiceTarget struct {
@@ -888,16 +878,26 @@ func zitiServiceWaitTarget(rawURL string) (zitiServiceTarget, error) {
 	return zitiServiceTarget{host: host, port: port}, nil
 }
 
-func buildZitiServiceWaitCommand(target zitiServiceTarget) []string {
-	script := fmt.Sprintf(
-		`i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && nc -z -w 5 %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s" >&2; exit 1`,
-		zitiServiceWaitTimeoutSeconds,
-		target.host,
+func buildZitiServiceWaitCommand(target zitiServiceTarget, workloadDNSUpstream string) []string {
+	return buildZitiTCPWaitCommand(zitiServiceWaitTimeoutSeconds, target.host, target.port, workloadDNSUpstream)
+}
+
+func buildZitiTCPWaitCommand(timeoutSeconds int, host, port, workloadDNSUpstream string) []string {
+	resolverConfig := fmt.Sprintf(
+		"nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n",
 		zitiDNSNameserver,
-		target.host,
-		target.port,
-		target.host,
-		target.port,
+		workloadDNSUpstream,
+	)
+	script := fmt.Sprintf(
+		`i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && printf %s > /etc/resolv.conf && nc -z -w 5 %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s" >&2; exit 1`,
+		timeoutSeconds,
+		host,
+		zitiDNSNameserver,
+		strconv.Quote(resolverConfig),
+		host,
+		port,
+		host,
+		port,
 	)
 	return []string{"/bin/sh", "-c", script}
 }
