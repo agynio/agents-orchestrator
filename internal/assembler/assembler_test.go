@@ -1745,6 +1745,10 @@ if [[ "$1" == "--arg" ]]; then
 fi
 filter="${1:-}"
 file="${2:-}"
+if [[ "$filter" == "has(\"ztAPIs\")" ]]; then
+  if grep -q '"ztAPIs"' "$file"; then exit 0; fi
+  exit 1
+fi
 case "$filter" in
   ".iss // empty") sed -nE 's/.*"iss":"([^"]+)".*/\1/p' "$file" ;;
   ".em // empty") sed -nE 's/.*"em":"([^"]+)".*/\1/p' "$file" ;;
@@ -1798,7 +1802,7 @@ exec "${real_cat}" "$@"
 	if err != nil {
 		t.Fatalf("read enroll log: %v", err)
 	}
-	log := string(logBytes)
+	log := string(logBytes) + string(output)
 	if !strings.Contains(log, "openssl_resolv=nameserver 10.43.0.10") || !strings.Contains(log, "ziti_args=edge enroll") {
 		t.Fatalf("expected enrollment to use upstream resolver, got:\n%s", log)
 	}
@@ -1827,6 +1831,9 @@ exec "${real_cat}" "$@"
 	}
 	if strings.Contains(identity, "ztAPIs") {
 		t.Fatalf("expected single-controller identity to avoid ztAPIs so stock tunnel stays on cert auth, got:\n%s", identity)
+	}
+	if !strings.Contains(log, "ziti_identity_ztAPI=https://controller.example.test:2496/edge/client/v1") {
+		t.Fatalf("expected enrollment diagnostics to print patched ztAPI, got:\n%s", log)
 	}
 	if strings.Contains(identity, "https://10.43.58.17:2496") || strings.Contains(identity, "https://10.43.253.228:2496") {
 		t.Fatalf("expected identity runtime API to avoid direct controller IP, got:\n%s", identity)
@@ -1906,6 +1913,10 @@ if [[ "$1" == "--arg" ]]; then
 fi
 filter="${1:-}"
 file="${2:-}"
+if [[ "$filter" == "has(\"ztAPIs\")" ]]; then
+  if grep -q '"ztAPIs"' "$file"; then exit 0; fi
+  exit 1
+fi
 case "$filter" in
   ".iss // empty") sed -nE 's/.*"iss":"([^"]+)".*/\1/p' "$file" ;;
   ".em // empty") sed -nE 's/.*"em":"([^"]+)".*/\1/p' "$file" ;;
@@ -1945,7 +1956,7 @@ esac
 	if err != nil {
 		t.Fatalf("read enroll log: %v", err)
 	}
-	log := string(logBytes)
+	log := string(logBytes) + string(output)
 	if !strings.Contains(log, "-connect 10.43.253.228:2496") || !strings.Contains(log, "10.43.253.228\t"+controllerHost) {
 		t.Fatalf("expected enrollment to use enrollment-resolved controller underlay, got:\n%s", log)
 	}
@@ -1963,6 +1974,9 @@ esac
 	if strings.Contains(identity, "ztAPIs") {
 		t.Fatalf("expected runtime API patch not to add ztAPIs because stock tunnel treats HA configs as OIDC-only, got:\n%s", identity)
 	}
+	if !strings.Contains(log, "ziti_identity_ztAPI=https://"+controllerHost+":443/edge/client/v1") {
+		t.Fatalf("expected enrollment diagnostics to print runtime ztAPI, got:\n%s", log)
+	}
 	if strings.Contains(log, runtimeResolveHost) {
 		t.Fatalf("expected enrollment script not to resolve runtime controller host, got:\n%s", log)
 	}
@@ -1974,6 +1988,9 @@ func TestZitiEnrollmentScriptPatchesOnlyRuntimeAPI(t *testing.T) {
 	}
 	if !strings.Contains(zitiEnrollScript, `jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | del(.ztAPIs)' "${identity_file}"`) {
 		t.Fatalf("expected runtime patch to update only controller API endpoints, got %q", zitiEnrollScript)
+	}
+	if !strings.Contains(zitiEnrollScript, `if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then`) {
+		t.Fatalf("expected enrollment script to fail if ztAPIs remains in identity, got %q", zitiEnrollScript)
 	}
 	for _, forbidden := range []string{`openssl ecparam`, `openssl req`, `/edge/client/v1/enroll`, `id:{`, `cert:`, `key:`, `ca:`} {
 		if strings.Contains(zitiEnrollScript, forbidden) {
@@ -2097,6 +2114,12 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	}
 	if strings.Contains(zitiSidecarScript, `nameserver %s\nnameserver %s`) {
 		t.Fatalf("expected sidecar script not to point its own resolver at tunnel DNS before controller auth, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then`) {
+		t.Fatalf("expected sidecar script to reject HA/OIDC identity fields, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `ziti_sidecar_identity_ztAPI=`) {
+		t.Fatalf("expected sidecar script to print actual mounted identity ztAPI, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
 		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)

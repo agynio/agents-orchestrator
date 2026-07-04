@@ -182,6 +182,11 @@ fi
 jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | del(.ztAPIs)' "${identity_file}" > "${identity_file}.tmp"
 cat "${identity_file}.tmp" > "${identity_file}"
 rm -f "${identity_file}.tmp"
+if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then
+  echo "expected single-controller identity without ztAPIs" >&2
+  exit 1
+fi
+printf 'ziti_identity_ztAPI=%s\n' "$(jq -r '.ztAPI // empty' "${identity_file}")"
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
 	zitiSidecarScript = `workload_dns_upstream="$1"
@@ -191,6 +196,11 @@ if [[ ! -s "${identity_file}" ]]; then
   echo "expected identity file ${identity_file}" >&2
   exit 1
 fi
+if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then
+  echo "expected single-controller identity without ztAPIs" >&2
+  exit 1
+fi
+printf 'ziti_sidecar_identity_ztAPI=%s\n' "$(jq -r '.ztAPI // empty' "${identity_file}")"
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`
