@@ -2108,6 +2108,9 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`) {
 		t.Fatalf("expected sidecar script to enable service polling and supported DNS resolver, got %q", zitiSidecarScript)
 	}
+	if !strings.Contains(zitiSidecarScript, `--lanIf "lo"`) {
+		t.Fatalf("expected sidecar script to allow loopback-delivered intercepted services, got %q", zitiSidecarScript)
+	}
 	if strings.Contains(zitiSidecarScript, `--dnsUpstreamMode`) {
 		t.Fatalf("expected sidecar script not to use unsupported dns upstream mode flag, got %q", zitiSidecarScript)
 	}
