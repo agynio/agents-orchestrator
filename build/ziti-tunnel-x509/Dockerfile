@@ -6,7 +6,9 @@ ARG ZITI_VERSION
 ARG ZITI_REVISION
 WORKDIR /src
 RUN apk add --no-cache git
-RUN git clone --depth 1 --branch "v${ZITI_VERSION}" https://github.com/openziti/ziti.git .
+RUN git clone --depth 1 --branch "v${ZITI_VERSION}" https://github.com/openziti/ziti.git . \
+    && actual_revision="$(git rev-parse HEAD)" \
+    && test "${actual_revision}" = "${ZITI_REVISION}"
 RUN set -eu; \
     needle='pfxlog.Logger().WithError(err).Fatal("could not create ziti sdk context")'; \
     grep -q "${needle}" ziti/tunnel/root.go; \

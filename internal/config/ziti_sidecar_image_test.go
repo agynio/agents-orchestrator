@@ -14,7 +14,10 @@ func TestZitiSidecarImageBuildDisablesDynamicOIDC(t *testing.T) {
 	content := string(dockerfile)
 	for _, expected := range []string{
 		"ARG ZITI_VERSION=2.0.0",
+		"ARG ZITI_REVISION=9bf62f39ec3ba1a25d2faeea01b707410d73428d",
 		"FROM openziti/ziti-tunnel:${ZITI_VERSION}",
+		"git rev-parse HEAD",
+		"test \"${actual_revision}\" = \"${ZITI_REVISION}\"",
 		"ctxImpl := rootPrivateContext.(*ziti.ContextImpl)",
 		"ctxImpl.CtrlClt.SetAllowOidcDynamicallyEnabled(false)",
 		"ctxImpl.CtrlClt.SetUseOidc(false)",
