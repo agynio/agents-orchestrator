@@ -11,7 +11,6 @@ RUN curl -sSL \
     chmod +x /usr/local/bin/buf
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
-ARG VERSION=0.1.4
 
 WORKDIR /src
 
@@ -47,7 +46,7 @@ ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go build -trimpath -ldflags "-s -w -X github.com/agynio/agents-orchestrator/internal/config.releaseVersion=${VERSION}" -o /out/orchestrator ./cmd/orchestrator
+    go build -trimpath -ldflags "-s -w" -o /out/orchestrator ./cmd/orchestrator
 
 FROM alpine:3.21 AS runtime
 

@@ -41,9 +41,6 @@ const (
 	zitiDNSNameserver                               = "127.0.0.1"
 	zitiEnrollEntrypoint                            = "/usr/bin/bash"
 	zitiSidecarEntrypoint                           = "/usr/bin/bash"
-	zitiSidecarBinaryPath                           = "/usr/local/bin/ziti"
-	zitiSidecarCommand                              = "tunnel"
-	zitiSidecarMode                                 = "tproxy"
 	zitiSidecarServicePollRate                      = "1"
 	zitiEnrollScript                                = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
@@ -217,7 +214,7 @@ rm -f "${hosts_file}.tmp"
 printf '%s\t%s\n' "${runtime_controller_ip}" "${runtime_controller_host}" >> "${hosts_file}"
 printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
-exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`
+exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
@@ -530,9 +527,6 @@ func zitiSidecarEnvVars(workloadDNSUpstream string, zitiEnrollmentDNSUpstream st
 		&runnerv1.EnvVar{Name: "WORKLOAD_DNS_UPSTREAM", Value: workloadDNSUpstream},
 		&runnerv1.EnvVar{Name: "ZITI_DNS_UPSTREAM", Value: zitiEnrollmentDNSUpstream},
 		&runnerv1.EnvVar{Name: "ZITI_CTRL_ADVERTISED_ADDRESS", Value: runtimeControllerResolveHost},
-		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_BINARY", Value: zitiSidecarBinaryPath},
-		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_COMMAND", Value: zitiSidecarCommand},
-		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_MODE", Value: zitiSidecarMode},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_SERVICE_POLL_RATE", Value: zitiSidecarServicePollRate},
 	)
 	return envVars

@@ -18,7 +18,6 @@ on:
 env:
   BOOTSTRAP_REF: main
   K8S_RUNNER_REF: main
-  ZITI_SIDECAR_IMAGE: ghcr.io/agynio/agents-orchestrator:ziti-tunnel-0.1.4
   CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
   AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
   AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
@@ -59,17 +58,8 @@ jobs:
         working-directory: .e2e-deps/k8s-runner
         run: devspace run deploy
 
-      - name: Build Ziti sidecar image
-        run: |-
-          set -euo pipefail
-          docker build \
-            --file build/ziti-tunnel-x509/Dockerfile \
-            --tag "${ZITI_SIDECAR_IMAGE}" \
-            .
-          cluster_name="$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')"
-          cluster_name="${cluster_name#k3d-}"
-          k3d image import "${ZITI_SIDECAR_IMAGE}" --cluster "${cluster_name}"
-
+      # Validation shim only: source-of-truth workload egress belongs in k8s-runner.
+      # Keep this PR check strict while regular E2E consumes main refs.
       - name: Allow workload Ziti egress
         run: |-
           set -euo pipefail
@@ -154,6 +144,8 @@ jobs:
           kubectl get networkpolicy ziti-workload-dns -n ziti -o yaml
           kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
 
+      # Validation shim only: source-of-truth workload DNS belongs in bootstrap.
+      # It enforces ziti.agyn.dev -> ingressgateway and ziti-router.agyn.dev -> ziti-router-edge.
       - name: Patch workload Ziti DNS runtime target
         run: |-
           set -euo pipefail
@@ -334,6 +326,7 @@ jobs:
           kubectl logs pod/ziti-runtime-preflight -n agyn-workloads
           kubectl delete pod ziti-runtime-preflight -n agyn-workloads --wait=false
 
+      # Validation shim only: assert required platform Ziti service bindings before full E2E.
       - name: Ensure gateway Ziti service binding
         run: |-
           set -euo pipefail
@@ -429,6 +422,7 @@ jobs:
             bind_attempt=$((bind_attempt + 1))
           done
 
+      # Validation shim only: assert required LLM proxy Ziti service binding before full E2E.
       - name: Ensure llm-proxy Ziti service binding
         run: |-
           set -euo pipefail

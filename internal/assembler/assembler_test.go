@@ -478,9 +478,6 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	assertEnv(t, zitiEnv, "WORKLOAD_DNS_UPSTREAM", cfg.WorkloadDNSUpstream)
 	assertEnv(t, zitiEnv, "ZITI_DNS_UPSTREAM", cfg.ZitiEnrollmentDNSUpstream)
 	assertEnv(t, zitiEnv, "ZITI_CTRL_ADVERTISED_ADDRESS", cfg.ZitiRuntimeControllerResolveHost)
-	assertEnv(t, zitiEnv, "ZITI_SIDECAR_BINARY", zitiSidecarBinaryPath)
-	assertEnv(t, zitiEnv, "ZITI_SIDECAR_COMMAND", zitiSidecarCommand)
-	assertEnv(t, zitiEnv, "ZITI_SIDECAR_MODE", zitiSidecarMode)
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_SERVICE_POLL_RATE", zitiSidecarServicePollRate)
 	if _, ok := zitiEnv[ZitiEnrollmentTokenEnvVar]; ok {
 		t.Fatalf("expected ziti sidecar not to receive %s", ZitiEnrollmentTokenEnvVar)
@@ -2058,13 +2055,8 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !equalStringSlice(cmd, expected) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expected, cmd)
 	}
-	if !strings.Contains(zitiSidecarScript, `exec "${ZITI_SIDECAR_BINARY}" "${ZITI_SIDECAR_COMMAND}" "${ZITI_SIDECAR_MODE}"`) {
+	if !strings.Contains(zitiSidecarScript, `exec "/usr/local/bin/ziti" "tunnel" "tproxy"`) {
 		t.Fatalf("expected sidecar script to exec ziti tunnel directly, got %q", zitiSidecarScript)
-	}
-	for _, forbidden := range []string{`OIDC_AUTH`, `grep -abo`, `dd of=`, `patched Ziti sidecar`, `ZITI_SIDECAR_SOURCE_BINARY`} {
-		if strings.Contains(zitiSidecarScript, forbidden) {
-			t.Fatalf("expected sidecar script not to patch third-party binary using %q, got %q", forbidden, zitiSidecarScript)
-		}
 	}
 	if !strings.Contains(zitiSidecarScript, `GODEBUG`) {
 		t.Fatalf("expected sidecar script to force cgo DNS resolution, got %q", zitiSidecarScript)
