@@ -100,10 +100,9 @@ func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
 		"to ziti-router-edge",
 		"dnsPolicy: None",
 		"timeout 10 nc -vz -w 5 ziti-router.agyn.dev 2496",
-		"name: Ensure gateway Ziti service binding",
+		"name: Verify gateway Ziti service binding",
 		"gateway listening on ziti service gateway",
-		"name: Ensure llm-proxy Ziti service binding",
-		"llmProxy.zitiEnabled",
+		"name: Verify llm-proxy Ziti service binding",
 		"llm-proxy listening on ziti service llm-proxy",
 	} {
 		if !strings.Contains(e2eWorkflow, expected) {
@@ -116,6 +115,9 @@ func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
 		"name: Build Ziti sidecar image",
 		"build/ziti-tunnel-x509/Dockerfile",
 		"k3d image import",
+		"kubectl patch application gateway",
+		"kubectl set env",
+		"kubectl patch application llm-proxy",
 	} {
 		if strings.Contains(e2eWorkflow, forbidden) {
 			t.Fatalf("expected E2E workflow not to contain %q", forbidden)

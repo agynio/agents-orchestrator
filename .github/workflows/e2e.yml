@@ -326,18 +326,10 @@ jobs:
           kubectl logs pod/ziti-runtime-preflight -n agyn-workloads
           kubectl delete pod ziti-runtime-preflight -n agyn-workloads --wait=false
 
-      # Validation shim only: assert required platform Ziti service bindings before full E2E.
-      - name: Ensure gateway Ziti service binding
+      # Validation only: gateway Ziti binding is configured by bootstrap source of truth.
+      - name: Verify gateway Ziti service binding
         run: |-
           set -euo pipefail
-          kubectl patch application gateway \
-            -n argocd \
-            --type=merge \
-            -p '{"spec":{"source":{"helm":{"parameters":[{"name":"env[0].name","value":"ZITI_ENABLED"},{"name":"env[0].value","value":"true"},{"name":"env[1].name","value":"ZITI_LEASE_RENEWAL_INTERVAL"},{"name":"env[1].value","value":"10s"}]}}}}'
-          kubectl annotate application gateway \
-            -n argocd \
-            argocd.argoproj.io/refresh=hard \
-            --overwrite
           deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=gateway -o jsonpath='{.items[0].metadata.name}')"
           if [ -z "${deployment}" ]; then
             deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=gateway -o jsonpath='{.items[0].metadata.name}')"
@@ -348,92 +340,35 @@ jobs:
             kubectl get deployments -n platform -o wide >&2 || true
             exit 1
           fi
-
-          gateway_pod() {
-            kubectl get pods -n platform \
-              -l app.kubernetes.io/instance=gateway \
-              --field-selector=status.phase=Running \
-              --sort-by=.metadata.creationTimestamp \
-              -o jsonpath='{.items[-1:].metadata.name}'
-          }
-
-          if [ -z "$(gateway_pod)" ]; then
-            gateway_pod() {
-              kubectl get pods -n platform \
-                -l app.kubernetes.io/name=gateway \
-                --field-selector=status.phase=Running \
-                --sort-by=.metadata.creationTimestamp \
-                -o jsonpath='{.items[-1:].metadata.name}'
-            }
+          kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
+          ziti_enabled="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{end}')"
+          if [ "${ziti_enabled}" != "true" ]; then
+            echo "gateway deployment is not source-of-truth configured with ZITI_ENABLED=true" >&2
+            kubectl get application gateway -n argocd -o yaml >&2 || true
+            kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+            exit 1
           fi
-
-          wait_for_gateway_log() {
-            pod="$1"
-            attempts=0
-            while [ "${attempts}" -lt 120 ]; do
-              if kubectl logs "pod/${pod}" -n platform --all-containers --tail=200 2>/dev/null | grep -q 'gateway listening on ziti service gateway'; then
-                return 0
-              fi
-              attempts=$((attempts + 1))
-              sleep 1
-            done
-            return 1
-          }
-
-          gateway_bind_errors() {
-            pod="$1"
-            kubectl logs "pod/${pod}" -n platform --all-containers --tail=400 2>/dev/null \
-              | grep -E 'identity not found by id|bind request resulted in disconnect|failed to establish listener|creating listener failed' || true
-          }
-
-          bind_attempt=1
-          while [ "${bind_attempt}" -le 3 ]; do
-            kubectl set env "deployment/${deployment}" -n platform ZITI_ENABLED=true ZITI_LEASE_RENEWAL_INTERVAL=10s
-            kubectl rollout restart "deployment/${deployment}" -n platform
-            kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
-            pod="$(gateway_pod)"
-            if [ -z "${pod}" ]; then
-              echo "gateway pod not found after rollout attempt ${bind_attempt}" >&2
-              kubectl get pods -n platform -l app.kubernetes.io/instance=gateway -o wide >&2 || true
-              kubectl get pods -n platform -l app.kubernetes.io/name=gateway -o wide >&2 || true
-              exit 1
-            fi
-            if ! wait_for_gateway_log "${pod}"; then
-              echo "gateway did not report Ziti service listener on attempt ${bind_attempt}" >&2
-              kubectl logs "pod/${pod}" -n platform --all-containers --tail=400 >&2 || true
-              exit 1
-            fi
-            sleep 10
-            errors="$(gateway_bind_errors "${pod}")"
-            if [ -z "${errors}" ]; then
-              kubectl logs "pod/${pod}" -n platform --all-containers --tail=200
+          attempts=0
+          while [ "${attempts}" -lt 120 ]; do
+            if kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 2>/dev/null | grep -q 'gateway listening on ziti service gateway'; then
+              kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=200
               exit 0
             fi
-            echo "gateway Ziti bind errors on attempt ${bind_attempt}:" >&2
-            printf '%s\n' "${errors}" >&2
-            if [ "${bind_attempt}" -eq 3 ]; then
-              kubectl get application gateway -n argocd -o yaml >&2 || true
-              kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
-              kubectl logs "pod/${pod}" -n platform --all-containers --tail=400 >&2 || true
-              exit 1
-            fi
-            kubectl delete "pod/${pod}" -n platform --wait=true || true
-            sleep 45
-            bind_attempt=$((bind_attempt + 1))
+            attempts=$((attempts + 1))
+            sleep 1
           done
+          echo "gateway did not report Ziti service listener from the source-of-truth deployment" >&2
+          kubectl get application gateway -n argocd -o yaml >&2 || true
+          kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+          kubectl get pods -n platform -l app.kubernetes.io/instance=gateway -o wide >&2 || true
+          kubectl get pods -n platform -l app.kubernetes.io/name=gateway -o wide >&2 || true
+          kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 >&2 || true
+          exit 1
 
-      # Validation shim only: assert required LLM proxy Ziti service binding before full E2E.
-      - name: Ensure llm-proxy Ziti service binding
+      # Validation only: llm-proxy Ziti binding is configured by bootstrap source of truth.
+      - name: Verify llm-proxy Ziti service binding
         run: |-
           set -euo pipefail
-          kubectl patch application llm-proxy \
-            -n argocd \
-            --type=merge \
-            -p '{"spec":{"source":{"helm":{"parameters":[{"name":"llmProxy.zitiEnabled","value":"true"}]}}}}'
-          kubectl annotate application llm-proxy \
-            -n argocd \
-            argocd.argoproj.io/refresh=hard \
-            --overwrite
           deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
           if [ -z "${deployment}" ]; then
             deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
@@ -444,22 +379,29 @@ jobs:
             kubectl get deployments -n platform -o wide >&2 || true
             exit 1
           fi
-          kubectl set env "deployment/${deployment}" -n platform ZITI_ENABLED=true
-          kubectl rollout restart "deployment/${deployment}" -n platform
           kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
+          ziti_enabled="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{end}')"
+          if [ "${ziti_enabled}" != "true" ]; then
+            echo "llm-proxy deployment is not source-of-truth configured with ZITI_ENABLED=true" >&2
+            kubectl get application llm-proxy -n argocd -o yaml >&2 || true
+            kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+            exit 1
+          fi
           attempts=0
           while [ "${attempts}" -lt 120 ]; do
-            if kubectl logs "deployment/${deployment}" -n platform --tail=200 2>/dev/null | grep -q 'llm-proxy listening on ziti service llm-proxy'; then
-              kubectl logs "deployment/${deployment}" -n platform --tail=200
+            if kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 2>/dev/null | grep -q 'llm-proxy listening on ziti service llm-proxy'; then
+              kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=200
               exit 0
             fi
             attempts=$((attempts + 1))
             sleep 1
           done
-          echo "llm-proxy did not bind the Ziti llm-proxy service" >&2
+          echo "llm-proxy did not report Ziti service listener from the source-of-truth deployment" >&2
           kubectl get application llm-proxy -n argocd -o yaml >&2 || true
           kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
-          kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=200 >&2 || true
+          kubectl get pods -n platform -l app.kubernetes.io/instance=llm-proxy -o wide >&2 || true
+          kubectl get pods -n platform -l app.kubernetes.io/name=llm-proxy -o wide >&2 || true
+          kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 >&2 || true
           exit 1
       - name: Deploy orchestrator from source
         run: devspace run deploy
