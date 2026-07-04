@@ -341,7 +341,8 @@ jobs:
             exit 1
           fi
           kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
-          ziti_enabled="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{end}')"
+          ziti_enabled_values="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{"\n"}{end}')"
+          ziti_enabled="$(printf '%s\n' "${ziti_enabled_values}" | awk 'NF { value=$0 } END { print value }')"
           if [ "${ziti_enabled}" != "true" ]; then
             echo "gateway deployment is not source-of-truth configured with ZITI_ENABLED=true" >&2
             kubectl get application gateway -n argocd -o yaml >&2 || true
@@ -380,7 +381,8 @@ jobs:
             exit 1
           fi
           kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
-          ziti_enabled="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{end}')"
+          ziti_enabled_values="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{"\n"}{end}')"
+          ziti_enabled="$(printf '%s\n' "${ziti_enabled_values}" | awk 'NF { value=$0 } END { print value }')"
           if [ "${ziti_enabled}" != "true" ]; then
             echo "llm-proxy deployment is not source-of-truth configured with ZITI_ENABLED=true" >&2
             kubectl get application llm-proxy -n argocd -o yaml >&2 || true
