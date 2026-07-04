@@ -2097,8 +2097,8 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"`) {
 		t.Fatalf("expected sidecar script to resolve the runtime controller through workload DNS first, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"`) {
-		t.Fatalf("expected sidecar script to restore tunnel DNS first for workload services after host aliasing controller auth, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `nameserver %s\nnameserver %s`) {
+		t.Fatalf("expected sidecar script not to point its own resolver at tunnel DNS before controller auth, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
 		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)

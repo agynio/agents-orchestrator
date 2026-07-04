@@ -212,7 +212,7 @@ awk -v host="${runtime_controller_host}" '{ for (i = 2; i <= NF; i++) if ($i == 
 cat "${hosts_file}.tmp" > "${hosts_file}"
 rm -f "${hosts_file}.tmp"
 printf '%s\t%s\n' "${runtime_controller_ip}" "${runtime_controller_host}" >> "${hosts_file}"
-printf 'nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "127.0.0.1" "${workload_dns_upstream}" > "${resolv_file}"
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
