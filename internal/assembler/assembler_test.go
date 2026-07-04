@@ -1740,8 +1740,8 @@ if [[ "$1" == "-r" ]]; then
 fi
 if [[ "$1" == "--arg" ]]; then
   shift; name="$1"; shift; value="$1"; shift
-  if [[ "${1:-}" == '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' ]]; then
-    sed -E "s#\"ztAPI\":\"[^\"]+\"#\"ztAPI\":\"${value}\",\"ztAPIs\":[\"${value}\"]#" "${2:-}"
+  if [[ "${1:-}" == '.ztAPI = $ztAPI | del(.ztAPIs)' ]]; then
+    sed -E "s#\"ztAPI\":\"[^\"]+\"(,\"ztAPIs\":\[[^]]*\])?#\"ztAPI\":\"${value}\"#" "${2:-}"
     exit 0
   fi
 fi
@@ -1827,6 +1827,9 @@ exec "${real_cat}" "$@"
 	if strings.Contains(identity, "ziti-controller-client.ziti.svc.cluster.local") {
 		t.Fatalf("expected identity runtime API to avoid cluster-local controller DNS, got:\n%s", identity)
 	}
+	if strings.Contains(identity, "ztAPIs") {
+		t.Fatalf("expected single-controller identity to avoid ztAPIs so stock tunnel stays on cert auth, got:\n%s", identity)
+	}
 	if strings.Contains(identity, "https://10.43.58.17:2496") || strings.Contains(identity, "https://10.43.253.228:2496") {
 		t.Fatalf("expected identity runtime API to avoid direct controller IP, got:\n%s", identity)
 	}
@@ -1898,8 +1901,8 @@ if [[ "$1" == "-r" ]]; then
 fi
 if [[ "$1" == "--arg" ]]; then
   shift; name="$1"; shift; value="$1"; shift
-  if [[ "${1:-}" == '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' ]]; then
-    sed -E "s#\"ztAPI\":\"[^\"]+\"#\"ztAPI\":\"${value}\",\"ztAPIs\":[\"${value}\"]#" "${2:-}"
+  if [[ "${1:-}" == '.ztAPI = $ztAPI | del(.ztAPIs)' ]]; then
+    sed -E "s#\"ztAPI\":\"[^\"]+\"(,\"ztAPIs\":\[[^]]*\])?#\"ztAPI\":\"${value}\"#" "${2:-}"
     exit 0
   fi
 fi
@@ -1959,6 +1962,9 @@ esac
 	if !strings.Contains(identity, "https://"+controllerHost+":443/edge/client/v1") {
 		t.Fatalf("expected identity runtime API to preserve advertised host with configured runtime port, got:\n%s", identity)
 	}
+	if strings.Contains(identity, "ztAPIs") {
+		t.Fatalf("expected runtime API patch not to add ztAPIs because stock tunnel treats HA configs as OIDC-only, got:\n%s", identity)
+	}
 	if strings.Contains(log, runtimeResolveHost) {
 		t.Fatalf("expected enrollment script not to resolve runtime controller host, got:\n%s", log)
 	}
@@ -1968,7 +1974,7 @@ func TestZitiEnrollmentScriptPatchesOnlyRuntimeAPI(t *testing.T) {
 	if !strings.Contains(zitiEnrollScript, `ziti edge enroll --jwt "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
 		t.Fatalf("expected canonical ziti edge enrollment, got %q", zitiEnrollScript)
 	}
-	if !strings.Contains(zitiEnrollScript, `jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' "${identity_file}"`) {
+	if !strings.Contains(zitiEnrollScript, `jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | del(.ztAPIs)' "${identity_file}"`) {
 		t.Fatalf("expected runtime patch to update only controller API endpoints, got %q", zitiEnrollScript)
 	}
 	for _, forbidden := range []string{`openssl ecparam`, `openssl req`, `/edge/client/v1/enroll`, `id:{`, `cert:`, `key:`, `ca:`} {

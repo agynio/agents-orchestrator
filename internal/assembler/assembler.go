@@ -179,7 +179,7 @@ if [[ -z "${ziti_runtime_controller_host}" || -z "${ziti_runtime_controller_port
     fi
   fi
 fi
-jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | .ztAPIs = [$ztAPI]' "${identity_file}" > "${identity_file}.tmp"
+jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | del(.ztAPIs)' "${identity_file}" > "${identity_file}.tmp"
 cat "${identity_file}.tmp" > "${identity_file}"
 rm -f "${identity_file}.tmp"
 
