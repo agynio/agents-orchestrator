@@ -506,9 +506,12 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !strings.Contains(zitiGatewayWait.Cmd[2], "nc -z -w 5 gateway.ziti 443") {
 		t.Fatalf("expected ziti gateway wait to connect to gateway.ziti through tunnel, got %+v", zitiGatewayWait.Cmd)
 	}
-	resolverConfig := "nameserver 127.0.0.1\nnameserver " + cfg.WorkloadDNSUpstream + "\nsearch svc.cluster.local cluster.local\noptions ndots:5\n"
+	resolverConfig := "nameserver 127.0.0.1\nnameserver " + cfg.WorkloadDNSUpstream + "\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1\n"
 	if !strings.Contains(zitiGatewayWait.Cmd[2], strconv.Quote(resolverConfig)) {
 		t.Fatalf("expected ziti gateway wait to make tunnel DNS first in resolv.conf, got %+v", zitiGatewayWait.Cmd)
+	}
+	if !strings.Contains(zitiGatewayWait.Cmd[2], "dns lookup failed for gateway.ziti") || !strings.Contains(zitiGatewayWait.Cmd[2], "tcp connect failed for gateway.ziti:443") {
+		t.Fatalf("expected ziti gateway wait diagnostics to distinguish DNS and TCP failures, got %+v", zitiGatewayWait.Cmd)
 	}
 	zitiServiceWait := testutil.FindInitContainer(request.InitContainers, zitiServiceWaitContainerName)
 	if zitiServiceWait == nil {
@@ -2117,11 +2120,14 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `iptables -t nat`) || strings.Contains(zitiSidecarScript, `ZITI_RUNTIME_HOSTS_FILE`) {
 		t.Fatalf("expected sidecar script not to use stale runtime controller host files or iptables rewrites, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"`) {
-		t.Fatalf("expected sidecar script to resolve the runtime controller through workload DNS first, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, "nameserver 127.0.0.1\nnameserver ${workload_dns_upstream}\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1") {
+		t.Fatalf("expected sidecar script to keep tunnel DNS first with workload DNS fallback, got %q", zitiSidecarScript)
 	}
-	if strings.Contains(zitiSidecarScript, `nameserver %s\nnameserver %s`) {
-		t.Fatalf("expected sidecar script not to point its own resolver at tunnel DNS before controller auth, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `expected tunnel DNS first in ${resolv_file}`) {
+		t.Fatalf("expected sidecar script to fail before stock tunnel startup if tunnel DNS is not first, got %q", zitiSidecarScript)
+	}
+	if strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"`) {
+		t.Fatalf("expected sidecar script not to point its startup resolver only at workload DNS, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, `if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then`) {
 		t.Fatalf("expected sidecar script to reject HA/OIDC identity fields, got %q", zitiSidecarScript)

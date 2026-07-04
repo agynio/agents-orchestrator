@@ -201,7 +201,16 @@ if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then
   exit 1
 fi
 printf 'ziti_sidecar_identity_ztAPI=%s\n' "$(jq -r '.ztAPI // empty' "${identity_file}")"
-printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+cat > "${resolv_file}" <<EOF
+nameserver 127.0.0.1
+nameserver ${workload_dns_upstream}
+search svc.cluster.local cluster.local
+options ndots:5 timeout:1 attempts:1
+EOF
+if [[ "$(awk 'BEGIN { first = "" } /^nameserver[[:space:]]+/ { first = $2; exit } END { print first }' "${resolv_file}")" != "127.0.0.1" ]]; then
+  echo "expected tunnel DNS first in ${resolv_file}" >&2
+  exit 1
+fi
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
 exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --lanIf "lo"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
@@ -884,16 +893,20 @@ func buildZitiServiceWaitCommand(target zitiServiceTarget, workloadDNSUpstream s
 
 func buildZitiTCPWaitCommand(timeoutSeconds int, host, port, workloadDNSUpstream string) []string {
 	resolverConfig := fmt.Sprintf(
-		"nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n",
+		"nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1\n",
 		zitiDNSNameserver,
 		workloadDNSUpstream,
 	)
 	script := fmt.Sprintf(
-		`i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && printf %s > /etc/resolv.conf && nc -z -w 5 %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s" >&2; exit 1`,
+		`i=0; reason="not checked"; while [ $i -lt %d ]; do printf %s > /etc/resolv.conf; if ! nslookup %s %s >/dev/null 2>/tmp/ziti-wait-dns.err; then reason="dns lookup failed for %s via %s: $(cat /tmp/ziti-wait-dns.err)"; elif nc -z -w 5 %s %s >/dev/null 2>/tmp/ziti-wait-tcp.err; then exit 0; else reason="tcp connect failed for %s:%s: $(cat /tmp/ziti-wait-tcp.err)"; fi; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s (${reason})" >&2; exit 1`,
 		timeoutSeconds,
+		strconv.Quote(resolverConfig),
 		host,
 		zitiDNSNameserver,
-		strconv.Quote(resolverConfig),
+		host,
+		zitiDNSNameserver,
+		host,
+		port,
 		host,
 		port,
 		host,
