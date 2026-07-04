@@ -326,6 +326,64 @@ jobs:
           kubectl logs pod/ziti-runtime-preflight -n agyn-workloads
           kubectl delete pod ziti-runtime-preflight -n agyn-workloads --wait=false
 
+      - name: Verify stock sidecar runtime DNS path
+        run: |-
+          set -euo pipefail
+          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_dns_ip}" ]; then
+            echo "ziti-workload-dns ClusterIP is empty" >&2
+            exit 1
+          fi
+          kubectl delete pod ziti-sidecar-dns-preflight -n agyn-workloads --ignore-not-found
+          cat <<EOF_POD | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ziti-sidecar-dns-preflight
+            namespace: agyn-workloads
+            labels:
+              agyn.dev/managed-by: agents-orchestrator
+          spec:
+            restartPolicy: Never
+            dnsPolicy: None
+            dnsConfig:
+              nameservers:
+                - 127.0.0.1
+                - ${ziti_dns_ip}
+              searches:
+                - svc.cluster.local
+                - cluster.local
+            containers:
+              - name: ziti-sidecar-dns-preflight
+                image: openziti/ziti-tunnel:1.6.15
+                env:
+                  - name: WORKLOAD_DNS_UPSTREAM
+                    value: "${ziti_dns_ip}"
+                command:
+                  - /usr/bin/bash
+                  - -ec
+                  - |-
+                    echo "== initial resolv.conf =="
+                    cat /etc/resolv.conf
+                    printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "\${WORKLOAD_DNS_UPSTREAM}" > /etc/resolv.conf
+                    echo "== sidecar runtime auth resolv.conf =="
+                    cat /etc/resolv.conf
+                    echo "== tcp connect ziti.agyn.dev:443 from stock sidecar image =="
+                    bash -c '</dev/tcp/ziti.agyn.dev/443'
+                    echo "== tcp connect ziti-router.agyn.dev:2496 from stock sidecar image =="
+                    bash -c '</dev/tcp/ziti-router.agyn.dev/2496'
+          EOF_POD
+          if ! kubectl wait pod/ziti-sidecar-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
+            echo "stock ziti sidecar runtime DNS path failed from workload pod context" >&2
+            kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml >&2 || true
+            kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide >&2 || true
+            kubectl get pod ziti-sidecar-dns-preflight -n agyn-workloads -o yaml >&2 || true
+            kubectl logs pod/ziti-sidecar-dns-preflight -n agyn-workloads >&2 || true
+            exit 1
+          fi
+          kubectl logs pod/ziti-sidecar-dns-preflight -n agyn-workloads
+          kubectl delete pod ziti-sidecar-dns-preflight -n agyn-workloads --wait=false
+
       # Validation only: gateway Ziti binding is configured by bootstrap source of truth.
       - name: Verify gateway Ziti service binding
         run: |-

@@ -450,21 +450,15 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiSidecar.Entrypoint != zitiSidecarEntrypoint {
 		t.Fatalf("expected ziti sidecar entrypoint %q, got %q", zitiSidecarEntrypoint, zitiSidecar.Entrypoint)
 	}
-	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream, cfg.ZitiRuntimeControllerResolveHost, cfg.ZitiRuntimeControllerPort, cfg.ZitiEnrollmentControllerResolveHost)
+	expectedCmd := buildZitiSidecarCommand(cfg.WorkloadDNSUpstream)
 	if !equalStringSlice(zitiSidecar.Cmd, expectedCmd) {
 		t.Fatalf("expected ziti sidecar cmd %+v, got %+v", expectedCmd, zitiSidecar.Cmd)
 	}
 	if zitiSidecar.Cmd[3] != cfg.WorkloadDNSUpstream {
 		t.Fatalf("expected ziti sidecar runtime DNS upstream arg %q, got %q", cfg.WorkloadDNSUpstream, zitiSidecar.Cmd[3])
 	}
-	if zitiSidecar.Cmd[4] != cfg.ZitiRuntimeControllerResolveHost {
-		t.Fatalf("expected ziti sidecar runtime controller resolve host arg %q, got %q", cfg.ZitiRuntimeControllerResolveHost, zitiSidecar.Cmd[4])
-	}
-	if zitiSidecar.Cmd[5] != cfg.ZitiRuntimeControllerPort {
-		t.Fatalf("expected ziti sidecar runtime controller port arg %q, got %q", cfg.ZitiRuntimeControllerPort, zitiSidecar.Cmd[5])
-	}
-	if zitiSidecar.Cmd[6] != cfg.ZitiEnrollmentControllerResolveHost {
-		t.Fatalf("expected ziti sidecar enrollment controller resolve host arg %q, got %q", cfg.ZitiEnrollmentControllerResolveHost, zitiSidecar.Cmd[6])
+	if len(zitiSidecar.Cmd) != 4 {
+		t.Fatalf("expected ziti sidecar command to receive only runtime DNS upstream after identity enrollment, got %+v", zitiSidecar.Cmd)
 	}
 	if zitiSidecar.Cmd[3] == cfg.ZitiEnrollmentDNSUpstream {
 		t.Fatalf("expected ziti sidecar not to use enrollment DNS upstream %q", cfg.ZitiEnrollmentDNSUpstream)
@@ -476,8 +470,12 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	assertEnv(t, zitiEnv, ZitiIdentityBasenameEnvVar, ZitiIdentityBasename)
 	assertEnv(t, zitiEnv, ZitiIdentityDirEnvVar, zitiIdentityMountPath)
 	assertEnv(t, zitiEnv, "WORKLOAD_DNS_UPSTREAM", cfg.WorkloadDNSUpstream)
-	assertEnv(t, zitiEnv, "ZITI_DNS_UPSTREAM", cfg.ZitiEnrollmentDNSUpstream)
-	assertEnv(t, zitiEnv, "ZITI_CTRL_ADVERTISED_ADDRESS", cfg.ZitiRuntimeControllerResolveHost)
+	if _, ok := zitiEnv["ZITI_DNS_UPSTREAM"]; ok {
+		t.Fatalf("expected ziti sidecar not to receive enrollment DNS upstream")
+	}
+	if _, ok := zitiEnv["ZITI_CTRL_ADVERTISED_ADDRESS"]; ok {
+		t.Fatalf("expected ziti sidecar not to pin runtime controller through host aliases")
+	}
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_SERVICE_POLL_RATE", zitiSidecarServicePollRate)
 	if _, ok := zitiEnv[ZitiEnrollmentTokenEnvVar]; ok {
 		t.Fatalf("expected ziti sidecar not to receive %s", ZitiEnrollmentTokenEnvVar)
@@ -2044,16 +2042,13 @@ func TestZitiServiceWaitTargetPreservesExplicitPort(t *testing.T) {
 	}
 }
 
-func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
-	cmd := buildZitiSidecarCommand("10.43.0.30", "istio-ingressgateway.istio-gateway.svc.cluster.local", "443", "ziti-controller-client.ziti.svc.cluster.local")
+func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
+	cmd := buildZitiSidecarCommand("10.43.0.30")
 	expected := []string{
 		"-ec",
 		zitiSidecarScript,
 		ZitiSidecarContainerName,
 		"10.43.0.30",
-		"istio-ingressgateway.istio-gateway.svc.cluster.local",
-		"443",
-		"ziti-controller-client.ziti.svc.cluster.local",
 	}
 	if zitiSidecarEntrypoint != "/usr/bin/bash" {
 		t.Fatalf("expected sidecar entrypoint to bypass image entrypoint with shell wrapper, got %q", zitiSidecarEntrypoint)
@@ -2074,16 +2069,13 @@ func TestZitiSidecarBypassesImageEntrypointEnrollment(t *testing.T) {
 		t.Fatalf("expected sidecar script not to use enrollment DNS for runtime controller resolution, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `getent hosts`) {
-		t.Fatalf("expected sidecar script to use canonical IPv4 stream resolution, got %q", zitiSidecarScript)
+		t.Fatalf("expected sidecar script not to pre-resolve runtime controller hosts, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `getent ahostsv4 "${runtime_controller_host}"`) {
-		t.Fatalf("expected sidecar script to resolve advertised runtime controller through workload DNS before installing host alias, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `getent ahostsv4 "${runtime_controller_host}"`) {
+		t.Fatalf("expected sidecar script not to pre-resolve and host-pin runtime controller, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `expected resolved runtime controller address for ${runtime_controller_host}`) {
-		t.Fatalf("expected sidecar script to fail loudly when runtime controller DNS is unavailable, got %q", zitiSidecarScript)
-	}
-	if !strings.Contains(zitiSidecarScript, `printf '%s\t%s\n' "${runtime_controller_ip}" "${runtime_controller_host}" >> "${hosts_file}"`) {
-		t.Fatalf("expected sidecar script to install runtime controller host alias before tunnel startup, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `hosts_file`) || strings.Contains(zitiSidecarScript, `/etc/hosts`) {
+		t.Fatalf("expected sidecar script not to mutate hosts for runtime controller DNS, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `openssl s_client`) {
 		t.Fatalf("expected sidecar startup not to fail before tunnel retry handling, got %q", zitiSidecarScript)
