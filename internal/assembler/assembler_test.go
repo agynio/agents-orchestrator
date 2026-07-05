@@ -500,8 +500,11 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
 		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[2], "nslookup gateway.ziti 127.0.0.1") {
-		t.Fatalf("expected ziti gateway wait to resolve gateway.ziti through tunnel DNS, got %+v", zitiGatewayWait.Cmd)
+	if !strings.Contains(zitiGatewayWait.Cmd[2], "nslookup gateway.ziti") {
+		t.Fatalf("expected ziti gateway wait to resolve gateway.ziti through pod resolver, got %+v", zitiGatewayWait.Cmd)
+	}
+	if strings.Contains(zitiGatewayWait.Cmd[2], "nslookup gateway.ziti 127.0.0.1") {
+		t.Fatalf("expected ziti gateway wait not to bypass pod resolver config, got %+v", zitiGatewayWait.Cmd)
 	}
 	if !strings.Contains(zitiGatewayWait.Cmd[2], "nc -z -w 5 gateway.ziti 443") {
 		t.Fatalf("expected ziti gateway wait to connect to gateway.ziti through tunnel, got %+v", zitiGatewayWait.Cmd)
@@ -2046,8 +2049,11 @@ func TestZitiServiceWaitTargetsLLMProxyTCP(t *testing.T) {
 		t.Fatalf("expected llm-proxy.ziti:80, got %s:%s", target.host, target.port)
 	}
 	cmd := buildZitiServiceWaitCommand(target, "10.43.0.10")
-	if !strings.Contains(cmd[2], "nslookup llm-proxy.ziti 127.0.0.1") {
-		t.Fatalf("expected ziti service wait to resolve llm-proxy.ziti through tunnel DNS, got %+v", cmd)
+	if !strings.Contains(cmd[2], "nslookup llm-proxy.ziti") {
+		t.Fatalf("expected ziti service wait to resolve llm-proxy.ziti through pod resolver, got %+v", cmd)
+	}
+	if strings.Contains(cmd[2], "nslookup llm-proxy.ziti 127.0.0.1") {
+		t.Fatalf("expected ziti service wait not to bypass pod resolver config, got %+v", cmd)
 	}
 	if !strings.Contains(cmd[2], "nc -z -w 5 llm-proxy.ziti 80") {
 		t.Fatalf("expected ziti service wait to connect to llm-proxy.ziti:80 through tunnel, got %+v", cmd)

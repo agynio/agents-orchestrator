@@ -962,13 +962,11 @@ func buildZitiTCPWaitCommand(timeoutSeconds int, host, port, workloadDNSUpstream
 		workloadDNSUpstream,
 	)
 	script := fmt.Sprintf(
-		`i=0; reason="not checked"; while [ $i -lt %d ]; do printf %s > /etc/resolv.conf; if ! nslookup %s %s >/dev/null 2>/tmp/ziti-wait-dns.err; then reason="dns lookup failed for %s via %s: $(cat /tmp/ziti-wait-dns.err)"; elif nc -z -w 5 %s %s >/dev/null 2>/tmp/ziti-wait-tcp.err; then exit 0; else reason="tcp connect failed for %s:%s: $(cat /tmp/ziti-wait-tcp.err)"; fi; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s (${reason})" >&2; exit 1`,
+		`i=0; reason="not checked"; while [ $i -lt %d ]; do printf %s > /etc/resolv.conf; if ! nslookup %s >/dev/null 2>/tmp/ziti-wait-dns.err; then reason="dns lookup failed for %s through pod resolver: $(cat /tmp/ziti-wait-dns.err)"; elif nc -z -w 5 %s %s >/dev/null 2>/tmp/ziti-wait-tcp.err; then exit 0; else reason="tcp connect failed for %s:%s: $(cat /tmp/ziti-wait-tcp.err)"; fi; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s (${reason})" >&2; exit 1`,
 		timeoutSeconds,
 		strconv.Quote(resolverConfig),
 		host,
-		zitiDNSNameserver,
 		host,
-		zitiDNSNameserver,
 		host,
 		port,
 		host,
