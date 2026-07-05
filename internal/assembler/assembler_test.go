@@ -2114,8 +2114,11 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `--diverter "${ziti_diverter}"`) {
 		t.Fatalf("expected sidecar script to use stock tproxy diverter for pod-local service intercepts, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `iptables -t nat "${operation}" OUTPUT`) || !strings.Contains(zitiSidecarScript, `-j REDIRECT --to-ports "${target_port}"`) {
+	if !strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || !strings.Contains(zitiSidecarScript, `iptables -t nat -I OUTPUT`) || !strings.Contains(zitiSidecarScript, `-j DNAT --to-destination "127.0.0.1:${target_port}"`) {
 		t.Fatalf("expected sidecar diverter to redirect pod-local service traffic to stock tproxy listener, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `iptables -t nat -D OUTPUT`) {
+		t.Fatalf("expected sidecar diverter to remove pod-local service redirects, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `--lanIf "lo"`) {
 		t.Fatalf("expected sidecar script not to rely on INPUT-only lanIf rules for pod-local service intercepts, got %q", zitiSidecarScript)
