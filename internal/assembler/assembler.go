@@ -257,11 +257,17 @@ if [[ "${operation}" == "-I" ]]; then
     echo "missing diverter target port" >&2
     exit 1
   fi
+  for route_localnet in /proc/sys/net/ipv4/conf/all/route_localnet /proc/sys/net/ipv4/conf/default/route_localnet /proc/sys/net/ipv4/conf/lo/route_localnet; do
+    if [[ -w "${route_localnet}" ]]; then
+      printf '1' > "${route_localnet}"
+    fi
+  done
   rule_key="${protocol}-${cidr//[^[:alnum:]._-]/_}-${mask}-${low_port}-${high_port}"
   rule_file="/tmp/ziti-output-diverter-${rule_key}.port"
   iptables -t nat -C OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j DNAT --to-destination "127.0.0.1:${target_port}" 2>/dev/null || \
     iptables -t nat -I OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j DNAT --to-destination "127.0.0.1:${target_port}"
   printf '%s\n' "${target_port}" > "${rule_file}"
+  iptables -t nat -S OUTPUT | grep -- "${cidr}/${mask}" || true
 else
   rule_key="${protocol}-${cidr//[^[:alnum:]._-]/_}-${mask}-${low_port}-${high_port}"
   rule_file="/tmp/ziti-output-diverter-${rule_key}.port"
