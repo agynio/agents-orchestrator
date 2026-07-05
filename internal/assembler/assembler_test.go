@@ -2111,14 +2111,20 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`) {
 		t.Fatalf("expected sidecar script to enable service polling and supported DNS resolver, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `--lanIf "lo"`) {
-		t.Fatalf("expected sidecar script to allow loopback-delivered intercepted services, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `--diverter "${ziti_diverter}"`) {
+		t.Fatalf("expected sidecar script to use stock tproxy diverter for pod-local service intercepts, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `iptables -t nat "${operation}" OUTPUT`) || !strings.Contains(zitiSidecarScript, `-j REDIRECT --to-ports "${target_port}"`) {
+		t.Fatalf("expected sidecar diverter to redirect pod-local service traffic to stock tproxy listener, got %q", zitiSidecarScript)
+	}
+	if strings.Contains(zitiSidecarScript, `--lanIf "lo"`) {
+		t.Fatalf("expected sidecar script not to rely on INPUT-only lanIf rules for pod-local service intercepts, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `--dnsUpstreamMode`) {
 		t.Fatalf("expected sidecar script not to use unsupported dns upstream mode flag, got %q", zitiSidecarScript)
 	}
-	if strings.Contains(zitiSidecarScript, `iptables -t nat`) || strings.Contains(zitiSidecarScript, `ZITI_RUNTIME_HOSTS_FILE`) {
-		t.Fatalf("expected sidecar script not to use stale runtime controller host files or iptables rewrites, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `ZITI_RUNTIME_HOSTS_FILE`) {
+		t.Fatalf("expected sidecar script not to use stale runtime controller host files, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, "nameserver 127.0.0.1\nnameserver ${workload_dns_upstream}\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1") {
 		t.Fatalf("expected sidecar script to keep tunnel DNS first with workload DNS fallback, got %q", zitiSidecarScript)

@@ -211,8 +211,52 @@ if [[ "$(awk 'BEGIN { first = "" } /^nameserver[[:space:]]+/ { first = $2; exit 
   echo "expected tunnel DNS first in ${resolv_file}" >&2
   exit 1
 fi
+ziti_diverter="/tmp/ziti-output-diverter"
+cat > "${ziti_diverter}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-V" ]]; then
+  echo "ziti-output-diverter 1"
+  exit 0
+fi
+if [[ $# -lt 2 ]]; then
+  echo "expected diverter operation and arguments" >&2
+  exit 1
+fi
+operation="$1"
+shift
+if [[ "${operation}" != "-I" && "${operation}" != "-D" ]]; then
+  echo "unsupported diverter operation ${operation}" >&2
+  exit 1
+fi
+cidr=""
+mask=""
+protocol="tcp"
+low_port=""
+high_port=""
+target_port=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -c) shift; cidr="$1" ;;
+    -m) shift; mask="$1" ;;
+    -p) shift; protocol="$1" ;;
+    -l) shift; low_port="$1" ;;
+    -h) shift; high_port="$1" ;;
+    -t) shift; target_port="$1" ;;
+    -s) shift ;;
+    *) echo "unsupported diverter argument $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+if [[ -z "${cidr}" || -z "${mask}" || -z "${low_port}" || -z "${high_port}" || -z "${target_port}" ]]; then
+  echo "missing diverter address or port arguments" >&2
+  exit 1
+fi
+iptables -t nat "${operation}" OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j REDIRECT --to-ports "${target_port}"
+EOF
+chmod +x "${ziti_diverter}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
-exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --lanIf "lo"`
+exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --diverter "${ziti_diverter}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
