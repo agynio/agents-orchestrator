@@ -436,14 +436,16 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		}
 		zitiGatewayWait := &runnerv1.ContainerSpec{
-			Image: a.cfg.ZitiSidecarImage,
-			Name:  zitiGatewayWaitContainerName,
-			Cmd:   buildZitiGatewayWaitCommand(a.cfg.AgentGatewayAddress, a.cfg.WorkloadDNSUpstream),
+			Image:      a.cfg.ZitiSidecarImage,
+			Name:       zitiGatewayWaitContainerName,
+			Entrypoint: zitiSidecarEntrypoint,
+			Cmd:        buildZitiGatewayWaitCommand(a.cfg.AgentGatewayAddress, a.cfg.WorkloadDNSUpstream),
 		}
 		zitiServiceWait := &runnerv1.ContainerSpec{
-			Image: a.cfg.ZitiSidecarImage,
-			Name:  zitiServiceWaitContainerName,
-			Cmd:   buildZitiServiceWaitCommand(llmProxyTarget, a.cfg.WorkloadDNSUpstream),
+			Image:      a.cfg.ZitiSidecarImage,
+			Name:       zitiServiceWaitContainerName,
+			Entrypoint: zitiSidecarEntrypoint,
+			Cmd:        buildZitiServiceWaitCommand(llmProxyTarget, a.cfg.WorkloadDNSUpstream),
 		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
@@ -961,7 +963,7 @@ func buildZitiTCPWaitCommand(timeoutSeconds int, host, port, workloadDNSUpstream
 	)
 	tcpProbe := strconv.Quote(fmt.Sprintf("cat </dev/null >/dev/tcp/%s/%s", host, port))
 	script := fmt.Sprintf(
-		`i=0; reason="not checked"; while [ $i -lt %d ]; do printf %s > /etc/resolv.conf; if ! getent ahostsv4 %s >/tmp/ziti-wait-dns.out 2>/tmp/ziti-wait-dns.err; then reason="dns lookup failed for %s through pod resolver: $(cat /tmp/ziti-wait-dns.err)"; elif timeout 5 bash -c %s >/dev/null 2>/tmp/ziti-wait-tcp.err; then exit 0; else reason="tcp connect failed for %s:%s: $(cat /tmp/ziti-wait-tcp.err)"; fi; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s (${reason})" >&2; exit 1`,
+		`i=0; reason="not checked"; while [ $i -lt %d ]; do printf %s > /etc/resolv.conf; if ! getent ahostsv4 %s >/tmp/ziti-wait-dns.out 2>/tmp/ziti-wait-dns.err; then reason="dns lookup failed for %s through pod resolver: $(cat /tmp/ziti-wait-dns.err)"; elif timeout 5 bash -c %s >/tmp/ziti-wait-tcp.out 2>/tmp/ziti-wait-tcp.err; then exit 0; else reason="tcp connect failed for %s:%s: $(cat /tmp/ziti-wait-tcp.err)"; fi; if [ $((i %% 15)) -eq 0 ]; then echo "waiting for %s:%s attempt=${i} reason=${reason}; resolv.conf=$(tr "\n" ";" </etc/resolv.conf); dns=$(cat /tmp/ziti-wait-dns.out 2>/dev/null)" >&2; fi; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s (${reason}); resolv.conf=$(tr "\n" ";" </etc/resolv.conf); dns=$(cat /tmp/ziti-wait-dns.out 2>/dev/null)" >&2; exit 1`,
 		timeoutSeconds,
 		strconv.Quote(resolverConfig),
 		host,
@@ -971,8 +973,10 @@ func buildZitiTCPWaitCommand(timeoutSeconds int, host, port, workloadDNSUpstream
 		port,
 		host,
 		port,
+		host,
+		port,
 	)
-	return []string{"/bin/sh", "-c", script}
+	return []string{"-c", script}
 }
 
 func mergeEnvVars(platformEnv, userEnv []*runnerv1.EnvVar, owner string) []*runnerv1.EnvVar {

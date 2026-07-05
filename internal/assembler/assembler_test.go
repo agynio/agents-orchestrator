@@ -496,24 +496,27 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiGatewayWait.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti gateway wait image %q, got %q", cfg.ZitiSidecarImage, zitiGatewayWait.Image)
 	}
+	if zitiGatewayWait.Entrypoint != zitiSidecarEntrypoint {
+		t.Fatalf("expected ziti gateway wait entrypoint %q, got %q", zitiSidecarEntrypoint, zitiGatewayWait.Entrypoint)
+	}
 	expectedWaitCmd := buildZitiGatewayWaitCommand(cfg.AgentGatewayAddress, cfg.WorkloadDNSUpstream)
 	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
 		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[2], "getent ahostsv4 gateway.ziti") {
+	if !strings.Contains(zitiGatewayWait.Cmd[1], "getent ahostsv4 gateway.ziti") {
 		t.Fatalf("expected ziti gateway wait to resolve gateway.ziti through pod resolver, got %+v", zitiGatewayWait.Cmd)
 	}
-	if strings.Contains(zitiGatewayWait.Cmd[2], "gateway.ziti 127.0.0.1") {
+	if strings.Contains(zitiGatewayWait.Cmd[1], "gateway.ziti 127.0.0.1") {
 		t.Fatalf("expected ziti gateway wait not to bypass pod resolver config, got %+v", zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[2], "/dev/tcp/gateway.ziti/443") {
+	if !strings.Contains(zitiGatewayWait.Cmd[1], "/dev/tcp/gateway.ziti/443") {
 		t.Fatalf("expected ziti gateway wait to connect to gateway.ziti through tunnel, got %+v", zitiGatewayWait.Cmd)
 	}
 	resolverConfig := "nameserver 127.0.0.1\nnameserver " + cfg.WorkloadDNSUpstream + "\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1\n"
-	if !strings.Contains(zitiGatewayWait.Cmd[2], strconv.Quote(resolverConfig)) {
+	if !strings.Contains(zitiGatewayWait.Cmd[1], strconv.Quote(resolverConfig)) {
 		t.Fatalf("expected ziti gateway wait to make tunnel DNS first in resolv.conf, got %+v", zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[2], "dns lookup failed for gateway.ziti") || !strings.Contains(zitiGatewayWait.Cmd[2], "tcp connect failed for gateway.ziti:443") {
+	if !strings.Contains(zitiGatewayWait.Cmd[1], "dns lookup failed for gateway.ziti") || !strings.Contains(zitiGatewayWait.Cmd[1], "tcp connect failed for gateway.ziti:443") {
 		t.Fatalf("expected ziti gateway wait diagnostics to distinguish DNS and TCP failures, got %+v", zitiGatewayWait.Cmd)
 	}
 	zitiServiceWait := testutil.FindInitContainer(request.InitContainers, zitiServiceWaitContainerName)
@@ -522,6 +525,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 	if zitiServiceWait.Image != cfg.ZitiSidecarImage {
 		t.Fatalf("expected ziti service wait to use ziti tools image %q, got %q", cfg.ZitiSidecarImage, zitiServiceWait.Image)
+	}
+	if zitiServiceWait.Entrypoint != zitiSidecarEntrypoint {
+		t.Fatalf("expected ziti service wait entrypoint %q, got %q", zitiSidecarEntrypoint, zitiServiceWait.Entrypoint)
 	}
 	llmProxyTarget, err := zitiServiceWaitTarget(cfg.AgentLLMBaseURL)
 	if err != nil {
@@ -2049,16 +2055,16 @@ func TestZitiServiceWaitTargetsLLMProxyTCP(t *testing.T) {
 		t.Fatalf("expected llm-proxy.ziti:80, got %s:%s", target.host, target.port)
 	}
 	cmd := buildZitiServiceWaitCommand(target, "10.43.0.10")
-	if !strings.Contains(cmd[2], "getent ahostsv4 llm-proxy.ziti") {
+	if !strings.Contains(cmd[1], "getent ahostsv4 llm-proxy.ziti") {
 		t.Fatalf("expected ziti service wait to resolve llm-proxy.ziti through pod resolver, got %+v", cmd)
 	}
-	if strings.Contains(cmd[2], "llm-proxy.ziti 127.0.0.1") {
+	if strings.Contains(cmd[1], "llm-proxy.ziti 127.0.0.1") {
 		t.Fatalf("expected ziti service wait not to bypass pod resolver config, got %+v", cmd)
 	}
-	if !strings.Contains(cmd[2], "/dev/tcp/llm-proxy.ziti/80") {
+	if !strings.Contains(cmd[1], "/dev/tcp/llm-proxy.ziti/80") {
 		t.Fatalf("expected ziti service wait to connect to llm-proxy.ziti:80 through tunnel, got %+v", cmd)
 	}
-	if strings.Contains(cmd[2], "/v1/models") || strings.Contains(cmd[2], "curl") {
+	if strings.Contains(cmd[1], "/v1/models") || strings.Contains(cmd[1], "curl") {
 		t.Fatalf("expected ziti service wait not to use HTTP/model-list readiness, got %+v", cmd)
 	}
 }
