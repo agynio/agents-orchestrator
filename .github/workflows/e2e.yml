@@ -18,8 +18,8 @@ on:
 env:
   BOOTSTRAP_REF: main
   K8S_RUNNER_REF: main
-  CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
-  AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.29
+  CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.30
+  AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.30
   AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
   AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
   CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.29
