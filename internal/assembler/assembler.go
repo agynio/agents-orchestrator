@@ -211,79 +211,8 @@ if [[ "$(awk 'BEGIN { first = "" } /^nameserver[[:space:]]+/ { first = $2; exit 
   echo "expected tunnel DNS first in ${resolv_file}" >&2
   exit 1
 fi
-ziti_diverter="/tmp/ziti-output-diverter"
-cat > "${ziti_diverter}" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "-V" ]]; then
-  echo "ziti-output-diverter 1"
-  exit 0
-fi
-if [[ $# -lt 2 ]]; then
-  echo "expected diverter operation and arguments" >&2
-  exit 1
-fi
-operation="$1"
-shift
-if [[ "${operation}" != "-I" && "${operation}" != "-D" ]]; then
-  echo "unsupported diverter operation ${operation}" >&2
-  exit 1
-fi
-cidr=""
-mask=""
-protocol="tcp"
-low_port=""
-high_port=""
-target_port=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -c) shift; cidr="$1" ;;
-    -m) shift; mask="$1" ;;
-    -p) shift; protocol="$1" ;;
-    -l) shift; low_port="$1" ;;
-    -h) shift; high_port="$1" ;;
-    -t) shift; target_port="$1" ;;
-    -s) shift ;;
-    *) echo "unsupported diverter argument $1" >&2; exit 1 ;;
-  esac
-  shift
-done
-if [[ -z "${cidr}" || -z "${mask}" || -z "${low_port}" || -z "${high_port}" ]]; then
-  echo "missing diverter address or port arguments" >&2
-  exit 1
-fi
-if [[ "${operation}" == "-I" ]]; then
-  if [[ -z "${target_port}" ]]; then
-    echo "missing diverter target port" >&2
-    exit 1
-  fi
-  for route_localnet in /proc/sys/net/ipv4/conf/all/route_localnet /proc/sys/net/ipv4/conf/default/route_localnet /proc/sys/net/ipv4/conf/lo/route_localnet; do
-    if [[ -w "${route_localnet}" ]]; then
-      printf '1' > "${route_localnet}"
-    fi
-  done
-  rule_key="${protocol}-${cidr//[^[:alnum:]._-]/_}-${mask}-${low_port}-${high_port}"
-  rule_file="/tmp/ziti-output-diverter-${rule_key}.port"
-  iptables -t nat -C OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j DNAT --to-destination "127.0.0.1:${target_port}" 2>/dev/null || \
-    iptables -t nat -I OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j DNAT --to-destination "127.0.0.1:${target_port}"
-  printf '%s\n' "${target_port}" > "${rule_file}"
-  iptables -t nat -S OUTPUT | grep -- "${cidr}/${mask}" || true
-else
-  rule_key="${protocol}-${cidr//[^[:alnum:]._-]/_}-${mask}-${low_port}-${high_port}"
-  rule_file="/tmp/ziti-output-diverter-${rule_key}.port"
-  if [[ -s "${rule_file}" ]]; then
-    while read -r saved_target_port; do
-      if [[ -n "${saved_target_port}" ]]; then
-        while iptables -t nat -D OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j DNAT --to-destination "127.0.0.1:${saved_target_port}" 2>/dev/null; do :; done
-      fi
-    done < "${rule_file}"
-    rm -f "${rule_file}"
-  fi
-fi
-EOF
-chmod +x "${ziti_diverter}"
 export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
-exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --diverter "${ziti_diverter}"`
+exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"

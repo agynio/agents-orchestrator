@@ -2111,20 +2111,14 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`) {
 		t.Fatalf("expected sidecar script to enable service polling and supported DNS resolver, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `--diverter "${ziti_diverter}"`) {
-		t.Fatalf("expected sidecar script to use stock tproxy diverter for pod-local service intercepts, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `--diverter`) || strings.Contains(zitiSidecarScript, `ziti_diverter`) {
+		t.Fatalf("expected sidecar script to use stock tproxy PREROUTING intercepts without an OUTPUT diverter, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || !strings.Contains(zitiSidecarScript, `iptables -t nat -I OUTPUT`) || !strings.Contains(zitiSidecarScript, `-j DNAT --to-destination "127.0.0.1:${target_port}"`) {
-		t.Fatalf("expected sidecar diverter to redirect pod-local service traffic to stock tproxy listener, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || strings.Contains(zitiSidecarScript, `iptables -t nat -I OUTPUT`) || strings.Contains(zitiSidecarScript, `DNAT`) {
+		t.Fatalf("expected sidecar script not to install AO-owned OUTPUT/NAT intercept rules, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `/proc/sys/net/ipv4/conf/all/route_localnet`) {
-		t.Fatalf("expected sidecar diverter to permit pod-local DNAT to loopback, got %q", zitiSidecarScript)
-	}
-	if !strings.Contains(zitiSidecarScript, `iptables -t nat -S OUTPUT | grep -- "${cidr}/${mask}"`) {
-		t.Fatalf("expected sidecar diverter to log installed pod-local service redirect rules, got %q", zitiSidecarScript)
-	}
-	if !strings.Contains(zitiSidecarScript, `iptables -t nat -D OUTPUT`) {
-		t.Fatalf("expected sidecar diverter to remove pod-local service redirects, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, `route_localnet`) {
+		t.Fatalf("expected sidecar script not to mutate route_localnet for AO-owned loopback DNAT, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `--lanIf "lo"`) {
 		t.Fatalf("expected sidecar script not to rely on INPUT-only lanIf rules for pod-local service intercepts, got %q", zitiSidecarScript)
