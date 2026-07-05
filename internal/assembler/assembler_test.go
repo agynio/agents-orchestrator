@@ -493,20 +493,20 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiGatewayWait == nil {
 		t.Fatal("expected ziti-gateway-wait init container")
 	}
-	if zitiGatewayWait.Image != zitiGatewayWaitImage {
-		t.Fatalf("expected ziti gateway wait image %q, got %q", zitiGatewayWaitImage, zitiGatewayWait.Image)
+	if zitiGatewayWait.Image != cfg.ZitiSidecarImage {
+		t.Fatalf("expected ziti gateway wait image %q, got %q", cfg.ZitiSidecarImage, zitiGatewayWait.Image)
 	}
 	expectedWaitCmd := buildZitiGatewayWaitCommand(cfg.AgentGatewayAddress, cfg.WorkloadDNSUpstream)
 	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
 		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[2], "nslookup gateway.ziti") {
+	if !strings.Contains(zitiGatewayWait.Cmd[2], "getent ahostsv4 gateway.ziti") {
 		t.Fatalf("expected ziti gateway wait to resolve gateway.ziti through pod resolver, got %+v", zitiGatewayWait.Cmd)
 	}
-	if strings.Contains(zitiGatewayWait.Cmd[2], "nslookup gateway.ziti 127.0.0.1") {
+	if strings.Contains(zitiGatewayWait.Cmd[2], "gateway.ziti 127.0.0.1") {
 		t.Fatalf("expected ziti gateway wait not to bypass pod resolver config, got %+v", zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[2], "nc -z -w 5 gateway.ziti 443") {
+	if !strings.Contains(zitiGatewayWait.Cmd[2], "/dev/tcp/gateway.ziti/443") {
 		t.Fatalf("expected ziti gateway wait to connect to gateway.ziti through tunnel, got %+v", zitiGatewayWait.Cmd)
 	}
 	resolverConfig := "nameserver 127.0.0.1\nnameserver " + cfg.WorkloadDNSUpstream + "\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1\n"
@@ -520,8 +520,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if zitiServiceWait == nil {
 		t.Fatal("expected ziti-service-wait init container")
 	}
-	if zitiServiceWait.Image != zitiGatewayWaitImage {
-		t.Fatalf("expected ziti service wait to use DNS/TCP tools image %q, got %q", zitiGatewayWaitImage, zitiServiceWait.Image)
+	if zitiServiceWait.Image != cfg.ZitiSidecarImage {
+		t.Fatalf("expected ziti service wait to use ziti tools image %q, got %q", cfg.ZitiSidecarImage, zitiServiceWait.Image)
 	}
 	llmProxyTarget, err := zitiServiceWaitTarget(cfg.AgentLLMBaseURL)
 	if err != nil {
@@ -2049,13 +2049,13 @@ func TestZitiServiceWaitTargetsLLMProxyTCP(t *testing.T) {
 		t.Fatalf("expected llm-proxy.ziti:80, got %s:%s", target.host, target.port)
 	}
 	cmd := buildZitiServiceWaitCommand(target, "10.43.0.10")
-	if !strings.Contains(cmd[2], "nslookup llm-proxy.ziti") {
+	if !strings.Contains(cmd[2], "getent ahostsv4 llm-proxy.ziti") {
 		t.Fatalf("expected ziti service wait to resolve llm-proxy.ziti through pod resolver, got %+v", cmd)
 	}
-	if strings.Contains(cmd[2], "nslookup llm-proxy.ziti 127.0.0.1") {
+	if strings.Contains(cmd[2], "llm-proxy.ziti 127.0.0.1") {
 		t.Fatalf("expected ziti service wait not to bypass pod resolver config, got %+v", cmd)
 	}
-	if !strings.Contains(cmd[2], "nc -z -w 5 llm-proxy.ziti 80") {
+	if !strings.Contains(cmd[2], "/dev/tcp/llm-proxy.ziti/80") {
 		t.Fatalf("expected ziti service wait to connect to llm-proxy.ziti:80 through tunnel, got %+v", cmd)
 	}
 	if strings.Contains(cmd[2], "/v1/models") || strings.Contains(cmd[2], "curl") {
