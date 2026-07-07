@@ -355,7 +355,7 @@ jobs:
                 - cluster.local
             containers:
               - name: ziti-sidecar-dns-preflight
-                image: openziti/ziti-tunnel:1.5.15
+                image: openziti/ziti-tunnel:1.6.15
                 env:
                   - name: WORKLOAD_DNS_UPSTREAM
                     value: "${ziti_dns_ip}"

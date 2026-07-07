@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const defaultZitiSidecarImage = "openziti/ziti-tunnel:1.5.15"
+const defaultZitiSidecarImage = "openziti/ziti-tunnel:1.6.15"
 
 func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	setBaseEnv(t)
@@ -101,7 +101,7 @@ func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
 		"dnsPolicy: None",
 		"timeout 10 nc -vz -w 5 ziti-router.agyn.dev 2496",
 		"name: Verify stock sidecar runtime DNS path",
-		"image: openziti/ziti-tunnel:1.5.15",
+		"image: openziti/ziti-tunnel:1.6.15",
 		"bash -c '</dev/tcp/ziti.agyn.dev/443'",
 		"name: Verify gateway Ziti service binding",
 		"gateway listening on ziti service gateway",
