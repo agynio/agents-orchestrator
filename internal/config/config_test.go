@@ -163,11 +163,11 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.ZitiEnrollmentControllerPort != "2496" {
 		t.Fatalf("expected ziti enrollment controller port %q, got %q", "2496", cfg.ZitiEnrollmentControllerPort)
 	}
-	if cfg.ZitiRuntimeControllerResolveHost != "istio-ingressgateway.istio-gateway.svc.cluster.local" {
-		t.Fatalf("expected ziti runtime controller resolve host %q, got %q", "istio-ingressgateway.istio-gateway.svc.cluster.local", cfg.ZitiRuntimeControllerResolveHost)
+	if cfg.ZitiRuntimeControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected ziti runtime controller resolve host %q, got %q", "ziti-controller-client.ziti.svc.cluster.local", cfg.ZitiRuntimeControllerResolveHost)
 	}
-	if cfg.ZitiRuntimeControllerPort != "443" {
-		t.Fatalf("expected ziti runtime controller port %q, got %q", "443", cfg.ZitiRuntimeControllerPort)
+	if cfg.ZitiRuntimeControllerPort != "2496" {
+		t.Fatalf("expected ziti runtime controller port %q, got %q", "2496", cfg.ZitiRuntimeControllerPort)
 	}
 }
 
@@ -376,10 +376,10 @@ func TestFromEnvZitiControllerDefaults(t *testing.T) {
 	if cfg.ZitiEnrollmentControllerPort != "2496" {
 		t.Fatalf("expected default enrollment controller port, got %q", cfg.ZitiEnrollmentControllerPort)
 	}
-	if cfg.ZitiRuntimeControllerResolveHost != "istio-ingressgateway.istio-gateway.svc.cluster.local" {
+	if cfg.ZitiRuntimeControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
 		t.Fatalf("expected default runtime controller resolve host, got %q", cfg.ZitiRuntimeControllerResolveHost)
 	}
-	if cfg.ZitiRuntimeControllerPort != "443" {
+	if cfg.ZitiRuntimeControllerPort != "2496" {
 		t.Fatalf("expected default runtime controller port, got %q", cfg.ZitiRuntimeControllerPort)
 	}
 }

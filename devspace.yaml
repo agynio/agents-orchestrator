@@ -171,8 +171,8 @@ functions:
     patch="${patch/__EGRESS_CA_NAMESPACE__/${EGRESS_CA_NAMESPACE}}"
     patch="${patch/__ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST__/${ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST:-ziti-controller-client.ziti.svc.cluster.local}}"
     patch="${patch/__ZITI_ENROLLMENT_CONTROLLER_PORT__/${ZITI_ENROLLMENT_CONTROLLER_PORT:-2496}}"
-    patch="${patch/__ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST__/${ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST:-istio-ingressgateway.istio-gateway.svc.cluster.local}}"
-    patch="${patch/__ZITI_RUNTIME_CONTROLLER_PORT__/${ZITI_RUNTIME_CONTROLLER_PORT:-443}}"
+    patch="${patch/__ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST__/${ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST:-ziti-controller-client.ziti.svc.cluster.local}}"
+    patch="${patch/__ZITI_RUNTIME_CONTROLLER_PORT__/${ZITI_RUNTIME_CONTROLLER_PORT:-2496}}"
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "${patch}"
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."

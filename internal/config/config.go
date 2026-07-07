@@ -198,11 +198,11 @@ func FromEnv() (Config, error) {
 	}
 	cfg.ZitiRuntimeControllerResolveHost = os.Getenv("ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST")
 	if cfg.ZitiRuntimeControllerResolveHost == "" {
-		cfg.ZitiRuntimeControllerResolveHost = "istio-ingressgateway.istio-gateway.svc.cluster.local"
+		cfg.ZitiRuntimeControllerResolveHost = "ziti-controller-client.ziti.svc.cluster.local"
 	}
 	cfg.ZitiRuntimeControllerPort = os.Getenv("ZITI_RUNTIME_CONTROLLER_PORT")
 	if cfg.ZitiRuntimeControllerPort == "" {
-		cfg.ZitiRuntimeControllerPort = "443"
+		cfg.ZitiRuntimeControllerPort = "2496"
 	}
 	if cfg.ZitiRuntimeControllerPort != "" {
 		parsed, err := strconv.ParseUint(cfg.ZitiRuntimeControllerPort, 10, 16)
