@@ -229,7 +229,14 @@ if [[ ! -s "${runtime_hosts_file}" ]]; then
   echo "expected runtime controller host alias file ${runtime_hosts_file}" >&2
   exit 1
 fi
-cat "${runtime_hosts_file}" >> "${hosts_file}"
+runtime_controller_host="$(awk 'NF >= 2 { print $2; exit }' "${runtime_hosts_file}")"
+if [[ -z "${runtime_controller_host}" ]]; then
+  echo "expected runtime controller host in ${runtime_hosts_file}" >&2
+  exit 1
+fi
+awk -v host="${runtime_controller_host}" '{ keep = 1; for (i = 2; i <= NF; i++) if ($i == host) keep = 0; if (keep) print }' "${hosts_file}" > "${hosts_file}.tmp"
+cat "${runtime_hosts_file}" "${hosts_file}.tmp" > "${hosts_file}"
+rm -f "${hosts_file}.tmp"
 printf 'ziti_sidecar_runtime_host_alias=%s\n' "$(cat "${runtime_hosts_file}")"
 ziti_diverter="/tmp/ziti-output-diverter"
 cat > "${ziti_diverter}" <<'EOF'
@@ -295,7 +302,7 @@ else
 fi
 EOF
 chmod +x "${ziti_diverter}"
-export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=go"
+export GODEBUG="netdns=go+1"
 exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --diverter "${ziti_diverter}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"

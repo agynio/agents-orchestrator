@@ -2119,8 +2119,11 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `exec "/usr/local/bin/ziti" "tunnel" "tproxy"`) {
 		t.Fatalf("expected sidecar script to exec ziti tunnel directly, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `netdns=go`) {
+	if !strings.Contains(zitiSidecarScript, `GODEBUG="netdns=go+1"`) {
 		t.Fatalf("expected sidecar script to force Go DNS resolution so /etc/hosts aliases are honored, got %q", zitiSidecarScript)
+	}
+	if strings.Contains(zitiSidecarScript, `GODEBUG="${GODEBUG:+${GODEBUG},}`) {
+		t.Fatalf("expected sidecar script not to preserve inherited DNS debug mode, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `netdns=cgo`) {
 		t.Fatalf("expected sidecar script not to force cgo DNS resolution because it can ignore /etc/hosts aliases, got %q", zitiSidecarScript)
@@ -2137,8 +2140,14 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `getent ahostsv4 "${runtime_controller_host}"`) {
 		t.Fatalf("expected sidecar script not to pre-resolve and host-pin runtime controller, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `cat "${runtime_hosts_file}" >> "${hosts_file}"`) {
-		t.Fatalf("expected sidecar script to install runtime controller host alias before auth, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `awk -v host="${runtime_controller_host}"`) {
+		t.Fatalf("expected sidecar script to remove stale runtime host aliases before auth, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `cat "${runtime_hosts_file}" "${hosts_file}.tmp" > "${hosts_file}"`) {
+		t.Fatalf("expected sidecar script to prepend runtime controller host alias before auth, got %q", zitiSidecarScript)
+	}
+	if strings.Contains(zitiSidecarScript, `cat "${runtime_hosts_file}" >> "${hosts_file}"`) {
+		t.Fatalf("expected sidecar script not to append runtime controller host alias after stale host entries, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, `ziti_sidecar_runtime_host_alias=`) {
 		t.Fatalf("expected sidecar script to print runtime controller host alias, got %q", zitiSidecarScript)
