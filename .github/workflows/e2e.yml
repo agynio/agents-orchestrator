@@ -145,13 +145,13 @@ jobs:
           kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
 
       # Validation shim only: source-of-truth workload DNS belongs in bootstrap.
-      # It enforces ziti.agyn.dev -> ingressgateway and ziti-router.agyn.dev -> ziti-router-edge.
+      # It enforces ziti.agyn.dev -> ziti-controller-client and ziti-router.agyn.dev -> ziti-router-edge.
       - name: Patch workload Ziti DNS runtime target
         run: |-
           set -euo pipefail
           current_target="$(kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti\.db}' | awk '$1 == "@" && $2 == "IN" && $3 == "A" {print $4; exit}')"
           current_router_target="$(kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti-router\.db}' | awk '$1 == "@" && $2 == "IN" && $3 == "A" {print $4; exit}')"
-          istio_gateway_ip="$(kubectl get service istio-ingressgateway -n istio-gateway -o jsonpath='{.spec.clusterIP}')"
+          ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
           ziti_router_ip="$(kubectl get service ziti-router-edge -n ziti -o jsonpath='{.spec.clusterIP}')"
           if [ -z "${current_target}" ]; then
             echo "ziti-workload-dns ziti.db target is empty" >&2
@@ -163,9 +163,9 @@ jobs:
             kubectl get configmap ziti-workload-dns -n ziti -o yaml >&2 || true
             exit 1
           fi
-          if [ -z "${istio_gateway_ip}" ]; then
-            echo "istio-ingressgateway ClusterIP is empty" >&2
-            kubectl get service istio-ingressgateway -n istio-gateway -o yaml >&2 || true
+          if [ -z "${ziti_controller_ip}" ]; then
+            echo "ziti-controller-client ClusterIP is empty" >&2
+            kubectl get service ziti-controller-client -n ziti -o yaml >&2 || true
             exit 1
           fi
           if [ -z "${ziti_router_ip}" ]; then
@@ -173,11 +173,11 @@ jobs:
             kubectl get service ziti-router-edge -n ziti -o yaml >&2 || true
             exit 1
           fi
-          if [ "${current_target}" != "${istio_gateway_ip}" ] || [ "${current_router_target}" != "${ziti_router_ip}" ]; then
-            echo "Patching ziti.agyn.dev workload DNS from ${current_target} to ingressgateway ${istio_gateway_ip} and ziti-router.agyn.dev from ${current_router_target} to ziti-router-edge ${ziti_router_ip}."
+          if [ "${current_target}" != "${ziti_controller_ip}" ] || [ "${current_router_target}" != "${ziti_router_ip}" ]; then
+            echo "Patching ziti.agyn.dev workload DNS from ${current_target} to ziti-controller-client ${ziti_controller_ip} and ziti-router.agyn.dev from ${current_router_target} to ziti-router-edge ${ziti_router_ip}."
             kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.Corefile}' > /tmp/ziti-workload-Corefile
             kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti\.db}' \
-              | sed -E "s/^((@|ns) IN A )[^[:space:]]+/\1${istio_gateway_ip}/" \
+              | sed -E "s/^((@|ns) IN A )[^[:space:]]+/\1${ziti_controller_ip}/" \
               > /tmp/ziti-workload-ziti.db
             kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti-router\.db}' \
               | sed -E "s/^((@|ns) IN A )[^[:space:]]+/\1${ziti_router_ip}/" \
@@ -312,12 +312,12 @@ jobs:
                 command:
                   - sh
                   - -c
-                  - curl --insecure --fail --show-error --verbose --connect-timeout 10 --max-time 30 https://ziti.agyn.dev:443/edge/client/v1/version
+                  - curl --insecure --fail --show-error --verbose --connect-timeout 10 --max-time 30 https://ziti.agyn.dev:2496/edge/client/v1/version
           EOF_POD
           if ! kubectl wait pod/ziti-runtime-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
-            echo "ziti runtime TCP preflight failed with selector-aware ingressgateway policy present" >&2
+            echo "ziti runtime TCP preflight failed with selector-aware controller policy present" >&2
             kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml >&2 || true
-            kubectl get service,endpoints,pods -n istio-gateway -l app=istio-ingressgateway -o wide >&2 || true
+            kubectl get service,endpoints -n ziti ziti-controller-client -o wide >&2 || true
             kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide >&2 || true
             kubectl get pod ziti-runtime-preflight -n agyn-workloads -o yaml >&2 || true
             kubectl logs pod/ziti-runtime-preflight -n agyn-workloads >&2 || true
@@ -368,8 +368,8 @@ jobs:
                     printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "\${WORKLOAD_DNS_UPSTREAM}" > /etc/resolv.conf
                     echo "== sidecar runtime auth resolv.conf =="
                     cat /etc/resolv.conf
-                    echo "== tcp connect ziti.agyn.dev:443 from stock sidecar image =="
-                    bash -c '</dev/tcp/ziti.agyn.dev/443'
+                    echo "== tcp connect ziti.agyn.dev:2496 from stock sidecar image =="
+                    bash -c '</dev/tcp/ziti.agyn.dev/2496'
                     echo "== tcp connect ziti-router.agyn.dev:2496 from stock sidecar image =="
                     bash -c '</dev/tcp/ziti-router.agyn.dev/2496'
           EOF_POD
