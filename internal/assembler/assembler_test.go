@@ -2167,6 +2167,11 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `iptables -t nat -C OUTPUT`) || !strings.Contains(zitiSidecarScript, `iptables -t nat -I OUTPUT`) || !strings.Contains(zitiSidecarScript, `-j REDIRECT --to-ports "${target_port}"`) {
 		t.Fatalf("expected sidecar diverter to redirect pod-local service traffic to stock tproxy listener, got %q", zitiSidecarScript)
 	}
+	for _, expected := range []string{`-o) shift ;;`, `-n) shift ;;`, `-N) shift ;;`} {
+		if !strings.Contains(zitiSidecarScript, expected) {
+			t.Fatalf("expected sidecar diverter to accept stock tproxy source/interface argument %q, got %q", expected, zitiSidecarScript)
+		}
+	}
 	if strings.Contains(zitiSidecarScript, `DNAT`) {
 		t.Fatalf("expected sidecar diverter not to DNAT pod-local service traffic away from the original local destination, got %q", zitiSidecarScript)
 	}

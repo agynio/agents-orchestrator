@@ -267,6 +267,9 @@ while [[ $# -gt 0 ]]; do
     -c) shift; cidr="$1" ;;
     -m) shift; mask="$1" ;;
     -p) shift; protocol="$1" ;;
+    -o) shift ;;
+    -n) shift ;;
+    -N) shift ;;
     -l) shift; low_port="$1" ;;
     -h) shift; high_port="$1" ;;
     -t) shift; target_port="$1" ;;
