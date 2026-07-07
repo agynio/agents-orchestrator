@@ -54,6 +54,7 @@ identity_file="${identity_dir}/${identity_basename}.json"
 jwt_file="${identity_dir}/${identity_basename}.jwt"
 ziti_controller_cert="${identity_dir}/controller-ca.pem"
 ziti_tls_ca_cert="${identity_dir}/controller-tls-ca.pem"
+runtime_hosts_file="${identity_dir}/${identity_basename}.runtime.hosts"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
 ziti_runtime_controller_host=""
@@ -186,12 +187,26 @@ if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then
   echo "expected single-controller identity without ztAPIs" >&2
   exit 1
 fi
+ziti_runtime_resolve_host="${ziti_runtime_controller_host}"
+if [[ -n "${runtime_controller_resolve_host}" ]]; then
+  ziti_runtime_resolve_host="${runtime_controller_resolve_host}"
+fi
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+ziti_runtime_controller_ip="$(getent ahostsv4 "${ziti_runtime_resolve_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
+if [[ -z "${ziti_runtime_controller_ip}" ]]; then
+  echo "expected resolved runtime controller address for ${ziti_runtime_resolve_host}" >&2
+  exit 1
+fi
+printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" > "${runtime_hosts_file}"
 printf 'ziti_identity_ztAPI=%s\n' "$(jq -r '.ztAPI // empty' "${identity_file}")"
+printf 'ziti_runtime_host_alias=%s\n' "$(cat "${runtime_hosts_file}")"
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
 	zitiSidecarScript = `workload_dns_upstream="$1"
 identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
+runtime_hosts_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.runtime.hosts"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
+hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
 if [[ ! -s "${identity_file}" ]]; then
   echo "expected identity file ${identity_file}" >&2
   exit 1
@@ -210,6 +225,12 @@ if [[ "$(awk 'BEGIN { first = "" } /^nameserver[[:space:]]+/ { first = $2; exit 
   echo "expected workload DNS first in ${resolv_file}" >&2
   exit 1
 fi
+if [[ ! -s "${runtime_hosts_file}" ]]; then
+  echo "expected runtime controller host alias file ${runtime_hosts_file}" >&2
+  exit 1
+fi
+cat "${runtime_hosts_file}" >> "${hosts_file}"
+printf 'ziti_sidecar_runtime_host_alias=%s\n' "$(cat "${runtime_hosts_file}")"
 ziti_diverter="/tmp/ziti-output-diverter"
 cat > "${ziti_diverter}" <<'EOF'
 #!/usr/bin/env bash

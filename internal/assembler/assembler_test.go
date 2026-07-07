@@ -1852,6 +1852,16 @@ exec "${real_cat}" "$@"
 	if !strings.Contains(log, "ziti_identity_ztAPI=https://controller.example.test:2496/edge/client/v1") {
 		t.Fatalf("expected enrollment diagnostics to print patched ztAPI, got:\n%s", log)
 	}
+	if !strings.Contains(log, "ziti_runtime_host_alias=10.43.58.17\t"+controllerHost) {
+		t.Fatalf("expected enrollment diagnostics to print runtime controller host alias, got:\n%s", log)
+	}
+	runtimeHostsBytes, err := os.ReadFile(filepath.Join(identityDir, "agent.runtime.hosts"))
+	if err != nil {
+		t.Fatalf("read runtime hosts file: %v", err)
+	}
+	if string(runtimeHostsBytes) != "10.43.58.17\t"+controllerHost+"\n" {
+		t.Fatalf("expected runtime hosts file for controller auth, got:\n%s", string(runtimeHostsBytes))
+	}
 	if strings.Contains(identity, "https://10.43.58.17:2496") || strings.Contains(identity, "https://10.43.253.228:2496") {
 		t.Fatalf("expected identity runtime API to avoid direct controller IP, got:\n%s", identity)
 	}
@@ -1994,8 +2004,15 @@ esac
 	if !strings.Contains(log, "ziti_identity_ztAPI=https://"+controllerHost+":443/edge/client/v1") {
 		t.Fatalf("expected enrollment diagnostics to print runtime ztAPI, got:\n%s", log)
 	}
-	if strings.Contains(log, runtimeResolveHost) {
-		t.Fatalf("expected enrollment script not to resolve runtime controller host, got:\n%s", log)
+	if !strings.Contains(log, "ziti_runtime_host_alias=10.43.0.99\t"+controllerHost) {
+		t.Fatalf("expected enrollment script to persist runtime controller host alias for sidecar auth, got:\n%s", log)
+	}
+	runtimeHostsBytes, err := os.ReadFile(filepath.Join(identityDir, "agent.runtime.hosts"))
+	if err != nil {
+		t.Fatalf("read runtime hosts file: %v", err)
+	}
+	if string(runtimeHostsBytes) != "10.43.0.99\t"+controllerHost+"\n" {
+		t.Fatalf("expected runtime hosts file to use runtime controller underlay, got:\n%s", string(runtimeHostsBytes))
 	}
 }
 
@@ -2005,6 +2022,12 @@ func TestZitiEnrollmentScriptPatchesOnlyRuntimeAPI(t *testing.T) {
 	}
 	if !strings.Contains(zitiEnrollScript, `jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | del(.ztAPIs)' "${identity_file}"`) {
 		t.Fatalf("expected runtime patch to update only controller API endpoints, got %q", zitiEnrollScript)
+	}
+	if !strings.Contains(zitiEnrollScript, `printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" > "${runtime_hosts_file}"`) {
+		t.Fatalf("expected enrollment script to persist runtime host alias for sidecar auth, got %q", zitiEnrollScript)
+	}
+	if !strings.Contains(zitiEnrollScript, `ziti_runtime_resolve_host="${ziti_runtime_controller_host}"`) {
+		t.Fatalf("expected enrollment script to resolve runtime controller host explicitly, got %q", zitiEnrollScript)
 	}
 	if !strings.Contains(zitiEnrollScript, `if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then`) {
 		t.Fatalf("expected enrollment script to fail if ztAPIs remains in identity, got %q", zitiEnrollScript)
@@ -2111,8 +2134,11 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `getent ahostsv4 "${runtime_controller_host}"`) {
 		t.Fatalf("expected sidecar script not to pre-resolve and host-pin runtime controller, got %q", zitiSidecarScript)
 	}
-	if strings.Contains(zitiSidecarScript, `hosts_file`) || strings.Contains(zitiSidecarScript, `/etc/hosts`) {
-		t.Fatalf("expected sidecar script not to mutate hosts for runtime controller DNS, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `cat "${runtime_hosts_file}" >> "${hosts_file}"`) {
+		t.Fatalf("expected sidecar script to install runtime controller host alias before auth, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `ziti_sidecar_runtime_host_alias=`) {
+		t.Fatalf("expected sidecar script to print runtime controller host alias, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `openssl s_client`) {
 		t.Fatalf("expected sidecar startup not to fail before tunnel retry handling, got %q", zitiSidecarScript)
@@ -2145,7 +2171,7 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 		t.Fatalf("expected sidecar script not to use unsupported dns upstream mode flag, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `ZITI_RUNTIME_HOSTS_FILE`) {
-		t.Fatalf("expected sidecar script not to use stale runtime controller host files, got %q", zitiSidecarScript)
+		t.Fatalf("expected sidecar script not to use environment-selected runtime controller host files, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, "nameserver ${workload_dns_upstream}\nsearch svc.cluster.local cluster.local\noptions ndots:5") {
 		t.Fatalf("expected sidecar script to use workload DNS while authenticating with the controller, got %q", zitiSidecarScript)
