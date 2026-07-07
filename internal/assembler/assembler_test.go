@@ -2119,8 +2119,11 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if !strings.Contains(zitiSidecarScript, `exec "/usr/local/bin/ziti" "tunnel" "tproxy"`) {
 		t.Fatalf("expected sidecar script to exec ziti tunnel directly, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `GODEBUG`) {
-		t.Fatalf("expected sidecar script to force cgo DNS resolution, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `netdns=go`) {
+		t.Fatalf("expected sidecar script to force Go DNS resolution so /etc/hosts aliases are honored, got %q", zitiSidecarScript)
+	}
+	if strings.Contains(zitiSidecarScript, `netdns=cgo`) {
+		t.Fatalf("expected sidecar script not to force cgo DNS resolution because it can ignore /etc/hosts aliases, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `runtime_controller_dns_upstream="${ZITI_DNS_UPSTREAM:-${workload_dns_upstream}}"`) {
 		t.Fatalf("expected sidecar script not to use enrollment DNS for runtime controller resolution, got %q", zitiSidecarScript)

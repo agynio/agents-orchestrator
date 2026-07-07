@@ -295,7 +295,7 @@ else
 fi
 EOF
 chmod +x "${ziti_diverter}"
-export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=cgo"
+export GODEBUG="${GODEBUG:+${GODEBUG},}netdns=go"
 exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --diverter "${ziti_diverter}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
