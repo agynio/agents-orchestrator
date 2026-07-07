@@ -202,13 +202,12 @@ if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then
 fi
 printf 'ziti_sidecar_identity_ztAPI=%s\n' "$(jq -r '.ztAPI // empty' "${identity_file}")"
 cat > "${resolv_file}" <<EOF
-nameserver 127.0.0.1
 nameserver ${workload_dns_upstream}
 search svc.cluster.local cluster.local
-options ndots:5 timeout:1 attempts:1
+options ndots:5
 EOF
-if [[ "$(awk 'BEGIN { first = "" } /^nameserver[[:space:]]+/ { first = $2; exit } END { print first }' "${resolv_file}")" != "127.0.0.1" ]]; then
-  echo "expected tunnel DNS first in ${resolv_file}" >&2
+if [[ "$(awk 'BEGIN { first = "" } /^nameserver[[:space:]]+/ { first = $2; exit } END { print first }' "${resolv_file}")" != "${workload_dns_upstream}" ]]; then
+  echo "expected workload DNS first in ${resolv_file}" >&2
   exit 1
 fi
 ziti_diverter="/tmp/ziti-output-diverter"

@@ -2147,11 +2147,14 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `ZITI_RUNTIME_HOSTS_FILE`) {
 		t.Fatalf("expected sidecar script not to use stale runtime controller host files, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, "nameserver 127.0.0.1\nnameserver ${workload_dns_upstream}\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1") {
-		t.Fatalf("expected sidecar script to keep tunnel DNS first with workload DNS fallback, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, "nameserver ${workload_dns_upstream}\nsearch svc.cluster.local cluster.local\noptions ndots:5") {
+		t.Fatalf("expected sidecar script to use workload DNS while authenticating with the controller, got %q", zitiSidecarScript)
 	}
-	if !strings.Contains(zitiSidecarScript, `expected tunnel DNS first in ${resolv_file}`) {
-		t.Fatalf("expected sidecar script to fail before stock tunnel startup if tunnel DNS is not first, got %q", zitiSidecarScript)
+	if strings.Contains(zitiSidecarScript, "nameserver 127.0.0.1\nnameserver ${workload_dns_upstream}") {
+		t.Fatalf("expected sidecar script not to place empty tunnel DNS before workload DNS during controller auth, got %q", zitiSidecarScript)
+	}
+	if !strings.Contains(zitiSidecarScript, `expected workload DNS first in ${resolv_file}`) {
+		t.Fatalf("expected sidecar script to fail before stock tunnel startup if workload DNS is not first, got %q", zitiSidecarScript)
 	}
 	if strings.Contains(zitiSidecarScript, `printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"`) {
 		t.Fatalf("expected sidecar script not to point its startup resolver only at workload DNS, got %q", zitiSidecarScript)
