@@ -814,6 +814,8 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "MCP_PORT", Source: &agentsv1.Env_Value{Value: "9090"}},
 					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "GATEWAY_ADDRESS", Source: &agentsv1.Env_Value{Value: "user-gateway"}},
 					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "AGYN_GATEWAY_URL", Source: &agentsv1.Env_Value{Value: "http://user-gateway"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "NODE_OPTIONS", Source: &agentsv1.Env_Value{Value: "--max-old-space-size=128"}},
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "RES_OPTIONS", Source: &agentsv1.Env_Value{Value: "ndots:2"}},
 				}}, nil
 			}
 			return &agentsv1.ListEnvsResponse{}, nil
@@ -904,6 +906,8 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	assertEnv(t, envs, "MCP_ENV", "enabled")
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
+	assertEnv(t, envs, "NODE_OPTIONS", "--max-old-space-size=128 "+mcpNodeOptions)
+	assertEnv(t, envs, "RES_OPTIONS", "ndots:2")
 }
 
 func TestAssemblerSharesPersistentVolumeAcrossContainers(t *testing.T) {

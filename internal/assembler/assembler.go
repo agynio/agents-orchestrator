@@ -26,8 +26,8 @@ const (
 	agynBinMountPath                                = "/agyn-bin"
 	agynBinBinaryPath                               = "/agyn-bin/agynd"
 	mcpBasePort                                     = 8100
-	mcpResolverOptions                             = "attempts:1 timeout:1 no-aaaa"
-	mcpNodeOptions                                 = "--dns-result-order=ipv4first"
+	mcpResolverOptions                              = "attempts:1 timeout:1 no-aaaa"
+	mcpNodeOptions                                  = "--dns-result-order=ipv4first"
 	ZitiEnrollContainerName                         = "ziti-enroll"
 	ZitiSidecarContainerName                        = "ziti-sidecar"
 	zitiIdentityVolumeName                          = "ziti-identity"
@@ -888,9 +888,8 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		{Name: "MCP_PORT", Value: strconv.Itoa(port)},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
-		{Name: "RES_OPTIONS", Value: mcpResolverOptions},
-		{Name: "NODE_OPTIONS", Value: mcpNodeOptions},
 	}, envVars, fmt.Sprintf("mcp %s", mcpID.String()))
+	envVars = applyMcpResolverEnvVars(envVars)
 	envVars = appendEgressCAEnvVars(envVars)
 	return &runnerv1.ContainerSpec{
 		Image:            mcp.GetImage(),
@@ -923,6 +922,41 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 		Mounts:           mounts,
 		InlineFileMounts: egressCAInlineFileMounts(a.egressCACert),
 	}, nil
+}
+
+func applyMcpResolverEnvVars(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
+	envs = appendDefaultEnvVar(envs, "RES_OPTIONS", mcpResolverOptions)
+	return appendComposedEnvVar(envs, "NODE_OPTIONS", mcpNodeOptions)
+}
+
+func appendDefaultEnvVar(envs []*runnerv1.EnvVar, name, value string) []*runnerv1.EnvVar {
+	for _, env := range envs {
+		if env.GetName() == name {
+			return envs
+		}
+	}
+	return append(envs, &runnerv1.EnvVar{Name: name, Value: value})
+}
+
+func appendComposedEnvVar(envs []*runnerv1.EnvVar, name, value string) []*runnerv1.EnvVar {
+	for _, env := range envs {
+		if env.GetName() != name {
+			continue
+		}
+		fields := strings.Fields(env.GetValue())
+		for _, field := range fields {
+			if field == value {
+				return envs
+			}
+		}
+		if env.GetValue() == "" {
+			env.Value = value
+			return envs
+		}
+		env.Value = env.GetValue() + " " + value
+		return envs
+	}
+	return append(envs, &runnerv1.EnvVar{Name: name, Value: value})
 }
 
 func buildGatewayURL(address string) string {
