@@ -26,6 +26,8 @@ const (
 	agynBinMountPath                                = "/agyn-bin"
 	agynBinBinaryPath                               = "/agyn-bin/agynd"
 	mcpBasePort                                     = 8100
+	mcpResolverOptions                             = "attempts:1 timeout:1 no-aaaa"
+	mcpNodeOptions                                 = "--dns-result-order=ipv4first"
 	ZitiEnrollContainerName                         = "ziti-enroll"
 	ZitiSidecarContainerName                        = "ziti-sidecar"
 	zitiIdentityVolumeName                          = "ziti-identity"
@@ -886,6 +888,8 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		{Name: "MCP_PORT", Value: strconv.Itoa(port)},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
+		{Name: "RES_OPTIONS", Value: mcpResolverOptions},
+		{Name: "NODE_OPTIONS", Value: mcpNodeOptions},
 	}, envVars, fmt.Sprintf("mcp %s", mcpID.String()))
 	envVars = appendEgressCAEnvVars(envVars)
 	return &runnerv1.ContainerSpec{

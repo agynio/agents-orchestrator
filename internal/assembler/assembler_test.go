@@ -1079,6 +1079,8 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		}
 		assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 		assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
+		assertEnv(t, envs, "RES_OPTIONS", mcpResolverOptions)
+		assertEnv(t, envs, "NODE_OPTIONS", mcpNodeOptions)
 		ports[sidecar.Name] = port
 	}
 	expectedMemoryName := "mcp-" + lowID[:8]
