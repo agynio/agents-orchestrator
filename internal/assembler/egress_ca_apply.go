@@ -40,3 +40,7 @@ func applyEgressCA(container *runnerv1.ContainerSpec, cert []byte) {
 	container.Env = appendEgressCAEnvVars(container.GetEnv())
 	container.InlineFileMounts = append(container.GetInlineFileMounts(), egressCAInlineFileMounts(cert)...)
 }
+
+func (a *Assembler) inlineFiles() map[string][]byte {
+	return egressCAInlineFiles(a.egressCACert)
+}

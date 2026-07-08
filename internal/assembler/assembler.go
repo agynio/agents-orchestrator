@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,33 +20,47 @@ import (
 )
 
 const (
-	listPageSize               int32 = 100
-	rpcTimeout                       = 10 * time.Second
-	agynBinVolumeName                = "agyn-bin"
-	agynBinMountPath                 = "/agyn-bin"
-	agynBinBinaryPath                = "/agyn-bin/agynd"
-	mcpBasePort                      = 8100
-	ZitiEnrollContainerName          = "ziti-enroll"
-	ZitiSidecarContainerName         = "ziti-sidecar"
-	zitiIdentityVolumeName           = "ziti-identity"
-	zitiIdentityMountPath            = "/netfoundry"
-	ZitiIdentityBasename             = "agent"
-	ZitiEnrollmentTokenEnvVar        = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar       = "ZITI_IDENTITY_BASENAME"
-	ZitiIdentityDirEnvVar            = "ZITI_IDENTITY_DIR"
-	egressCACertPath                 = "/etc/agyn/egress-ca/ca.crt"
-	egressCACertDir                  = "/etc/agyn/egress-ca"
-	zitiDNSNameserver                = "127.0.0.1"
-	zitiEnrollEntrypoint             = "/usr/bin/bash"
-	zitiSidecarCommand               = "tproxy"
-	zitiEnrollScript                 = `workload_dns_upstream="$1"
+	listPageSize                              int32 = 100
+	rpcTimeout                                      = 10 * time.Second
+	agynBinVolumeName                               = "agyn-bin"
+	agynBinMountPath                                = "/agyn-bin"
+	agynBinBinaryPath                               = "/agyn-bin/agynd"
+	mcpBasePort                                     = 8100
+	mcpResolverOptions                              = "attempts:1 timeout:1 no-aaaa"
+	mcpNodeOptions                                  = "--dns-result-order=ipv4first"
+	ZitiEnrollContainerName                         = "ziti-enroll"
+	ZitiSidecarContainerName                        = "ziti-sidecar"
+	zitiIdentityVolumeName                          = "ziti-identity"
+	zitiIdentityMountPath                           = "/netfoundry"
+	ZitiIdentityBasename                            = "agent"
+	ZitiEnrollmentTokenEnvVar                       = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar                      = "ZITI_IDENTITY_BASENAME"
+	ZitiIdentityDirEnvVar                           = "ZITI_IDENTITY_DIR"
+	ZitiEnrollmentControllerResolveHostEnvVar       = "ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST"
+	ZitiEnrollmentControllerPortEnvVar              = "ZITI_ENROLLMENT_CONTROLLER_PORT"
+	egressCACertPath                                = "/etc/agyn/egress-ca/ca.crt"
+	egressCACertDir                                 = "/etc/agyn/egress-ca"
+	zitiDNSNameserver                               = "127.0.0.1"
+	zitiEnrollEntrypoint                            = "/usr/bin/bash"
+	zitiSidecarEntrypoint                           = "/usr/bin/bash"
+	zitiSidecarServicePollRate                      = "1"
+	zitiEnrollScript                                = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
+enrollment_controller_resolve_host="$3"
+enrollment_controller_port_override="$4"
+runtime_controller_resolve_host="$5"
+runtime_controller_port_override="$6"
 identity_dir="${ZITI_IDENTITY_DIR}"
 identity_basename="${ZITI_IDENTITY_BASENAME}"
 identity_file="${identity_dir}/${identity_basename}.json"
 jwt_file="${identity_dir}/${identity_basename}.jwt"
+ziti_controller_cert="${identity_dir}/controller-ca.pem"
+ziti_tls_ca_cert="${identity_dir}/controller-tls-ca.pem"
+runtime_hosts_file="${identity_dir}/${identity_basename}.runtime.hosts"
 resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
 hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
+ziti_runtime_controller_host=""
+ziti_runtime_controller_port=""
 
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 mkdir -p "${identity_dir}"
@@ -54,6 +69,12 @@ if [[ ! -s "${identity_file}" ]]; then
   if [[ -z "${ZITI_ENROLL_TOKEN}" ]]; then
     echo "ZITI_ENROLL_TOKEN is required" >&2
     exit 1
+  fi
+  if [[ -n "${ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST:-}" ]]; then
+    enrollment_controller_resolve_host="${ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST}"
+  fi
+  if [[ -n "${ZITI_ENROLLMENT_CONTROLLER_PORT:-}" ]]; then
+    enrollment_controller_port_override="${ZITI_ENROLLMENT_CONTROLLER_PORT}"
   fi
   printf '%s\n' "${ZITI_ENROLL_TOKEN}" > "${jwt_file}"
 
@@ -73,7 +94,67 @@ if [[ ! -s "${identity_file}" ]]; then
   fi
   printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
 
-  ziti edge enroll --jwt "${jwt_file}" --out "${identity_file}"
+  jwt_payload_file="${identity_dir}/${identity_basename}.payload.json"
+  printf '%s\n' "${jwt_payload_json}" > "${jwt_payload_file}"
+  ziti_controller_url="$(jq -r '.iss // empty' "${jwt_payload_file}")"
+  ziti_enrollment_method="$(jq -r '.em // empty' "${jwt_payload_file}")"
+  ziti_enrollment_token_id="$(jq -r '.jti // empty' "${jwt_payload_file}")"
+  ziti_identity_subject="$(jq -r '.sub // empty' "${jwt_payload_file}")"
+  if [[ -z "${ziti_controller_url}" || -z "${ziti_enrollment_method}" || -z "${ziti_enrollment_token_id}" || -z "${ziti_identity_subject}" ]]; then
+    echo "ZITI_ENROLL_TOKEN is missing required iss, em, jti, or sub claims" >&2
+    exit 1
+  fi
+
+  ziti_controller_hostport="$(printf '%s\n' "${ziti_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
+  ziti_controller_host="${ziti_controller_hostport%%:*}"
+  ziti_controller_port="${ziti_controller_hostport##*:}"
+  if [[ "${ziti_controller_port}" == "${ziti_controller_hostport}" ]]; then
+    ziti_controller_port="443"
+  fi
+  ziti_enrollment_controller_port="${ziti_controller_port}"
+  if [[ -n "${enrollment_controller_port_override}" ]]; then
+    ziti_enrollment_controller_port="${enrollment_controller_port_override}"
+  fi
+  ziti_enrollment_resolve_host="${ziti_controller_host}"
+  if [[ -n "${enrollment_controller_resolve_host}" ]]; then
+    ziti_enrollment_resolve_host="${enrollment_controller_resolve_host}"
+  fi
+  ziti_enrollment_controller_ip="$(getent ahostsv4 "${ziti_enrollment_resolve_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
+  if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
+    ziti_enrollment_controller_ip="$(awk -v host="${ziti_enrollment_resolve_host}" '{ for (i = 2; i <= NF; i++) if ($i == host) { print $1; exit } }' "${hosts_file}")"
+  fi
+  if [[ -z "${ziti_enrollment_controller_ip}" ]]; then
+    echo "expected resolved controller address for ${ziti_enrollment_resolve_host}" >&2
+    exit 1
+  fi
+  ziti_runtime_controller_host="${ziti_controller_host}"
+  ziti_runtime_controller_port="${ziti_controller_port}"
+  if [[ -n "${runtime_controller_port_override}" ]]; then
+    ziti_runtime_controller_port="${runtime_controller_port_override}"
+  fi
+
+  openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_enrollment_controller_ip}:${ziti_enrollment_controller_port}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
+  if [[ ! -s "${ziti_controller_cert}" ]]; then
+    echo "expected controller certificate from ${ziti_controller_hostport}" >&2
+    exit 1
+  fi
+  cat "${ziti_controller_cert}" > "${ziti_tls_ca_cert}"
+  if [[ -s "${SSL_CERT_FILE:-}" ]]; then
+    cat "${SSL_CERT_FILE}" >> "${ziti_tls_ca_cert}"
+  fi
+  hosts_backup="${identity_dir}/${identity_basename}.hosts"
+  cat "${hosts_file}" > "${hosts_backup}"
+  restore_hosts() {
+    if [[ -s "${hosts_backup}" ]]; then
+      cat "${hosts_backup}" > "${hosts_file}"
+      rm -f "${hosts_backup}"
+    fi
+  }
+  trap restore_hosts EXIT
+  printf '%s\t%s\n' "${ziti_enrollment_controller_ip}" "${ziti_controller_host}" >> "${hosts_file}"
+  ziti edge enroll --jwt "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"
+  restore_hosts
+  trap - EXIT
 fi
 
 if [[ ! -s "${identity_file}" ]]; then
@@ -81,15 +162,162 @@ if [[ ! -s "${identity_file}" ]]; then
   exit 1
 fi
 
+if [[ -n "${runtime_controller_port_override}" ]]; then
+  ziti_runtime_controller_port="${runtime_controller_port_override}"
+fi
+if [[ -z "${ziti_runtime_controller_host}" || -z "${ziti_runtime_controller_port}" ]]; then
+  ziti_runtime_controller_url="$(jq -r '.ztAPI // empty' "${identity_file}")"
+  ziti_runtime_controller_hostport="$(printf '%s\n' "${ziti_runtime_controller_url}" | sed -nE 's#^https?://([^/]+).*#\1#p')"
+  if [[ -z "${ziti_runtime_controller_hostport}" ]]; then
+    echo "expected runtime controller endpoint in ${identity_file}" >&2
+    exit 1
+  fi
+  if [[ -z "${ziti_runtime_controller_host}" ]]; then
+    ziti_runtime_controller_host="${ziti_runtime_controller_hostport%%:*}"
+  fi
+  if [[ -z "${ziti_runtime_controller_port}" ]]; then
+    ziti_runtime_controller_port="${ziti_runtime_controller_hostport##*:}"
+    if [[ "${ziti_runtime_controller_port}" == "${ziti_runtime_controller_hostport}" ]]; then
+      ziti_runtime_controller_port="443"
+    fi
+  fi
+fi
+jq --arg ztAPI "https://${ziti_runtime_controller_host}:${ziti_runtime_controller_port}/edge/client/v1" '.ztAPI = $ztAPI | del(.ztAPIs)' "${identity_file}" > "${identity_file}.tmp"
+cat "${identity_file}.tmp" > "${identity_file}"
+rm -f "${identity_file}.tmp"
+if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then
+  echo "expected single-controller identity without ztAPIs" >&2
+  exit 1
+fi
+ziti_runtime_resolve_host="${ziti_runtime_controller_host}"
+if [[ -n "${runtime_controller_resolve_host}" ]]; then
+  ziti_runtime_resolve_host="${runtime_controller_resolve_host}"
+fi
+printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_upstream}" > "${resolv_file}"
+ziti_runtime_controller_ip="$(getent ahostsv4 "${ziti_runtime_resolve_host}" 2>/dev/null | awk '$2 == "STREAM" { print $1; exit }' || true)"
+if [[ -z "${ziti_runtime_controller_ip}" ]]; then
+  echo "expected resolved runtime controller address for ${ziti_runtime_resolve_host}" >&2
+  exit 1
+fi
+printf '%s\t%s\n' "${ziti_runtime_controller_ip}" "${ziti_runtime_controller_host}" > "${runtime_hosts_file}"
+printf 'ziti_identity_ztAPI=%s\n' "$(jq -r '.ztAPI // empty' "${identity_file}")"
+printf 'ziti_runtime_host_alias=%s\n' "$(cat "${runtime_hosts_file}")"
+
 printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "${workload_dns_nameserver}" > "${resolv_file}"`
+	zitiSidecarScript = `workload_dns_upstream="$1"
+identity_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.json"
+runtime_hosts_file="${ZITI_IDENTITY_DIR}/${ZITI_IDENTITY_BASENAME}.runtime.hosts"
+resolv_file="${ZITI_RESOLV_CONF:-/etc/resolv.conf}"
+hosts_file="${ZITI_HOSTS_FILE:-/etc/hosts}"
+if [[ ! -s "${identity_file}" ]]; then
+  echo "expected identity file ${identity_file}" >&2
+  exit 1
+fi
+if jq -e 'has("ztAPIs")' "${identity_file}" >/dev/null; then
+  echo "expected single-controller identity without ztAPIs" >&2
+  exit 1
+fi
+printf 'ziti_sidecar_identity_ztAPI=%s\n' "$(jq -r '.ztAPI // empty' "${identity_file}")"
+cat > "${resolv_file}" <<EOF
+nameserver ${workload_dns_upstream}
+search svc.cluster.local cluster.local
+options ndots:5
+EOF
+if [[ "$(awk 'BEGIN { first = "" } /^nameserver[[:space:]]+/ { first = $2; exit } END { print first }' "${resolv_file}")" != "${workload_dns_upstream}" ]]; then
+  echo "expected workload DNS first in ${resolv_file}" >&2
+  exit 1
+fi
+if [[ ! -s "${runtime_hosts_file}" ]]; then
+  echo "expected runtime controller host alias file ${runtime_hosts_file}" >&2
+  exit 1
+fi
+runtime_controller_host="$(awk 'NF >= 2 { print $2; exit }' "${runtime_hosts_file}")"
+if [[ -z "${runtime_controller_host}" ]]; then
+  echo "expected runtime controller host in ${runtime_hosts_file}" >&2
+  exit 1
+fi
+awk -v host="${runtime_controller_host}" '{ keep = 1; for (i = 2; i <= NF; i++) if ($i == host) keep = 0; if (keep) print }' "${hosts_file}" > "${hosts_file}.tmp"
+cat "${runtime_hosts_file}" "${hosts_file}.tmp" > "${hosts_file}"
+rm -f "${hosts_file}.tmp"
+printf 'ziti_sidecar_runtime_host_alias=%s\n' "$(cat "${runtime_hosts_file}")"
+ziti_diverter="/tmp/ziti-output-diverter"
+cat > "${ziti_diverter}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-V" ]]; then
+  echo "ziti-output-diverter 1"
+  exit 0
+fi
+if [[ $# -lt 2 ]]; then
+  echo "expected diverter operation and arguments" >&2
+  exit 1
+fi
+operation="$1"
+shift
+if [[ "${operation}" != "-I" && "${operation}" != "-D" ]]; then
+  echo "unsupported diverter operation ${operation}" >&2
+  exit 1
+fi
+cidr=""
+mask=""
+protocol="tcp"
+low_port=""
+high_port=""
+target_port=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -c) shift; cidr="$1" ;;
+    -m) shift; mask="$1" ;;
+    -p) shift; protocol="$1" ;;
+    -o) shift ;;
+    -n) shift ;;
+    -N) shift ;;
+    -l) shift; low_port="$1" ;;
+    -h) shift; high_port="$1" ;;
+    -t) shift; target_port="$1" ;;
+    -s) shift ;;
+    *) echo "unsupported diverter argument $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+if [[ -z "${cidr}" || -z "${mask}" || -z "${low_port}" || -z "${high_port}" ]]; then
+  echo "missing diverter address or port arguments" >&2
+  exit 1
+fi
+rule_key="${protocol}-${cidr//[^[:alnum:]._-]/_}-${mask}-${low_port}-${high_port}"
+rule_file="/tmp/ziti-output-diverter-${rule_key}.port"
+if [[ "${operation}" == "-I" ]]; then
+  if [[ -z "${target_port}" ]]; then
+    echo "missing diverter target port" >&2
+    exit 1
+  fi
+  iptables -t nat -C OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j REDIRECT --to-ports "${target_port}" 2>/dev/null || \
+    iptables -t nat -I OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j REDIRECT --to-ports "${target_port}"
+  printf '%s\n' "${target_port}" > "${rule_file}"
+  iptables -t nat -S OUTPUT | grep -- "${cidr}/${mask}" || true
+else
+  if [[ -s "${rule_file}" ]]; then
+    while read -r saved_target_port; do
+      if [[ -n "${saved_target_port}" ]]; then
+        while iptables -t nat -D OUTPUT -p "${protocol}" -d "${cidr}/${mask}" --dport "${low_port}:${high_port}" -j REDIRECT --to-ports "${saved_target_port}" 2>/dev/null; do :; done
+      fi
+    done < "${rule_file}"
+    rm -f "${rule_file}"
+  fi
+fi
+EOF
+chmod +x "${ziti_diverter}"
+export GODEBUG="netdns=go+1"
+exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --diverter "${ziti_diverter}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
 	zitiDNSSearchService           = "svc.cluster.local"
 	zitiDNSSearchCluster           = "cluster.local"
 	zitiGatewayWaitContainerName   = "ziti-gateway-wait"
-	zitiGatewayWaitImage           = "busybox:1.37.0"
-	zitiGatewayWaitTimeoutSeconds  = 60
+	zitiGatewayWaitTimeoutSeconds  = 180
+	zitiServiceWaitContainerName   = "ziti-service-wait"
+	zitiServiceWaitTimeoutSeconds  = 60
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -211,23 +439,27 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	applyEgressCA(initContainer, a.egressCACert)
 	initContainers := []*runnerv1.ContainerSpec{initContainer}
 	if a.cfg.ZitiEnabled {
-		gatewayHostname, err := gatewayHost(a.cfg.AgentGatewayAddress)
+		if _, err := gatewayHost(a.cfg.AgentGatewayAddress); err != nil {
+			return nil, err
+		}
+		llmProxyTarget, err := zitiServiceWaitTarget(a.cfg.AgentLLMBaseURL)
 		if err != nil {
 			return nil, err
 		}
 		zitiEnroll := &runnerv1.ContainerSpec{
 			Image:      a.cfg.ZitiSidecarImage,
 			Name:       ZitiEnrollContainerName,
-			Cmd:        buildZitiEnrollCommand(a.cfg.WorkloadDNSUpstream),
+			Cmd:        buildZitiEnrollCommand(a.cfg.ZitiEnrollmentDNSUpstream, a.cfg.ZitiEnrollmentControllerResolveHost, a.cfg.ZitiEnrollmentControllerPort, a.cfg.ZitiRuntimeControllerResolveHost, a.cfg.ZitiRuntimeControllerPort),
 			Entrypoint: zitiEnrollEntrypoint,
-			Env:        zitiEnvVars(),
+			Env:        zitiEnrollEnvVars(a.cfg.ZitiEnrollmentControllerResolveHost, a.cfg.ZitiEnrollmentControllerPort),
 			Mounts:     []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 		}
 		zitiSidecar := &runnerv1.ContainerSpec{
 			Image:                a.cfg.ZitiSidecarImage,
 			Name:                 ZitiSidecarContainerName,
 			Cmd:                  buildZitiSidecarCommand(a.cfg.WorkloadDNSUpstream),
-			Env:                  zitiEnvVars(),
+			Entrypoint:           zitiSidecarEntrypoint,
+			Env:                  zitiSidecarEnvVars(a.cfg.WorkloadDNSUpstream),
 			Mounts:               []*runnerv1.VolumeMount{{Volume: zitiIdentityVolumeName, MountPath: zitiIdentityMountPath}},
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
 			// k8s-runner maps restart_policy=Always on init containers to
@@ -236,14 +468,22 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		}
 		zitiGatewayWait := &runnerv1.ContainerSpec{
-			Image: zitiGatewayWaitImage,
-			Name:  zitiGatewayWaitContainerName,
-			Cmd:   buildZitiGatewayWaitCommand(gatewayHostname),
+			Image:      a.cfg.ZitiSidecarImage,
+			Name:       zitiGatewayWaitContainerName,
+			Entrypoint: zitiSidecarEntrypoint,
+			Cmd:        buildZitiGatewayWaitCommand(a.cfg.AgentGatewayAddress, a.cfg.WorkloadDNSUpstream),
+		}
+		zitiServiceWait := &runnerv1.ContainerSpec{
+			Image:      a.cfg.ZitiSidecarImage,
+			Name:       zitiServiceWaitContainerName,
+			Entrypoint: zitiSidecarEntrypoint,
+			Cmd:        buildZitiServiceWaitCommand(llmProxyTarget, a.cfg.WorkloadDNSUpstream),
 		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
 		applyEgressCA(zitiGatewayWait, a.egressCACert)
-		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, initContainer}
+		applyEgressCA(zitiServiceWait, a.egressCACert)
+		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, zitiServiceWait, initContainer}
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -332,7 +572,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		InitContainers:       initContainers,
 		ImagePullCredentials: imagePullCredentials,
 		Capabilities:         append([]string(nil), agent.GetCapabilities()...),
-		InlineFiles:          egressCAInlineFiles(a.egressCACert),
+		InlineFiles:          a.inlineFiles(),
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:   agentID.String(),
@@ -341,7 +581,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	}
 	if a.cfg.ZitiEnabled {
 		request.DnsConfig = &runnerv1.DnsConfig{
-			Nameservers: []string{zitiDNSNameserver},
+			Nameservers: []string{zitiDNSNameserver, a.cfg.WorkloadDNSUpstream},
 			Searches:    []string{zitiDNSSearchService, zitiDNSSearchCluster},
 		}
 	}
@@ -366,21 +606,44 @@ func zitiEnvVars() []*runnerv1.EnvVar {
 	}
 }
 
-func buildZitiEnrollCommand(workloadDNSUpstream string) []string {
+func zitiEnrollEnvVars(enrollmentControllerResolveHost string, enrollmentControllerPort string) []*runnerv1.EnvVar {
+	envVars := zitiEnvVars()
+	envVars = append(envVars,
+		&runnerv1.EnvVar{Name: ZitiEnrollmentControllerResolveHostEnvVar, Value: enrollmentControllerResolveHost},
+		&runnerv1.EnvVar{Name: ZitiEnrollmentControllerPortEnvVar, Value: enrollmentControllerPort},
+	)
+	return envVars
+}
+
+func zitiSidecarEnvVars(workloadDNSUpstream string) []*runnerv1.EnvVar {
+	envVars := zitiEnvVars()
+	envVars = append(envVars,
+		&runnerv1.EnvVar{Name: "WORKLOAD_DNS_UPSTREAM", Value: workloadDNSUpstream},
+		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_SERVICE_POLL_RATE", Value: zitiSidecarServicePollRate},
+	)
+	return envVars
+}
+
+func buildZitiEnrollCommand(workloadDNSUpstream string, enrollmentControllerResolveHost string, enrollmentControllerPort string, runtimeControllerResolveHost string, runtimeControllerPort string) []string {
 	return []string{
 		"-ec",
 		zitiEnrollScript,
 		ZitiEnrollContainerName,
 		workloadDNSUpstream,
 		zitiDNSNameserver,
+		enrollmentControllerResolveHost,
+		enrollmentControllerPort,
+		runtimeControllerResolveHost,
+		runtimeControllerPort,
 	}
 }
 
 func buildZitiSidecarCommand(workloadDNSUpstream string) []string {
 	return []string{
-		zitiSidecarCommand,
-		"--dnsUpstream",
-		fmt.Sprintf("udp://%s:53", workloadDNSUpstream),
+		"-ec",
+		zitiSidecarScript,
+		ZitiSidecarContainerName,
+		workloadDNSUpstream,
 	}
 }
 
@@ -626,6 +889,7 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 	}, envVars, fmt.Sprintf("mcp %s", mcpID.String()))
+	envVars = applyMcpResolverEnvVars(envVars)
 	envVars = appendEgressCAEnvVars(envVars)
 	return &runnerv1.ContainerSpec{
 		Image:            mcp.GetImage(),
@@ -660,6 +924,41 @@ func (a *Assembler) buildHookSidecar(ctx context.Context, resolver *envResolver,
 	}, nil
 }
 
+func applyMcpResolverEnvVars(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
+	envs = appendDefaultEnvVar(envs, "RES_OPTIONS", mcpResolverOptions)
+	return appendComposedEnvVar(envs, "NODE_OPTIONS", mcpNodeOptions)
+}
+
+func appendDefaultEnvVar(envs []*runnerv1.EnvVar, name, value string) []*runnerv1.EnvVar {
+	for _, env := range envs {
+		if env.GetName() == name {
+			return envs
+		}
+	}
+	return append(envs, &runnerv1.EnvVar{Name: name, Value: value})
+}
+
+func appendComposedEnvVar(envs []*runnerv1.EnvVar, name, value string) []*runnerv1.EnvVar {
+	for _, env := range envs {
+		if env.GetName() != name {
+			continue
+		}
+		fields := strings.Fields(env.GetValue())
+		for _, field := range fields {
+			if field == value {
+				return envs
+			}
+		}
+		if env.GetValue() == "" {
+			env.Value = value
+			return envs
+		}
+		env.Value = env.GetValue() + " " + value
+		return envs
+	}
+	return append(envs, &runnerv1.EnvVar{Name: name, Value: value})
+}
+
 func buildGatewayURL(address string) string {
 	if strings.Contains(address, "://") {
 		return address
@@ -678,15 +977,74 @@ func gatewayHost(address string) (string, error) {
 	return host, nil
 }
 
-func buildZitiGatewayWaitCommand(host string) []string {
-	script := fmt.Sprintf(
-		"i=0; while [ $i -lt %d ]; do nslookup %s %s >/dev/null 2>&1 && exit 0; i=$((i+1)); sleep 1; done; echo \"timeout waiting for %s\" >&2; exit 1",
-		zitiGatewayWaitTimeoutSeconds,
-		host,
+func buildZitiGatewayWaitCommand(address, workloadDNSUpstream string) []string {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		panic(fmt.Sprintf("parse gateway address %q: %v", address, err))
+	}
+	return buildZitiTCPWaitCommand(zitiGatewayWaitTimeoutSeconds, host, port, workloadDNSUpstream)
+}
+
+type zitiServiceTarget struct {
+	host string
+	port string
+}
+
+func zitiServiceWaitTarget(rawURL string) (zitiServiceTarget, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return zitiServiceTarget{}, fmt.Errorf("parse ziti service wait target from %q: %w", rawURL, err)
+	}
+	if parsed.Scheme == "" {
+		return zitiServiceTarget{}, fmt.Errorf("ziti service wait target %q missing scheme", rawURL)
+	}
+	if parsed.Host == "" {
+		return zitiServiceTarget{}, fmt.Errorf("ziti service wait target %q missing host", rawURL)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return zitiServiceTarget{}, fmt.Errorf("ziti service wait target %q missing host", rawURL)
+	}
+	port := parsed.Port()
+	if port == "" {
+		switch parsed.Scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		default:
+			return zitiServiceTarget{}, fmt.Errorf("ziti service wait target %q has unsupported scheme %q", rawURL, parsed.Scheme)
+		}
+	}
+	return zitiServiceTarget{host: host, port: port}, nil
+}
+
+func buildZitiServiceWaitCommand(target zitiServiceTarget, workloadDNSUpstream string) []string {
+	return buildZitiTCPWaitCommand(zitiServiceWaitTimeoutSeconds, target.host, target.port, workloadDNSUpstream)
+}
+
+func buildZitiTCPWaitCommand(timeoutSeconds int, host, port, workloadDNSUpstream string) []string {
+	resolverConfig := fmt.Sprintf(
+		"nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1\n",
 		zitiDNSNameserver,
-		host,
+		workloadDNSUpstream,
 	)
-	return []string{"/bin/sh", "-c", script}
+	tcpProbe := strconv.Quote(fmt.Sprintf("cat </dev/null >/dev/tcp/%s/%s", host, port))
+	script := fmt.Sprintf(
+		`i=0; reason="not checked"; while [ $i -lt %d ]; do printf %s > /etc/resolv.conf; if ! getent ahostsv4 %s >/tmp/ziti-wait-dns.out 2>/tmp/ziti-wait-dns.err; then reason="dns lookup failed for %s through pod resolver: $(cat /tmp/ziti-wait-dns.err)"; elif timeout 5 bash -c %s >/tmp/ziti-wait-tcp.out 2>/tmp/ziti-wait-tcp.err; then exit 0; else reason="tcp connect failed for %s:%s: $(cat /tmp/ziti-wait-tcp.err)"; fi; if [ $((i %% 15)) -eq 0 ]; then echo "waiting for %s:%s attempt=${i} reason=${reason}; resolv.conf=$(tr "\n" ";" </etc/resolv.conf); dns=$(cat /tmp/ziti-wait-dns.out 2>/dev/null)" >&2; fi; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s (${reason}); resolv.conf=$(tr "\n" ";" </etc/resolv.conf); dns=$(cat /tmp/ziti-wait-dns.out 2>/dev/null)" >&2; exit 1`,
+		timeoutSeconds,
+		strconv.Quote(resolverConfig),
+		host,
+		host,
+		tcpProbe,
+		host,
+		port,
+		host,
+		port,
+		host,
+		port,
+	)
+	return []string{"-c", script}
 }
 
 func mergeEnvVars(platformEnv, userEnv []*runnerv1.EnvVar, owner string) []*runnerv1.EnvVar {

@@ -31,9 +31,29 @@ func TestClassifyStartingContainersInitImagePullFailure(t *testing.T) {
 	}
 }
 
+func TestClassifyStartingContainersInitImagePullWithinGrace(t *testing.T) {
+	now := time.Now().UTC()
+	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now)}}
+	containers := []*runnersv1.Container{
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_INIT, runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING, "ImagePullBackOff", "", 0, nil),
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
+	}
+
+	ready, failure, err := classifyStartingContainers(containers, workload, now)
+	if err != nil {
+		t.Fatalf("classify starting containers: %v", err)
+	}
+	if ready {
+		t.Fatal("expected workload to be not ready")
+	}
+	if failure != nil {
+		t.Fatalf("unexpected failure: %+v", failure)
+	}
+}
+
 func TestClassifyStartingContainersInitConfigInvalid(t *testing.T) {
 	now := time.Now().UTC()
-	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now.Add(-startGracePeriod - time.Second))}}
+	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now)}}
 	containers := []*runnersv1.Container{
 		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_INIT, runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING, "CreateContainerConfigError", "bad init", 0, nil),
 		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
@@ -53,6 +73,33 @@ func TestClassifyStartingContainersInitConfigInvalid(t *testing.T) {
 		t.Fatalf("unexpected failure reason: %v", failure.reason)
 	}
 	if failure.message != "bad init" {
+		t.Fatalf("unexpected failure message: %s", failure.message)
+	}
+}
+
+func TestClassifyStartingContainersTerminatedInitConfigInvalid(t *testing.T) {
+	now := time.Now().UTC()
+	exitCode := int32(1)
+	workload := &runnersv1.Workload{Meta: &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now)}}
+	containers := []*runnersv1.Container{
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_INIT, runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED, "InvalidImageName", "invalid image reference", 0, &exitCode),
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
+	}
+
+	ready, failure, err := classifyStartingContainers(containers, workload, now)
+	if err != nil {
+		t.Fatalf("classify starting containers: %v", err)
+	}
+	if ready {
+		t.Fatal("expected workload to be not ready")
+	}
+	if failure == nil {
+		t.Fatal("expected failure")
+	}
+	if failure.reason != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID {
+		t.Fatalf("unexpected failure reason: %v", failure.reason)
+	}
+	if failure.message != "invalid image reference" {
 		t.Fatalf("unexpected failure message: %s", failure.message)
 	}
 }

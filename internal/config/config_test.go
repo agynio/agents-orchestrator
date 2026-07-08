@@ -1,9 +1,13 @@
 package config
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+const defaultZitiSidecarImage = "openziti/ziti-tunnel:1.6.15"
 
 func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	setBaseEnv(t)
@@ -25,8 +29,8 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.AgentLLMBaseURL != "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1" {
 		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1", cfg.AgentLLMBaseURL)
 	}
-	if cfg.ZitiSidecarImage != "openziti/ziti-tunnel:2.0.0-pre8" {
-		t.Fatalf("expected ziti sidecar image %q, got %q", "openziti/ziti-tunnel:2.0.0-pre8", cfg.ZitiSidecarImage)
+	if cfg.ZitiSidecarImage != defaultZitiSidecarImage {
+		t.Fatalf("expected ziti sidecar image %q, got %q", defaultZitiSidecarImage, cfg.ZitiSidecarImage)
 	}
 	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
 		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)
@@ -51,6 +55,78 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	}
 	if cfg.WorkloadReconcileInterval != time.Minute {
 		t.Fatalf("expected workload reconcile interval %q, got %q", time.Minute, cfg.WorkloadReconcileInterval)
+	}
+}
+
+func TestZitiSidecarImageUsesOfficialImage(t *testing.T) {
+	configSource, err := os.ReadFile("config.go")
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	chartValues, err := os.ReadFile("../../charts/agents-orchestrator/values.yaml")
+	if err != nil {
+		t.Fatalf("read chart values: %v", err)
+	}
+	devspaceConfig, err := os.ReadFile("../../devspace.yaml")
+	if err != nil {
+		t.Fatalf("read devspace config: %v", err)
+	}
+	for name, content := range map[string]string{
+		"config.go":     string(configSource),
+		"values.yaml":   string(chartValues),
+		"devspace.yaml": string(devspaceConfig),
+	} {
+		if !strings.Contains(content, defaultZitiSidecarImage) {
+			t.Fatalf("expected %s to use official ziti sidecar image %q", name, defaultZitiSidecarImage)
+		}
+	}
+}
+
+func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
+	e2e, err := os.ReadFile("../../.github/workflows/e2e.yml")
+	if err != nil {
+		t.Fatalf("read E2E workflow: %v", err)
+	}
+	e2eWorkflow := string(e2e)
+	for _, expected := range []string{
+		"BOOTSTRAP_REF: main",
+		"K8S_RUNNER_REF: main",
+		"github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF",
+		"github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF",
+		"name: Patch workload Ziti DNS runtime target",
+		"current_router_target=",
+		"kubectl get configmap ziti-workload-dns",
+		"ziti.agyn.dev workload DNS from ",
+		"to ziti-controller-client",
+		"ziti-router.agyn.dev from ",
+		"to ziti-router-edge",
+		"dnsPolicy: None",
+		"timeout 10 nc -vz -w 5 ziti-router.agyn.dev 2496",
+		"name: Verify stock sidecar runtime DNS path",
+		"image: openziti/ziti-tunnel:1.6.15",
+		"bash -c '</dev/tcp/ziti.agyn.dev/2496'",
+		"name: Verify gateway Ziti service binding",
+		"gateway listening on ziti service gateway",
+		"name: Verify llm-proxy Ziti service binding",
+		"llm-proxy listening on ziti service llm-proxy",
+	} {
+		if !strings.Contains(e2eWorkflow, expected) {
+			t.Fatalf("expected E2E workflow to contain %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"BOOTSTRAP_REF: noa/issue-577",
+		"K8S_RUNNER_REF: noa/issue-73",
+		"name: Build Ziti sidecar image",
+		"build/ziti-tunnel-x509/Dockerfile",
+		"k3d image import",
+		"kubectl patch application gateway",
+		"kubectl set env",
+		"kubectl patch application llm-proxy",
+	} {
+		if strings.Contains(e2eWorkflow, forbidden) {
+			t.Fatalf("expected E2E workflow not to contain %q", forbidden)
+		}
 	}
 }
 
@@ -80,29 +156,57 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.WorkloadDNSUpstream != "10.43.0.10" {
 		t.Fatalf("expected workload DNS upstream %q, got %q", "10.43.0.10", cfg.WorkloadDNSUpstream)
 	}
+	if cfg.ZitiEnrollmentDNSUpstream != "10.43.0.10" {
+		t.Fatalf("expected ziti enrollment DNS upstream %q, got %q", "10.43.0.10", cfg.ZitiEnrollmentDNSUpstream)
+	}
+	if cfg.ZitiEnrollmentControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected ziti enrollment controller resolve host %q, got %q", "ziti-controller-client.ziti.svc.cluster.local", cfg.ZitiEnrollmentControllerResolveHost)
+	}
+	if cfg.ZitiEnrollmentControllerPort != "2496" {
+		t.Fatalf("expected ziti enrollment controller port %q, got %q", "2496", cfg.ZitiEnrollmentControllerPort)
+	}
+	if cfg.ZitiRuntimeControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected ziti runtime controller resolve host %q, got %q", "ziti-controller-client.ziti.svc.cluster.local", cfg.ZitiRuntimeControllerResolveHost)
+	}
+	if cfg.ZitiRuntimeControllerPort != "2496" {
+		t.Fatalf("expected ziti runtime controller port %q, got %q", "2496", cfg.ZitiRuntimeControllerPort)
+	}
 }
 
 func TestFromEnvWorkloadDNSUpstream(t *testing.T) {
 	tests := []struct {
-		name        string
-		workloadDNS string
-		clusterDNS  string
-		expected    string
+		name           string
+		workloadDNS    string
+		clusterDNS     string
+		enrollmentDNS  string
+		expected       string
+		expectedEnroll string
 	}{
 		{
-			name:     "default",
-			expected: "10.43.0.10",
+			name:           "default",
+			expected:       "10.43.0.10",
+			expectedEnroll: "10.43.0.10",
 		},
 		{
-			name:       "deprecated cluster dns fallback",
-			clusterDNS: "10.43.0.20",
-			expected:   "10.43.0.20",
+			name:           "deprecated cluster dns fallback",
+			clusterDNS:     "10.43.0.20",
+			expected:       "10.43.0.20",
+			expectedEnroll: "10.43.0.20",
 		},
 		{
-			name:        "workload dns upstream takes precedence",
-			workloadDNS: "10.43.0.30",
-			clusterDNS:  "10.43.0.20",
-			expected:    "10.43.0.30",
+			name:           "workload dns upstream takes precedence",
+			workloadDNS:    "10.43.0.30",
+			clusterDNS:     "10.43.0.20",
+			expected:       "10.43.0.30",
+			expectedEnroll: "10.43.0.20",
+		},
+		{
+			name:           "enrollment dns upstream takes precedence",
+			workloadDNS:    "10.43.0.30",
+			clusterDNS:     "10.43.0.20",
+			enrollmentDNS:  "10.43.0.40",
+			expected:       "10.43.0.30",
+			expectedEnroll: "10.43.0.40",
 		},
 	}
 
@@ -111,6 +215,7 @@ func TestFromEnvWorkloadDNSUpstream(t *testing.T) {
 			setBaseEnv(t)
 			t.Setenv("WORKLOAD_DNS_UPSTREAM", tt.workloadDNS)
 			t.Setenv("CLUSTER_DNS", tt.clusterDNS)
+			t.Setenv("ZITI_ENROLLMENT_DNS_UPSTREAM", tt.enrollmentDNS)
 
 			cfg, err := FromEnv()
 			if err != nil {
@@ -118,6 +223,9 @@ func TestFromEnvWorkloadDNSUpstream(t *testing.T) {
 			}
 			if cfg.WorkloadDNSUpstream != tt.expected {
 				t.Fatalf("expected workload DNS upstream %q, got %q", tt.expected, cfg.WorkloadDNSUpstream)
+			}
+			if cfg.ZitiEnrollmentDNSUpstream != tt.expectedEnroll {
+				t.Fatalf("expected ziti enrollment DNS upstream %q, got %q", tt.expectedEnroll, cfg.ZitiEnrollmentDNSUpstream)
 			}
 		})
 	}
@@ -133,6 +241,30 @@ func TestFromEnvAgentTracingAddress(t *testing.T) {
 	}
 	if cfg.AgentTracingAddress != "tracing:50051" {
 		t.Fatalf("expected tracing address %q, got %q", "tracing:50051", cfg.AgentTracingAddress)
+	}
+}
+
+func TestChartLeavesWorkloadAddressesToConfigDefaults(t *testing.T) {
+	values, err := os.ReadFile("../../charts/agents-orchestrator/values.yaml")
+	if err != nil {
+		t.Fatalf("read chart values: %v", err)
+	}
+	chartValues := string(values)
+	for _, forbidden := range []string{
+		"name: AGENT_GATEWAY_ADDRESS\n    value: \"gateway:8080\"",
+		"name: AGENT_TRACING_ADDRESS\n    value: \"tracing:50051\"",
+	} {
+		if strings.Contains(chartValues, forbidden) {
+			t.Fatalf("expected chart not to pin non-Ziti workload address %q", forbidden)
+		}
+	}
+	for _, expected := range []string{
+		"name: AGENT_GATEWAY_ADDRESS\n    value: \"\"",
+		"name: AGENT_TRACING_ADDRESS\n    value: \"\"",
+	} {
+		if !strings.Contains(chartValues, expected) {
+			t.Fatalf("expected chart to leave workload address empty for config defaults: %q", expected)
+		}
 	}
 }
 
@@ -156,6 +288,11 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("ZITI_SIDECAR_IMAGE", "")
 	t.Setenv("WORKLOAD_DNS_UPSTREAM", "")
 	t.Setenv("CLUSTER_DNS", "")
+	t.Setenv("ZITI_ENROLLMENT_DNS_UPSTREAM", "")
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST", "")
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_PORT", "")
+	t.Setenv("ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST", "")
+	t.Setenv("ZITI_RUNTIME_CONTROLLER_PORT", "")
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_TRACING_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
@@ -196,5 +333,75 @@ func TestFromEnvGroupSyncEnabledInvalid(t *testing.T) {
 	_, err := FromEnv()
 	if err == nil {
 		t.Fatal("expected GROUP_SYNC_ENABLED parse error")
+	}
+}
+
+func TestFromEnvZitiRuntimeController(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST", "ziti-controller-client.ziti.svc.cluster.local")
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_PORT", "2496")
+	t.Setenv("ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST", "istio-ingressgateway.istio-gateway.svc.cluster.local")
+	t.Setenv("ZITI_RUNTIME_CONTROLLER_PORT", "443")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.ZitiRuntimeControllerResolveHost != "istio-ingressgateway.istio-gateway.svc.cluster.local" {
+		t.Fatalf("expected runtime controller resolve host, got %q", cfg.ZitiRuntimeControllerResolveHost)
+	}
+	if cfg.ZitiRuntimeControllerPort != "443" {
+		t.Fatalf("expected runtime controller port %q, got %q", "443", cfg.ZitiRuntimeControllerPort)
+	}
+	if cfg.ZitiEnrollmentControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected enrollment controller resolve host, got %q", cfg.ZitiEnrollmentControllerResolveHost)
+	}
+	if cfg.ZitiEnrollmentControllerPort != "2496" {
+		t.Fatalf("expected enrollment controller port %q, got %q", "2496", cfg.ZitiEnrollmentControllerPort)
+	}
+}
+
+func TestFromEnvZitiControllerDefaults(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST", "")
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_PORT", "")
+	t.Setenv("ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST", "")
+	t.Setenv("ZITI_RUNTIME_CONTROLLER_PORT", "")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.ZitiEnrollmentControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected default enrollment controller resolve host, got %q", cfg.ZitiEnrollmentControllerResolveHost)
+	}
+	if cfg.ZitiEnrollmentControllerPort != "2496" {
+		t.Fatalf("expected default enrollment controller port, got %q", cfg.ZitiEnrollmentControllerPort)
+	}
+	if cfg.ZitiRuntimeControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
+		t.Fatalf("expected default runtime controller resolve host, got %q", cfg.ZitiRuntimeControllerResolveHost)
+	}
+	if cfg.ZitiRuntimeControllerPort != "2496" {
+		t.Fatalf("expected default runtime controller port, got %q", cfg.ZitiRuntimeControllerPort)
+	}
+}
+
+func TestFromEnvZitiEnrollmentControllerPortInvalid(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("ZITI_ENROLLMENT_CONTROLLER_PORT", "not-a-port")
+
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatal("expected ZITI_ENROLLMENT_CONTROLLER_PORT parse error")
+	}
+}
+
+func TestFromEnvZitiRuntimeControllerPortInvalid(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("ZITI_RUNTIME_CONTROLLER_PORT", "not-a-port")
+
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatal("expected ZITI_RUNTIME_CONTROLLER_PORT parse error")
 	}
 }

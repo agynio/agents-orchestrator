@@ -8,33 +8,38 @@ import (
 )
 
 type Config struct {
-	ThreadsAddress            string
-	NotificationsAddress      string
-	AgentsAddress             string
-	SecretsAddress            string
-	RunnerAddress             string
-	RunnersAddress            string
-	MeteringServiceAddress    string
-	MeteringSampleInterval    time.Duration
-	ZitiEnabled               bool
-	ZitiManagementAddress     string
-	GroupsAddress             string
-	GroupSyncEnabled          bool
-	NATSURL                   string
-	ZitiLeaseRenewalInterval  time.Duration
-	ZitiEnrollmentTimeout     time.Duration
-	ZitiSidecarImage          string
-	WorkloadDNSUpstream       string
-	AgentGatewayAddress       string
-	AgentTracingAddress       string
-	AgentLLMBaseURL           string
-	PollInterval              time.Duration
-	WorkloadReconcileInterval time.Duration
-	IdleTimeout               time.Duration
-	StopTimeoutSec            uint32
-	LeaseName                 string
-	LeaseNamespace            string
-	EgressCANamespace         string
+	ThreadsAddress                      string
+	NotificationsAddress                string
+	AgentsAddress                       string
+	SecretsAddress                      string
+	RunnerAddress                       string
+	RunnersAddress                      string
+	MeteringServiceAddress              string
+	MeteringSampleInterval              time.Duration
+	ZitiEnabled                         bool
+	ZitiManagementAddress               string
+	GroupsAddress                       string
+	GroupSyncEnabled                    bool
+	NATSURL                             string
+	ZitiLeaseRenewalInterval            time.Duration
+	ZitiEnrollmentTimeout               time.Duration
+	ZitiSidecarImage                    string
+	WorkloadDNSUpstream                 string
+	ZitiEnrollmentDNSUpstream           string
+	ZitiEnrollmentControllerResolveHost string
+	ZitiEnrollmentControllerPort        string
+	ZitiRuntimeControllerResolveHost    string
+	ZitiRuntimeControllerPort           string
+	AgentGatewayAddress                 string
+	AgentTracingAddress                 string
+	AgentLLMBaseURL                     string
+	PollInterval                        time.Duration
+	WorkloadReconcileInterval           time.Duration
+	IdleTimeout                         time.Duration
+	StopTimeoutSec                      uint32
+	LeaseName                           string
+	LeaseNamespace                      string
+	EgressCANamespace                   string
 }
 
 func FromEnv() (Config, error) {
@@ -157,14 +162,56 @@ func FromEnv() (Config, error) {
 	}
 	cfg.ZitiSidecarImage = os.Getenv("ZITI_SIDECAR_IMAGE")
 	if cfg.ZitiSidecarImage == "" {
-		cfg.ZitiSidecarImage = "openziti/ziti-tunnel:2.0.0-pre8"
+		cfg.ZitiSidecarImage = "openziti/ziti-tunnel:1.6.15"
 	}
+	clusterDNS := os.Getenv("CLUSTER_DNS")
 	cfg.WorkloadDNSUpstream = os.Getenv("WORKLOAD_DNS_UPSTREAM")
 	if cfg.WorkloadDNSUpstream == "" {
-		cfg.WorkloadDNSUpstream = os.Getenv("CLUSTER_DNS")
+		cfg.WorkloadDNSUpstream = clusterDNS
 	}
 	if cfg.WorkloadDNSUpstream == "" {
 		cfg.WorkloadDNSUpstream = "10.43.0.10"
+	}
+	cfg.ZitiEnrollmentDNSUpstream = os.Getenv("ZITI_ENROLLMENT_DNS_UPSTREAM")
+	if cfg.ZitiEnrollmentDNSUpstream == "" {
+		cfg.ZitiEnrollmentDNSUpstream = clusterDNS
+	}
+	if cfg.ZitiEnrollmentDNSUpstream == "" {
+		cfg.ZitiEnrollmentDNSUpstream = "10.43.0.10"
+	}
+	cfg.ZitiEnrollmentControllerResolveHost = os.Getenv("ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST")
+	if cfg.ZitiEnrollmentControllerResolveHost == "" {
+		cfg.ZitiEnrollmentControllerResolveHost = "ziti-controller-client.ziti.svc.cluster.local"
+	}
+	cfg.ZitiEnrollmentControllerPort = os.Getenv("ZITI_ENROLLMENT_CONTROLLER_PORT")
+	if cfg.ZitiEnrollmentControllerPort == "" {
+		cfg.ZitiEnrollmentControllerPort = "2496"
+	}
+	if cfg.ZitiEnrollmentControllerPort != "" {
+		parsed, err := strconv.ParseUint(cfg.ZitiEnrollmentControllerPort, 10, 16)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse ZITI_ENROLLMENT_CONTROLLER_PORT: %w", err)
+		}
+		if parsed == 0 {
+			return Config{}, fmt.Errorf("ZITI_ENROLLMENT_CONTROLLER_PORT must be greater than 0")
+		}
+	}
+	cfg.ZitiRuntimeControllerResolveHost = os.Getenv("ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST")
+	if cfg.ZitiRuntimeControllerResolveHost == "" {
+		cfg.ZitiRuntimeControllerResolveHost = "ziti-controller-client.ziti.svc.cluster.local"
+	}
+	cfg.ZitiRuntimeControllerPort = os.Getenv("ZITI_RUNTIME_CONTROLLER_PORT")
+	if cfg.ZitiRuntimeControllerPort == "" {
+		cfg.ZitiRuntimeControllerPort = "2496"
+	}
+	if cfg.ZitiRuntimeControllerPort != "" {
+		parsed, err := strconv.ParseUint(cfg.ZitiRuntimeControllerPort, 10, 16)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse ZITI_RUNTIME_CONTROLLER_PORT: %w", err)
+		}
+		if parsed == 0 {
+			return Config{}, fmt.Errorf("ZITI_RUNTIME_CONTROLLER_PORT must be greater than 0")
+		}
 	}
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {

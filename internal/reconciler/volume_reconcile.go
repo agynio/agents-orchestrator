@@ -29,6 +29,35 @@ type volumeTTLInfo struct {
 	ttl        *time.Duration
 }
 
+func runnerIdentityForVolumes(runnerID string, runnerOrganizationID string, orgIdentities map[string]string, volumes map[string]*runnersv1.Volume) (string, error) {
+	orgID := strings.TrimSpace(runnerOrganizationID)
+	if orgID != "" {
+		identityID, ok := orgIdentities[orgID]
+		if !ok {
+			return "", fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
+		}
+		return identityID, nil
+	}
+	if len(volumes) == 0 {
+		return "", fmt.Errorf("runner %s organization id missing", runnerID)
+	}
+	var identityID string
+	for volumeID, volume := range volumes {
+		volumeIdentityID := strings.TrimSpace(volume.GetAgentId())
+		if volumeIdentityID == "" {
+			return "", fmt.Errorf("volume %s missing agent id", volumeID)
+		}
+		if identityID == "" {
+			identityID = volumeIdentityID
+			continue
+		}
+		if identityID != volumeIdentityID {
+			return "", fmt.Errorf("runner %s has volumes for multiple identities", runnerID)
+		}
+	}
+	return identityID, nil
+}
+
 func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 	if r.agents == nil {
 		return fmt.Errorf("agents client not configured")
@@ -85,18 +114,18 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			continue
 		}
 		enrolledRunnerIDs[runnerID] = struct{}{}
-		runnerIDs[runnerID] = struct{}{}
 		if _, ok := runnerIdentities[runnerID]; ok {
+			runnerIDs[runnerID] = struct{}{}
 			continue
 		}
-		orgID := strings.TrimSpace(runner.GetOrganizationId())
-		if orgID == "" {
-			return fmt.Errorf("runner %s organization id missing", runnerID)
+		if runner.GetOrganizationId() == "" && len(volumesByRunner[runnerID]) == 0 {
+			continue
 		}
-		identityID, ok := orgIdentities[orgID]
-		if !ok {
-			return fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
+		identityID, err := runnerIdentityForVolumes(runnerID, runner.GetOrganizationId(), orgIdentities, volumesByRunner[runnerID])
+		if err != nil {
+			return err
 		}
+		runnerIDs[runnerID] = struct{}{}
 		runnerIdentities[runnerID] = identityID
 	}
 

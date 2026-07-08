@@ -91,6 +91,12 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if envs[assembler.ZitiIdentityBasenameEnvVar] != assembler.ZitiIdentityBasename {
 				return nil, errors.New("missing ZITI_IDENTITY_BASENAME")
 			}
+			if envs[assembler.ZitiEnrollmentControllerResolveHostEnvVar] != "ziti-controller-client.ziti.svc.cluster.local" {
+				return nil, errors.New("missing ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST")
+			}
+			if envs[assembler.ZitiEnrollmentControllerPortEnvVar] != "2496" {
+				return nil, errors.New("missing ZITI_ENROLLMENT_CONTROLLER_PORT")
+			}
 			zitiSidecar := testutil.FindInitContainer(req.GetInitContainers(), assembler.ZitiSidecarContainerName)
 			if zitiSidecar == nil {
 				return nil, errors.New("missing ziti sidecar container")
@@ -1587,11 +1593,16 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 	}
 
 	cfg := &config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-		ZitiEnabled:         zitiEnabled,
-		ZitiSidecarImage:    "ziti-sidecar-image",
-		WorkloadDNSUpstream: "10.43.0.10",
+		AgentGatewayAddress:                 "gateway:50051",
+		AgentLLMBaseURL:                     "http://llm:8080/v1",
+		ZitiEnabled:                         zitiEnabled,
+		ZitiSidecarImage:                    "ziti-sidecar-image",
+		WorkloadDNSUpstream:                 "10.43.0.10",
+		ZitiEnrollmentDNSUpstream:           "10.43.0.10",
+		ZitiEnrollmentControllerResolveHost: "ziti-controller-client.ziti.svc.cluster.local",
+		ZitiEnrollmentControllerPort:        "2496",
+		ZitiRuntimeControllerResolveHost:    "istio-ingressgateway.istio-gateway.svc.cluster.local",
+		ZitiRuntimeControllerPort:           "443",
 	}
 	return assembler.New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
 }
@@ -1885,6 +1896,8 @@ type fakeZitiMgmtClient struct {
 	patchIdentityRoleAttributes func(context.Context, *zitimgmtv1.PatchIdentityRoleAttributesRequest, ...grpc.CallOption) (*zitimgmtv1.PatchIdentityRoleAttributesResponse, error)
 	createAppIdentity           func(context.Context, *zitimgmtv1.CreateAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAppIdentityResponse, error)
 	createService               func(context.Context, *zitimgmtv1.CreateServiceRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServiceResponse, error)
+	getService                  func(context.Context, *zitimgmtv1.GetServiceRequest, ...grpc.CallOption) (*zitimgmtv1.GetServiceResponse, error)
+	listServices                func(context.Context, *zitimgmtv1.ListServicesRequest, ...grpc.CallOption) (*zitimgmtv1.ListServicesResponse, error)
 	createRunnerIdentity        func(context.Context, *zitimgmtv1.CreateRunnerIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateRunnerIdentityResponse, error)
 	deleteAppIdentity           func(context.Context, *zitimgmtv1.DeleteAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteAppIdentityResponse, error)
 	deleteIdentity              func(context.Context, *zitimgmtv1.DeleteIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error)
@@ -1893,6 +1906,8 @@ type fakeZitiMgmtClient struct {
 	requestServiceIdentity      func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error)
 	extendIdentityLease         func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error)
 	createServicePolicy         func(context.Context, *zitimgmtv1.CreateServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServicePolicyResponse, error)
+	getServicePolicy            func(context.Context, *zitimgmtv1.GetServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.GetServicePolicyResponse, error)
+	listServicePolicies         func(context.Context, *zitimgmtv1.ListServicePoliciesRequest, ...grpc.CallOption) (*zitimgmtv1.ListServicePoliciesResponse, error)
 	deleteServicePolicy         func(context.Context, *zitimgmtv1.DeleteServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServicePolicyResponse, error)
 	deleteService               func(context.Context, *zitimgmtv1.DeleteServiceRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServiceResponse, error)
 	createDeviceIdentity        func(context.Context, *zitimgmtv1.CreateDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateDeviceIdentityResponse, error)
@@ -1930,6 +1945,20 @@ func (f *fakeZitiMgmtClient) CreateAppIdentity(ctx context.Context, req *zitimgm
 func (f *fakeZitiMgmtClient) CreateService(ctx context.Context, req *zitimgmtv1.CreateServiceRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateServiceResponse, error) {
 	if f.createService != nil {
 		return f.createService(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) GetService(ctx context.Context, req *zitimgmtv1.GetServiceRequest, opts ...grpc.CallOption) (*zitimgmtv1.GetServiceResponse, error) {
+	if f.getService != nil {
+		return f.getService(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListServices(ctx context.Context, req *zitimgmtv1.ListServicesRequest, opts ...grpc.CallOption) (*zitimgmtv1.ListServicesResponse, error) {
+	if f.listServices != nil {
+		return f.listServices(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
@@ -1990,6 +2019,20 @@ func (f *fakeZitiMgmtClient) ExtendIdentityLease(ctx context.Context, req *zitim
 func (f *fakeZitiMgmtClient) CreateServicePolicy(ctx context.Context, req *zitimgmtv1.CreateServicePolicyRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateServicePolicyResponse, error) {
 	if f.createServicePolicy != nil {
 		return f.createServicePolicy(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) GetServicePolicy(ctx context.Context, req *zitimgmtv1.GetServicePolicyRequest, opts ...grpc.CallOption) (*zitimgmtv1.GetServicePolicyResponse, error) {
+	if f.getServicePolicy != nil {
+		return f.getServicePolicy(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListServicePolicies(ctx context.Context, req *zitimgmtv1.ListServicePoliciesRequest, opts ...grpc.CallOption) (*zitimgmtv1.ListServicePoliciesResponse, error) {
+	if f.listServicePolicies != nil {
+		return f.listServicePolicies(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }

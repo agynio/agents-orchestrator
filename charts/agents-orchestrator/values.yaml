@@ -86,6 +86,8 @@ env:
     value: "2m"
   - name: ZITI_ENROLLMENT_TIMEOUT
     value: "2m"
+  - name: ZITI_SIDECAR_IMAGE
+    value: "openziti/ziti-tunnel:1.6.15"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: "ziti-management:50051"
   - name: GROUP_SYNC_ENABLED
@@ -94,16 +96,33 @@ env:
     value: "groups:50051"
   - name: NATS_URL
     value: ""
-  # Upstream DNS resolver used for Ziti-enabled workload pods.
+  # Upstream DNS resolver used by the workload Ziti tunnel after enrollment.
   - name: WORKLOAD_DNS_UPSTREAM
     value: ""
+  # Bootstrap resolver used before the workload Ziti tunnel is running.
+  - name: ZITI_ENROLLMENT_DNS_UPSTREAM
+    value: ""
+  # Cluster DNS name that ziti.agyn.dev should resolve to during enrollment.
+  - name: ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST
+    value: "ziti-controller-client.ziti.svc.cluster.local"
+  # Enrollment controller port used before the workload Ziti tunnel is running.
+  - name: ZITI_ENROLLMENT_CONTROLLER_PORT
+    value: "2496"
+  # Cluster DNS name that ziti.agyn.dev should resolve to for sidecar auth.
+  - name: ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST
+    value: "ziti-controller-client.ziti.svc.cluster.local"
+  # Runtime controller port for the enrolled identity.
+  - name: ZITI_RUNTIME_CONTROLLER_PORT
+    value: "2496"
   # Deprecated: use WORKLOAD_DNS_UPSTREAM instead.
   - name: CLUSTER_DNS
     value: ""
+  # Leave workload-facing addresses empty so config.go selects coherent
+  # Ziti service names when ZITI_ENABLED=true and cluster names otherwise.
   - name: AGENT_GATEWAY_ADDRESS
-    value: "gateway:8080"
+    value: ""
   - name: AGENT_TRACING_ADDRESS
-    value: "tracing:50051"
+    value: ""
   - name: POLL_INTERVAL
     value: "5s"
   - name: IDLE_TIMEOUT

@@ -20,6 +20,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func TestConfigureZitiClientContextRequestsIntercepts(t *testing.T) {
+	identityConfig := &ziti.Config{}
+	zitiCtx, err := ziti.NewContext(identityConfig)
+	if err != nil {
+		t.Fatalf("NewContext: %v", err)
+	}
+	defer zitiCtx.Close()
+
+	if err := configureZitiClientContext(zitiCtx); err != nil {
+		t.Fatalf("configureZitiClientContext: %v", err)
+	}
+	ctxImpl := zitiCtx.(*ziti.ContextImpl)
+	assertStringContains(t, ctxImpl.CtrlClt.ConfigTypes, ziti.InterceptV1)
+	assertStringContains(t, ctxImpl.CtrlClt.ConfigTypes, ziti.ClientConfigV1)
+}
+
 func TestNewEnrollsIdentity(t *testing.T) {
 	resetTestHooks(t)
 
@@ -34,9 +50,9 @@ func TestNewEnrollsIdentity(t *testing.T) {
 		gotConfig = cfg
 		return ctx, nil
 	}
-	calledDisable := false
-	disableOIDC = func(ziti.Context) error {
-		calledDisable = true
+	calledConfigure := false
+	configureZitiContext = func(ziti.Context) error {
+		calledConfigure = true
 		return nil
 	}
 
@@ -53,8 +69,8 @@ func TestNewEnrollsIdentity(t *testing.T) {
 	if gotConfig == nil || gotConfig.ZtAPI != "https://example.test" {
 		t.Fatalf("expected identity config to parse ztAPI, got %#v", gotConfig)
 	}
-	if !calledDisable {
-		t.Fatal("expected OIDC to be disabled")
+	if !calledConfigure {
+		t.Fatal("expected Ziti context to be configured")
 	}
 }
 
@@ -85,7 +101,7 @@ func TestRunLeaseRenewalReEnrollsOnNotFound(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, 5*time.Millisecond)
 	if err != nil {
@@ -119,7 +135,7 @@ func TestNotifyAuthFailureReEnrolls(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -157,7 +173,7 @@ func TestNotifyAuthFailureDebounces(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -225,7 +241,7 @@ func TestNotifyAuthFailureKeepsContextOnFailure(t *testing.T) {
 		}
 		return ctx2, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -275,7 +291,7 @@ func TestExtendLeaseWithRetryRetriesOnRetryable(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -307,7 +323,7 @@ func TestExtendLeaseWithRetryStopsOnNonRetryable(t *testing.T) {
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
 		return &fakeZitiContext{}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -344,7 +360,7 @@ func TestDialContextUsesCurrentContext(t *testing.T) {
 			},
 		}, nil
 	}
-	disableOIDC = func(ziti.Context) error { return nil }
+	configureZitiContext = func(ziti.Context) error { return nil }
 
 	manager, err := New(context.Background(), client, time.Second, time.Minute)
 	if err != nil {
@@ -368,6 +384,16 @@ func TestDialContextUsesCurrentContext(t *testing.T) {
 	}
 }
 
+func assertStringContains(t *testing.T, values []string, expected string) {
+	t.Helper()
+	for _, value := range values {
+		if value == expected {
+			return
+		}
+	}
+	t.Fatalf("expected %q in %v", expected, values)
+}
+
 func waitForIdentity(t *testing.T, manager *ZitiManager, expected string) {
 	t.Helper()
 	deadline := time.After(500 * time.Millisecond)
@@ -387,11 +413,11 @@ func waitForIdentity(t *testing.T, manager *ZitiManager, expected string) {
 func resetTestHooks(t *testing.T) {
 	t.Helper()
 	origNew := newZitiContext
-	origDisable := disableOIDC
+	origConfigure := configureZitiContext
 	origLease := leaseRetryBackoff
 	t.Cleanup(func() {
 		newZitiContext = origNew
-		disableOIDC = origDisable
+		configureZitiContext = origConfigure
 		leaseRetryBackoff = origLease
 	})
 }
@@ -407,6 +433,8 @@ type fakeZitiMgmtClient struct {
 	createAgentIdentity    func(context.Context, *zitimgmtv1.CreateAgentIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error)
 	createAppIdentity      func(context.Context, *zitimgmtv1.CreateAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAppIdentityResponse, error)
 	createService          func(context.Context, *zitimgmtv1.CreateServiceRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServiceResponse, error)
+	getService             func(context.Context, *zitimgmtv1.GetServiceRequest, ...grpc.CallOption) (*zitimgmtv1.GetServiceResponse, error)
+	listServices           func(context.Context, *zitimgmtv1.ListServicesRequest, ...grpc.CallOption) (*zitimgmtv1.ListServicesResponse, error)
 	createRunnerIdentity   func(context.Context, *zitimgmtv1.CreateRunnerIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateRunnerIdentityResponse, error)
 	deleteAppIdentity      func(context.Context, *zitimgmtv1.DeleteAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteAppIdentityResponse, error)
 	deleteIdentity         func(context.Context, *zitimgmtv1.DeleteIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error)
@@ -415,6 +443,8 @@ type fakeZitiMgmtClient struct {
 	requestServiceIdentity func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error)
 	extendIdentityLease    func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error)
 	createServicePolicy    func(context.Context, *zitimgmtv1.CreateServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServicePolicyResponse, error)
+	getServicePolicy       func(context.Context, *zitimgmtv1.GetServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.GetServicePolicyResponse, error)
+	listServicePolicies    func(context.Context, *zitimgmtv1.ListServicePoliciesRequest, ...grpc.CallOption) (*zitimgmtv1.ListServicePoliciesResponse, error)
 	deleteServicePolicy    func(context.Context, *zitimgmtv1.DeleteServicePolicyRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServicePolicyResponse, error)
 	deleteService          func(context.Context, *zitimgmtv1.DeleteServiceRequest, ...grpc.CallOption) (*zitimgmtv1.DeleteServiceResponse, error)
 	createDeviceIdentity   func(context.Context, *zitimgmtv1.CreateDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateDeviceIdentityResponse, error)
@@ -438,6 +468,20 @@ func (f *fakeZitiMgmtClient) CreateAppIdentity(ctx context.Context, req *zitimgm
 func (f *fakeZitiMgmtClient) CreateService(ctx context.Context, req *zitimgmtv1.CreateServiceRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateServiceResponse, error) {
 	if f.createService != nil {
 		return f.createService(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) GetService(ctx context.Context, req *zitimgmtv1.GetServiceRequest, opts ...grpc.CallOption) (*zitimgmtv1.GetServiceResponse, error) {
+	if f.getService != nil {
+		return f.getService(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListServices(ctx context.Context, req *zitimgmtv1.ListServicesRequest, opts ...grpc.CallOption) (*zitimgmtv1.ListServicesResponse, error) {
+	if f.listServices != nil {
+		return f.listServices(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }
@@ -498,6 +542,20 @@ func (f *fakeZitiMgmtClient) ExtendIdentityLease(ctx context.Context, req *zitim
 func (f *fakeZitiMgmtClient) CreateServicePolicy(ctx context.Context, req *zitimgmtv1.CreateServicePolicyRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateServicePolicyResponse, error) {
 	if f.createServicePolicy != nil {
 		return f.createServicePolicy(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) GetServicePolicy(ctx context.Context, req *zitimgmtv1.GetServicePolicyRequest, opts ...grpc.CallOption) (*zitimgmtv1.GetServicePolicyResponse, error) {
+	if f.getServicePolicy != nil {
+		return f.getServicePolicy(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) ListServicePolicies(ctx context.Context, req *zitimgmtv1.ListServicePoliciesRequest, opts ...grpc.CallOption) (*zitimgmtv1.ListServicePoliciesResponse, error) {
+	if f.listServicePolicies != nil {
+		return f.listServicePolicies(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }

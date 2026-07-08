@@ -69,6 +69,10 @@ functions:
           volumes:
             - name: data
               emptyDir: {}
+            - name: go-cache
+              emptyDir: {}
+            - name: go-mod-cache
+              emptyDir: {}
           containers:
             - name: agents-orchestrator
               image: ghcr.io/agynio/devcontainer-go:1 # keep in sync with DEV_IMAGE
@@ -80,12 +84,32 @@ functions:
                   value: "10s"
                 - name: EGRESS_CA_NAMESPACE
                   value: "__EGRESS_CA_NAMESPACE__"
+                - name: ZITI_SIDECAR_IMAGE
+                  value: "openziti/ziti-tunnel:1.6.15"
+                - name: ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST
+                  value: "__ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST__"
+                - name: ZITI_ENROLLMENT_CONTROLLER_PORT
+                  value: "__ZITI_ENROLLMENT_CONTROLLER_PORT__"
+                - name: ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST
+                  value: "__ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST__"
+                - name: ZITI_RUNTIME_CONTROLLER_PORT
+                  value: "__ZITI_RUNTIME_CONTROLLER_PORT__"
+                - name: AGENT_GATEWAY_ADDRESS
+                  value: "gateway.ziti:443"
+                - name: AGENT_TRACING_ADDRESS
+                  value: "tracing.ziti:443"
+                - name: AGENT_LLM_BASE_URL
+                  value: "http://llm-proxy.ziti/v1"
+                - name: GOCACHE
+                  value: /tmp/go-build-cache
+                - name: GOMODCACHE
+                  value: /tmp/go-mod-cache
               command:
                 - sh
                 - -c
                 - |
                   set -eu
-                  required_files="go.mod go.sum buf.yaml buf.lock buf.gen.yaml cmd/orchestrator/main.go internal/config/config.go internal/k8sclient/namespace.go internal/assembler/assembler.go internal/reconciler/reconciler.go internal/subscriber/subscriber.go"
+                  required_files="go.mod go.sum buf.yaml buf.lock buf.gen.yaml cmd/orchestrator/main.go internal/config/config.go internal/k8sclient/namespace.go internal/assembler/assembler.go internal/leader/lease.go internal/reconciler/reconciler.go internal/subscriber/subscriber.go"
                   elapsed=0
                   while :; do
                     missing_files=""
@@ -121,10 +145,17 @@ functions:
               volumeMounts:
                 - name: data
                   mountPath: /opt/app/data
+                - name: go-cache
+                  mountPath: /tmp/go-build-cache
+                - name: go-mod-cache
+                  mountPath: /tmp/go-mod-cache
               resources:
                 requests:
                   cpu: 500m
                   memory: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
               securityContext:
                 runAsNonRoot: true
                 runAsUser: 1000
@@ -138,6 +169,10 @@ functions:
     EOF
     )"
     patch="${patch/__EGRESS_CA_NAMESPACE__/${EGRESS_CA_NAMESPACE}}"
+    patch="${patch/__ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST__/${ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST:-ziti-controller-client.ziti.svc.cluster.local}}"
+    patch="${patch/__ZITI_ENROLLMENT_CONTROLLER_PORT__/${ZITI_ENROLLMENT_CONTROLLER_PORT:-2496}}"
+    patch="${patch/__ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST__/${ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST:-ziti-controller-client.ziti.svc.cluster.local}}"
+    patch="${patch/__ZITI_RUNTIME_CONTROLLER_PORT__/${ZITI_RUNTIME_CONTROLLER_PORT:-2496}}"
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "${patch}"
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."
@@ -194,7 +229,9 @@ pipelines:
       disable_argocd_sync
       ensure_egress_ca_rbac
       patch_deployment
-      start_dev --disable-pod-replace agents-orchestrator-deploy
+      if ! start_dev --disable-pod-replace agents-orchestrator-deploy; then
+        echo "DevSpace deploy sync session exited non-zero; verifying orchestrator readiness before failing."
+      fi
       wait_for_orchestrator
       echo "Deploy complete. Orchestrator is running from source."
 

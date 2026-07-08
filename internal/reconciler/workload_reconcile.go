@@ -13,6 +13,35 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+func runnerIdentityForWorkloads(runnerID string, runnerOrganizationID string, orgIdentities map[string]string, workloads map[string]*runnersv1.Workload) (string, error) {
+	orgID := strings.TrimSpace(runnerOrganizationID)
+	if orgID != "" {
+		identityID, ok := orgIdentities[orgID]
+		if !ok {
+			return "", fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
+		}
+		return identityID, nil
+	}
+	if len(workloads) == 0 {
+		return "", fmt.Errorf("runner %s organization id missing", runnerID)
+	}
+	var identityID string
+	for workloadID, workload := range workloads {
+		workloadIdentityID := strings.TrimSpace(workload.GetAgentId())
+		if workloadIdentityID == "" {
+			return "", fmt.Errorf("workload %s missing agent id", workloadID)
+		}
+		if identityID == "" {
+			identityID = workloadIdentityID
+			continue
+		}
+		if identityID != workloadIdentityID {
+			return "", fmt.Errorf("runner %s has workloads for multiple identities", runnerID)
+		}
+	}
+	return identityID, nil
+}
+
 func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 	orgIdentities, err := r.agentIdentityByOrg(ctx)
 	if err != nil {
@@ -66,18 +95,18 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			continue
 		}
 		enrolledRunnerIDs[runnerID] = struct{}{}
-		runnerIDs[runnerID] = struct{}{}
 		if _, ok := runnerIdentities[runnerID]; ok {
+			runnerIDs[runnerID] = struct{}{}
 			continue
 		}
-		orgID := strings.TrimSpace(runner.GetOrganizationId())
-		if orgID == "" {
-			return fmt.Errorf("runner %s organization id missing", runnerID)
+		if runner.GetOrganizationId() == "" && len(workloadsByRunner[runnerID]) == 0 {
+			continue
 		}
-		identityID, ok := orgIdentities[orgID]
-		if !ok {
-			return fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
+		identityID, err := runnerIdentityForWorkloads(runnerID, runner.GetOrganizationId(), orgIdentities, workloadsByRunner[runnerID])
+		if err != nil {
+			return err
 		}
+		runnerIDs[runnerID] = struct{}{}
 		runnerIdentities[runnerID] = identityID
 	}
 
@@ -340,21 +369,18 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 		switch container.GetRole() {
 		case runnersv1.ContainerRole_CONTAINER_ROLE_INIT:
 			status := container.GetStatus()
+			if isConfigInvalidFailure(container) {
+				return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
+			}
+			if isImagePullFailure(container) && startAge > startGracePeriod {
+				return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
+			}
 			switch status {
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING:
-				if isImagePullFailure(container) && startAge > startGracePeriod {
-					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_IMAGE_PULL_FAILED, message: containerFailureMessage(container)}, nil
-				}
-				if isConfigInvalidFailure(container) && startAge > startGracePeriod {
-					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CONFIG_INVALID, message: containerFailureMessage(container)}, nil
-				}
 				initBlocked = true
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED:
-				if container.GetExitCode() != 0 && container.GetRestartCount() >= initRetryThreshold {
-					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: containerFailureMessage(container)}, nil
-				}
 				if container.GetExitCode() != 0 {
-					initBlocked = true
+					return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: containerFailureMessage(container)}, nil
 				}
 			case runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING:
 			default:

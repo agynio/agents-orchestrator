@@ -4,6 +4,25 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      bootstrap_ref:
+        description: Bootstrap ref to provision from.
+        required: false
+        default: main
+      k8s_runner_ref:
+        description: k8s-runner ref to deploy from.
+        required: false
+        default: main
+
+env:
+  BOOTSTRAP_REF: main
+  K8S_RUNNER_REF: main
+  CODEX_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.38
+  AGYN_AGENT_INIT_IMAGE: ghcr.io/agynio/agent-init-codex:0.13.38
+  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
+  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
+  CLAUDE_INIT_IMAGE: ghcr.io/agynio/agent-init-claude:0.1.29
 
 permissions:
   contents: read
@@ -22,6 +41,8 @@ jobs:
 
       - name: Provision cluster
         uses: agynio/bootstrap/.github/actions/provision@main
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF }}
 
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@main
@@ -30,13 +51,452 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: agynio/k8s-runner
-          ref: main
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF }}
           path: .e2e-deps/k8s-runner
 
       - name: Deploy k8s-runner from source
         working-directory: .e2e-deps/k8s-runner
         run: devspace run deploy
 
+      # Validation shim only: source-of-truth workload egress belongs in k8s-runner.
+      # Keep this PR check strict while regular E2E consumes main refs.
+      - name: Allow workload Ziti egress
+        run: |-
+          set -euo pipefail
+          service_endpoint_ips() {
+            kubectl get endpoints "$1" -n "$2" -o jsonpath='{range .subsets[*].addresses[*]}{.ip}{" "}{end}'
+          }
+          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_dns_ip}" ]; then
+            echo "ziti-workload-dns ClusterIP is empty" >&2
+            exit 1
+          fi
+          ziti_dns_endpoint_ips="$(service_endpoint_ips ziti-workload-dns ziti)"
+          if [ -z "${ziti_dns_endpoint_ips}" ]; then
+            echo "ziti-workload-dns endpoints are empty" >&2
+            exit 1
+          fi
+          ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_controller_ip}" ]; then
+            echo "ziti-controller-client ClusterIP is empty" >&2
+            exit 1
+          fi
+          ziti_controller_endpoint_ips="$(service_endpoint_ips ziti-controller-client ziti)"
+          if [ -z "${ziti_controller_endpoint_ips}" ]; then
+            echo "ziti-controller-client endpoints are empty" >&2
+            exit 1
+          fi
+          ziti_router_ip="$(kubectl get service ziti-router-edge -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_router_ip}" ]; then
+            echo "ziti-router-edge ClusterIP is empty" >&2
+            exit 1
+          fi
+          ziti_router_endpoint_ips="$(service_endpoint_ips ziti-router-edge ziti)"
+          if [ -z "${ziti_router_endpoint_ips}" ]; then
+            echo "ziti-router-edge endpoints are empty" >&2
+            exit 1
+          fi
+          istio_gateway_ip="$(kubectl get service istio-ingressgateway -n istio-gateway -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${istio_gateway_ip}" ]; then
+            echo "istio-ingressgateway ClusterIP is empty" >&2
+            exit 1
+          fi
+          istio_gateway_endpoint_ips="$(service_endpoint_ips istio-ingressgateway istio-gateway)"
+          if [ -z "${istio_gateway_endpoint_ips}" ]; then
+            echo "istio-ingressgateway endpoints are empty" >&2
+            exit 1
+          fi
+
+          add_tcp_egress_ip() {
+            patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"$1/32\"}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":$2}]}}"
+          }
+
+          patch='[{"op":"add","path":"/spec/egress/-","value":{"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ziti"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"ziti-workload-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},{"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"'"${ziti_dns_ip}"'/32"}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}}'
+          for ziti_dns_endpoint_ip in ${ziti_dns_endpoint_ips}; do
+            patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"${ziti_dns_endpoint_ip}/32\"}}],\"ports\":[{\"protocol\":\"UDP\",\"port\":53},{\"protocol\":\"TCP\",\"port\":53}]}}"
+          done
+          add_tcp_egress_ip "${istio_gateway_ip}" 443
+          for istio_gateway_endpoint_ip in ${istio_gateway_endpoint_ips}; do
+            add_tcp_egress_ip "${istio_gateway_endpoint_ip}" 443
+          done
+          add_tcp_egress_ip "${ziti_controller_ip}" 2496
+          for ziti_controller_endpoint_ip in ${ziti_controller_endpoint_ips}; do
+            add_tcp_egress_ip "${ziti_controller_endpoint_ip}" 2496
+            add_tcp_egress_ip "${ziti_controller_endpoint_ip}" 1280
+          done
+          add_tcp_egress_ip "${ziti_router_ip}" 2496
+          for ziti_router_endpoint_ip in ${ziti_router_endpoint_ips}; do
+            add_tcp_egress_ip "${ziti_router_endpoint_ip}" 2496
+            add_tcp_egress_ip "${ziti_router_endpoint_ip}" 3022
+          done
+          patch="${patch}]"
+
+          kubectl patch networkpolicy agent-workload-egress \
+            -n agyn-workloads \
+            --type=json \
+            -p "${patch}"
+          kubectl patch networkpolicy ziti-workload-dns \
+            -n ziti \
+            --type=json \
+            -p '[{"op":"add","path":"/spec/ingress/-","value":{"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}}]'
+          kubectl wait deployment/ziti-workload-dns -n ziti --for=condition=Available --timeout=180s
+          kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml
+          kubectl get networkpolicy ziti-workload-dns -n ziti -o yaml
+          kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
+
+      # Validation shim only: source-of-truth workload DNS belongs in bootstrap.
+      # It enforces ziti.agyn.dev -> ziti-controller-client and ziti-router.agyn.dev -> ziti-router-edge.
+      - name: Patch workload Ziti DNS runtime target
+        run: |-
+          set -euo pipefail
+          current_target="$(kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti\.db}' | awk '$1 == "@" && $2 == "IN" && $3 == "A" {print $4; exit}')"
+          current_router_target="$(kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti-router\.db}' | awk '$1 == "@" && $2 == "IN" && $3 == "A" {print $4; exit}')"
+          ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
+          ziti_router_ip="$(kubectl get service ziti-router-edge -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${current_target}" ]; then
+            echo "ziti-workload-dns ziti.db target is empty" >&2
+            kubectl get configmap ziti-workload-dns -n ziti -o yaml >&2 || true
+            exit 1
+          fi
+          if [ -z "${current_router_target}" ]; then
+            echo "ziti-workload-dns ziti-router.db target is empty" >&2
+            kubectl get configmap ziti-workload-dns -n ziti -o yaml >&2 || true
+            exit 1
+          fi
+          if [ -z "${ziti_controller_ip}" ]; then
+            echo "ziti-controller-client ClusterIP is empty" >&2
+            kubectl get service ziti-controller-client -n ziti -o yaml >&2 || true
+            exit 1
+          fi
+          if [ -z "${ziti_router_ip}" ]; then
+            echo "ziti-router-edge ClusterIP is empty" >&2
+            kubectl get service ziti-router-edge -n ziti -o yaml >&2 || true
+            exit 1
+          fi
+          if [ "${current_target}" != "${ziti_controller_ip}" ] || [ "${current_router_target}" != "${ziti_router_ip}" ]; then
+            echo "Patching ziti.agyn.dev workload DNS from ${current_target} to ziti-controller-client ${ziti_controller_ip} and ziti-router.agyn.dev from ${current_router_target} to ziti-router-edge ${ziti_router_ip}."
+            kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.Corefile}' > /tmp/ziti-workload-Corefile
+            kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti\.db}' \
+              | sed -E "s/^((@|ns) IN A )[^[:space:]]+/\1${ziti_controller_ip}/" \
+              > /tmp/ziti-workload-ziti.db
+            kubectl get configmap ziti-workload-dns -n ziti -o jsonpath='{.data.ziti-router\.db}' \
+              | sed -E "s/^((@|ns) IN A )[^[:space:]]+/\1${ziti_router_ip}/" \
+              > /tmp/ziti-workload-ziti-router.db
+            kubectl create configmap ziti-workload-dns \
+              -n ziti \
+              --from-file=Corefile=/tmp/ziti-workload-Corefile \
+              --from-file=ziti.db=/tmp/ziti-workload-ziti.db \
+              --from-file=ziti-router.db=/tmp/ziti-workload-ziti-router.db \
+              --dry-run=client \
+              -o yaml | kubectl apply -f -
+            kubectl rollout restart deployment/ziti-workload-dns -n ziti
+          fi
+          kubectl rollout status deployment/ziti-workload-dns -n ziti --timeout=180s
+          kubectl get configmap ziti-workload-dns -n ziti -o yaml
+
+      - name: Verify workload Ziti DNS
+        run: |-
+          set -euo pipefail
+          dump_ziti_dns_preflight_diagnostics() {
+            kubectl get pod ziti-dns-preflight -n agyn-workloads -o wide || true
+            kubectl describe pod ziti-dns-preflight -n agyn-workloads || true
+            kubectl logs pod/ziti-dns-preflight -n agyn-workloads --all-containers=true --tail=-1 || true
+            kubectl get configmap ziti-workload-dns -n ziti -o yaml || true
+            kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide || true
+            kubectl get service,endpoints -n ziti ziti-workload-dns ziti-controller-client ziti-router-edge -o wide || true
+            kubectl get service,endpoints -n istio-gateway istio-ingressgateway -o wide || true
+            kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml || true
+            kubectl get networkpolicy ziti-workload-dns -n ziti -o yaml || true
+            kubectl get pods -n agyn-workloads -o wide || true
+            kubectl logs -n agyn-workloads -l app.kubernetes.io/name=ziti-sidecar --all-containers --tail=200 || true
+            kubectl logs -n agyn-workloads -l agyn.dev/component=ziti-sidecar --all-containers --tail=200 || true
+          }
+          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_dns_ip}" ]; then
+            echo "ziti-workload-dns ClusterIP is empty" >&2
+            dump_ziti_dns_preflight_diagnostics
+            exit 1
+          fi
+          ziti_dns_endpoint_ip="$(kubectl get endpoints ziti-workload-dns -n ziti -o jsonpath='{.subsets[0].addresses[0].ip}')"
+          if [ -z "${ziti_dns_endpoint_ip}" ]; then
+            echo "ziti-workload-dns endpoint IP is empty" >&2
+            dump_ziti_dns_preflight_diagnostics
+            exit 1
+          fi
+          echo "ziti-workload-dns service ClusterIP: ${ziti_dns_ip}"
+          echo "ziti-workload-dns first endpoint IP: ${ziti_dns_endpoint_ip}"
+          kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
+          kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml
+          kubectl delete pod ziti-dns-preflight -n agyn-workloads --ignore-not-found
+          cat <<EOF_POD | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ziti-dns-preflight
+            namespace: agyn-workloads
+            labels:
+              agyn.dev/managed-by: agents-orchestrator
+          spec:
+            restartPolicy: Never
+            dnsPolicy: None
+            dnsConfig:
+              nameservers:
+                - ${ziti_dns_ip}
+            containers:
+              - name: ziti-dns-preflight
+                image: busybox:1.37.0
+                env:
+                  - name: ZITI_DNS_SERVICE_IP
+                    value: "${ziti_dns_ip}"
+                  - name: ZITI_DNS_ENDPOINT_IP
+                    value: "${ziti_dns_endpoint_ip}"
+                command:
+                  - sh
+                  - -c
+                  - |-
+                    set -eu
+                    run_lookup() {
+                      host="\${1}"
+                      server_name="\${2}"
+                      server_ip="\${3}"
+                      echo "== nslookup \${host} via \${server_name} \${server_ip} =="
+                      timeout 30 nslookup "\${host}" "\${server_ip}"
+                    }
+                    run_lookup ziti.agyn.dev service-cluster-ip "\${ZITI_DNS_SERVICE_IP}"
+                    run_lookup ziti-router.agyn.dev service-cluster-ip "\${ZITI_DNS_SERVICE_IP}"
+                    run_lookup ziti.agyn.dev endpoint-pod-ip "\${ZITI_DNS_ENDPOINT_IP}"
+                    run_lookup ziti-router.agyn.dev endpoint-pod-ip "\${ZITI_DNS_ENDPOINT_IP}"
+                    echo "== tcp connect to service-cluster-ip \${ZITI_DNS_SERVICE_IP}:53 =="
+                    timeout 10 nc -vz -w 5 "\${ZITI_DNS_SERVICE_IP}" 53
+                    echo "== tcp connect to endpoint-pod-ip \${ZITI_DNS_ENDPOINT_IP}:53 =="
+                    timeout 10 nc -vz -w 5 "\${ZITI_DNS_ENDPOINT_IP}" 53
+                    echo "== tcp connect to ziti-router.agyn.dev:2496 through workload DNS =="
+                    timeout 10 nc -vz -w 5 ziti-router.agyn.dev 2496
+          EOF_POD
+          if ! kubectl wait pod/ziti-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
+            echo "ziti-workload-dns UDP/TCP 53 preflight failed from agyn-workloads" >&2
+            kubectl get pod ziti-dns-preflight -n agyn-workloads -o yaml >&2 || true
+            kubectl logs pod/ziti-dns-preflight -n agyn-workloads >&2 || true
+            dump_ziti_dns_preflight_diagnostics >&2
+            exit 1
+          fi
+          kubectl logs pod/ziti-dns-preflight -n agyn-workloads
+          kubectl delete pod ziti-dns-preflight -n agyn-workloads --wait=false
+
+      - name: Verify workload Ziti runtime TCP
+        run: |-
+          set -euo pipefail
+          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_dns_ip}" ]; then
+            echo "ziti-workload-dns ClusterIP is empty" >&2
+            exit 1
+          fi
+          kubectl delete pod ziti-runtime-preflight -n agyn-workloads --ignore-not-found
+          cat <<EOF_POD | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ziti-runtime-preflight
+            namespace: agyn-workloads
+            labels:
+              agyn.dev/managed-by: agents-orchestrator
+          spec:
+            restartPolicy: Never
+            dnsPolicy: None
+            dnsConfig:
+              nameservers:
+                - ${ziti_dns_ip}
+            containers:
+              - name: ziti-runtime-preflight
+                image: curlimages/curl:8.16.0
+                command:
+                  - sh
+                  - -c
+                  - curl --insecure --fail --show-error --verbose --connect-timeout 10 --max-time 30 https://ziti.agyn.dev:2496/edge/client/v1/version
+          EOF_POD
+          if ! kubectl wait pod/ziti-runtime-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
+            echo "ziti runtime TCP preflight failed with selector-aware controller policy present" >&2
+            kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml >&2 || true
+            kubectl get service,endpoints -n ziti ziti-controller-client -o wide >&2 || true
+            kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide >&2 || true
+            kubectl get pod ziti-runtime-preflight -n agyn-workloads -o yaml >&2 || true
+            kubectl logs pod/ziti-runtime-preflight -n agyn-workloads >&2 || true
+            exit 1
+          fi
+          kubectl logs pod/ziti-runtime-preflight -n agyn-workloads
+          kubectl delete pod ziti-runtime-preflight -n agyn-workloads --wait=false
+
+      - name: Verify stock sidecar runtime DNS path
+        run: |-
+          set -euo pipefail
+          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${ziti_dns_ip}" ]; then
+            echo "ziti-workload-dns ClusterIP is empty" >&2
+            exit 1
+          fi
+          kubectl delete pod ziti-sidecar-dns-preflight -n agyn-workloads --ignore-not-found
+          cat <<EOF_POD | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ziti-sidecar-dns-preflight
+            namespace: agyn-workloads
+            labels:
+              agyn.dev/managed-by: agents-orchestrator
+          spec:
+            restartPolicy: Never
+            dnsPolicy: None
+            dnsConfig:
+              nameservers:
+                - 127.0.0.1
+                - ${ziti_dns_ip}
+              searches:
+                - svc.cluster.local
+                - cluster.local
+            containers:
+              - name: ziti-sidecar-dns-preflight
+                image: openziti/ziti-tunnel:1.6.15
+                env:
+                  - name: WORKLOAD_DNS_UPSTREAM
+                    value: "${ziti_dns_ip}"
+                command:
+                  - /usr/bin/bash
+                  - -ec
+                  - |-
+                    echo "== initial resolv.conf =="
+                    cat /etc/resolv.conf
+                    printf 'nameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5\n' "\${WORKLOAD_DNS_UPSTREAM}" > /etc/resolv.conf
+                    echo "== sidecar runtime auth resolv.conf =="
+                    cat /etc/resolv.conf
+                    echo "== tcp connect ziti.agyn.dev:2496 from stock sidecar image =="
+                    bash -c '</dev/tcp/ziti.agyn.dev/2496'
+                    echo "== tcp connect ziti-router.agyn.dev:2496 from stock sidecar image =="
+                    bash -c '</dev/tcp/ziti-router.agyn.dev/2496'
+          EOF_POD
+          if ! kubectl wait pod/ziti-sidecar-dns-preflight -n agyn-workloads --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
+            echo "stock ziti sidecar runtime DNS path failed from workload pod context" >&2
+            kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml >&2 || true
+            kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide >&2 || true
+            kubectl get pod ziti-sidecar-dns-preflight -n agyn-workloads -o yaml >&2 || true
+            kubectl logs pod/ziti-sidecar-dns-preflight -n agyn-workloads >&2 || true
+            exit 1
+          fi
+          kubectl logs pod/ziti-sidecar-dns-preflight -n agyn-workloads
+          kubectl delete pod ziti-sidecar-dns-preflight -n agyn-workloads --wait=false
+
+      # Validation only: gateway Ziti binding is configured by bootstrap source of truth.
+      - name: Verify gateway Ziti service binding
+        run: |-
+          set -euo pipefail
+          wait_argocd_app_converged() {
+            app="$1"
+            i=0
+            while [ "$i" -lt 240 ]; do
+              sync_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+              health_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+              if [ "$sync_status" = "Synced" ] && [ "$health_status" = "Healthy" ]; then
+                return 0
+              fi
+              i=$((i + 1))
+              sleep 1
+            done
+            echo "$app ArgoCD application did not converge to Synced/Healthy" >&2
+            kubectl get application "$app" -n argocd -o yaml >&2 || true
+            exit 1
+          }
+          wait_argocd_app_converged gateway
+          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=gateway -o jsonpath='{.items[0].metadata.name}')"
+          if [ -z "${deployment}" ]; then
+            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=gateway -o jsonpath='{.items[0].metadata.name}')"
+          fi
+          if [ -z "${deployment}" ]; then
+            echo "gateway deployment not found" >&2
+            kubectl get application gateway -n argocd -o yaml >&2 || true
+            kubectl get deployments -n platform -o wide >&2 || true
+            exit 1
+          fi
+          kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
+          ziti_enabled_values="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{"\n"}{end}')"
+          ziti_enabled="$(printf '%s\n' "${ziti_enabled_values}" | awk 'NF { value=$0 } END { print value }')"
+          if [ "${ziti_enabled}" != "true" ]; then
+            echo "gateway deployment is not source-of-truth configured with ZITI_ENABLED=true" >&2
+            kubectl get application gateway -n argocd -o yaml >&2 || true
+            kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+            exit 1
+          fi
+          attempts=0
+          while [ "${attempts}" -lt 120 ]; do
+            if kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 2>/dev/null | grep -q 'gateway listening on ziti service gateway'; then
+              kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=200
+              exit 0
+            fi
+            attempts=$((attempts + 1))
+            sleep 1
+          done
+          echo "gateway did not report Ziti service listener from the source-of-truth deployment" >&2
+          kubectl get application gateway -n argocd -o yaml >&2 || true
+          kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+          kubectl get pods -n platform -l app.kubernetes.io/instance=gateway -o wide >&2 || true
+          kubectl get pods -n platform -l app.kubernetes.io/name=gateway -o wide >&2 || true
+          kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 >&2 || true
+          exit 1
+
+      # Validation only: llm-proxy Ziti binding is configured by bootstrap source of truth.
+      - name: Verify llm-proxy Ziti service binding
+        run: |-
+          set -euo pipefail
+          wait_argocd_app_converged() {
+            app="$1"
+            i=0
+            while [ "$i" -lt 240 ]; do
+              sync_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+              health_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+              if [ "$sync_status" = "Synced" ] && [ "$health_status" = "Healthy" ]; then
+                return 0
+              fi
+              i=$((i + 1))
+              sleep 1
+            done
+            echo "$app ArgoCD application did not converge to Synced/Healthy" >&2
+            kubectl get application "$app" -n argocd -o yaml >&2 || true
+            exit 1
+          }
+          wait_argocd_app_converged llm-proxy
+          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
+          if [ -z "${deployment}" ]; then
+            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
+          fi
+          if [ -z "${deployment}" ]; then
+            echo "llm-proxy deployment not found" >&2
+            kubectl get application llm-proxy -n argocd -o yaml >&2 || true
+            kubectl get deployments -n platform -o wide >&2 || true
+            exit 1
+          fi
+          kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
+          ziti_enabled_values="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{"\n"}{end}')"
+          ziti_enabled="$(printf '%s\n' "${ziti_enabled_values}" | awk 'NF { value=$0 } END { print value }')"
+          if [ "${ziti_enabled}" != "true" ]; then
+            echo "llm-proxy deployment is not source-of-truth configured with ZITI_ENABLED=true" >&2
+            kubectl get application llm-proxy -n argocd -o yaml >&2 || true
+            kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+            exit 1
+          fi
+          attempts=0
+          while [ "${attempts}" -lt 120 ]; do
+            if kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 2>/dev/null | grep -q 'llm-proxy listening on ziti service llm-proxy'; then
+              kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=200
+              exit 0
+            fi
+            attempts=$((attempts + 1))
+            sleep 1
+          done
+          echo "llm-proxy did not report Ziti service listener from the source-of-truth deployment" >&2
+          kubectl get application llm-proxy -n argocd -o yaml >&2 || true
+          kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+          kubectl get pods -n platform -l app.kubernetes.io/instance=llm-proxy -o wide >&2 || true
+          kubectl get pods -n platform -l app.kubernetes.io/name=llm-proxy -o wide >&2 || true
+          kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 >&2 || true
+          exit 1
       - name: Deploy orchestrator from source
         run: devspace run deploy
 
@@ -49,7 +509,7 @@ jobs:
           include_smoke: "false"
 
       - name: Restore k8s-runner ArgoCD sync
-        if: always()
+        if: ${{ always() && hashFiles('.e2e-deps/k8s-runner/devspace.yaml') != '' }}
         working-directory: .e2e-deps/k8s-runner
         run: devspace run restore-argocd
 
