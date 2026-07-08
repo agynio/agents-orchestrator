@@ -104,9 +104,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if !equalStringSlice(request.Main.Cmd, expectedCmd) {
 		t.Fatalf("unexpected main cmd: %+v", request.Main.Cmd)
 	}
-	if request.Main.Entrypoint != "" {
-		t.Fatalf("expected no main entrypoint, got %q", request.Main.Entrypoint)
-	}
 	if len(request.Main.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(request.Main.Mounts))
 	}
@@ -1076,21 +1073,6 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 	mainEnvs := envMap(request.Main.Env)
 	expectedServers := fmt.Sprintf("%s:%d,%s:%d", "memory", mcpBasePort, "filesystem", mcpBasePort+1)
 	assertEnv(t, mainEnvs, "AGENT_MCP_SERVERS", expectedServers)
-	if request.Main.Entrypoint != mcpReadyEntrypoint {
-		t.Fatalf("expected main entrypoint %q, got %q", mcpReadyEntrypoint, request.Main.Entrypoint)
-	}
-	if len(request.Main.Cmd) != 4 {
-		t.Fatalf("expected wrapped main command with 4 args, got %+v", request.Main.Cmd)
-	}
-	if request.Main.Cmd[0] != "-c" || request.Main.Cmd[2] != "mcp-ready" || request.Main.Cmd[3] != agynBinBinaryPath {
-		t.Fatalf("unexpected wrapped main command: %+v", request.Main.Cmd)
-	}
-	if !strings.Contains(request.Main.Cmd[1], fmt.Sprintf(`mcp_ports="%d %d"`, mcpBasePort, mcpBasePort+1)) {
-		t.Fatalf("expected main command to wait for assigned MCP ports, got %q", request.Main.Cmd[1])
-	}
-	if !strings.Contains(request.Main.Cmd[1], `exec "$@"`) {
-		t.Fatalf("expected main command to exec original agent command, got %q", request.Main.Cmd[1])
-	}
 
 	ports := map[string]string{}
 	for _, sidecar := range request.Sidecars {

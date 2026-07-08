@@ -26,8 +26,6 @@ const (
 	agynBinMountPath                                = "/agyn-bin"
 	agynBinBinaryPath                               = "/agyn-bin/agynd"
 	mcpBasePort                                     = 8100
-	mcpReadyEntrypoint                              = "/bin/sh"
-	mcpReadyTimeoutSeconds                          = 120
 	mcpResolverOptions                              = "attempts:1 timeout:1 no-aaaa"
 	mcpNodeOptions                                  = "--dns-result-order=ipv4first"
 	ZitiEnrollContainerName                         = "ziti-enroll"
@@ -547,8 +545,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		sidecars = append(sidecars, sidecar)
 	}
 	if len(mcpServers) > 0 {
-		main.Entrypoint = mcpReadyEntrypoint
-		main.Cmd = buildMcpReadyCommand(mcpAssignments, main.Cmd)
 		main.Env = appendPlatformEnvVar(main.Env, &runnerv1.EnvVar{Name: "AGENT_MCP_SERVERS", Value: strings.Join(mcpServers, ",")})
 	}
 	imagePullCredentials, err := imagePullResolver.Credentials()
@@ -815,40 +811,6 @@ type mcpAssignment struct {
 type hookAssignment struct {
 	hook *agentsv1.Hook
 	id   uuid.UUID
-}
-
-const mcpReadyScript = `set -eu
-mcp_ports="{{PORTS}}"
-mcp_deadline=$(( $(date +%s) + {{TIMEOUT}} ))
-mcp_port_listening() {
-  mcp_port_hex="$(printf '%04X' "$1")"
-  awk -v port="${mcp_port_hex}" 'NR > 1 { split($2, addr, ":"); if (addr[2] == port && $4 == "0A") found=1 } END { exit found ? 0 : 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
-}
-for mcp_port in ${mcp_ports}; do
-  until mcp_port_listening "${mcp_port}"; do
-    if [ "$(date +%s)" -ge "${mcp_deadline}" ]; then
-      echo "timed out waiting for MCP port ${mcp_port}" >&2
-      exit 1
-    fi
-    echo "waiting for MCP port ${mcp_port}" >&2
-    sleep 1
-  done
-done
-exec "$@"`
-
-func buildMcpReadyCommand(assignments []mcpAssignment, command []string) []string {
-	if len(assignments) == 0 {
-		return append([]string{}, command...)
-	}
-	ports := make([]string, 0, len(assignments))
-	for _, assignment := range assignments {
-		ports = append(ports, strconv.Itoa(assignment.port))
-	}
-	script := strings.ReplaceAll(mcpReadyScript, "{{PORTS}}", strings.Join(ports, " "))
-	script = strings.ReplaceAll(script, "{{TIMEOUT}}", strconv.Itoa(mcpReadyTimeoutSeconds))
-	args := []string{"-c", script, "mcp-ready"}
-	args = append(args, command...)
-	return args
 }
 
 func assignMcpPorts(mcps []*agentsv1.Mcp) ([]mcpAssignment, error) {
