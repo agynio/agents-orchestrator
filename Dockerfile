@@ -49,6 +49,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM alpine:3.21 AS runtime
 
+# Public root bundle (/etc/ssl/certs/ca-certificates.crt) — merged with the
+# Egress CA into each workload's trust file so workloads verify both intercepted
+# and passthrough TLS. See internal/assembler/egress_ca_apply.go.
+RUN apk add --no-cache ca-certificates
+
 WORKDIR /app
 
 COPY --from=build /out/orchestrator /app/orchestrator

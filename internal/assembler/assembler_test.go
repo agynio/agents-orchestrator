@@ -1467,15 +1467,17 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 		ZitiEnabled:         true,
 		ZitiSidecarImage:    "ziti-image",
-		ClusterDNS:          "10.43.0.10",
 	}, cert)
 	result, err := assembler.Assemble(ctx, agentID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
 	request := result.Request
-	if string(request.GetInlineFiles()[egressCACertPath]) != string(cert) {
-		t.Fatalf("expected egress CA inline file bytes")
+	// The workload trust file is the host public roots with the Egress CA
+	// appended last, so workloads verify both intercepted (Egress-CA) and
+	// passthrough (real) TLS. Verify the Egress CA is the trailing entry.
+	if bundle := string(request.GetInlineFiles()[egressCACertPath]); !strings.HasSuffix(bundle, string(cert)) {
+		t.Fatalf("expected egress CA appended to the workload trust bundle, got %q", bundle)
 	}
 	containers := []*runnerv1.ContainerSpec{request.Main}
 	containers = append(containers, request.GetSidecars()...)
