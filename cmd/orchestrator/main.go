@@ -161,7 +161,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	assembler := assembler.NewWithEgressCA(agentsClient, secretsClient, &cfg, egressCACert)
+	assembler := assembler.NewWithRunnersAndEgressCA(agentsClient, runnersClient, secretsClient, &cfg, egressCACert)
 	reconciler := reconciler.New(reconciler.Config{
 		Threads:                   threadsClient,
 		Agents:                    agentsClient,

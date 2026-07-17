@@ -24,6 +24,8 @@ const (
 	labelKind                    = "kind"
 	labelThreadID                = "thread_id"
 	labelAgentID                 = "agent_id"
+	labelSandboxID               = "sandbox_id"
+	labelOwnerKind               = "owner_kind"
 	labelRunnerID                = "runner_id"
 	labelIdentityID              = "identity_id"
 	resourceWorkload             = "workload"
@@ -353,49 +355,65 @@ func sampleWindow(kind, id string, createdAt, lastSampledAt, removedAt *timestam
 }
 
 func workloadLabels(workload *runnersv1.Workload, workloadID string) (map[string]string, error) {
-	threadID := strings.TrimSpace(workload.GetThreadId())
-	if threadID == "" {
-		return nil, fmt.Errorf("workload %s thread id missing", workloadID)
-	}
-	agentID := strings.TrimSpace(workload.GetAgentId())
-	if agentID == "" {
-		return nil, fmt.Errorf("workload %s agent id missing", workloadID)
-	}
 	runnerID := strings.TrimSpace(workload.GetRunnerId())
 	if runnerID == "" {
 		return nil, fmt.Errorf("workload %s runner id missing", workloadID)
 	}
-	return map[string]string{
+	labels := map[string]string{
 		labelResource:   resourceWorkload,
 		labelResourceID: workloadID,
-		labelThreadID:   threadID,
-		labelAgentID:    agentID,
 		labelRunnerID:   runnerID,
-		labelIdentityID: agentID,
-	}, nil
+	}
+	if err := applyOwnerLabels(labels, workloadID, workload.GetOwnerKind(), workload.GetOwnerId(), workload.GetAgentId(), workload.GetThreadId()); err != nil {
+		return nil, err
+	}
+	return labels, nil
 }
 
 func volumeLabels(volume *runnersv1.Volume, volumeID string) (map[string]string, error) {
-	threadID := strings.TrimSpace(volume.GetThreadId())
-	if threadID == "" {
-		return nil, fmt.Errorf("volume %s thread id missing", volumeID)
-	}
-	agentID := strings.TrimSpace(volume.GetAgentId())
-	if agentID == "" {
-		return nil, fmt.Errorf("volume %s agent id missing", volumeID)
-	}
 	runnerID := strings.TrimSpace(volume.GetRunnerId())
 	if runnerID == "" {
 		return nil, fmt.Errorf("volume %s runner id missing", volumeID)
 	}
-	return map[string]string{
+	labels := map[string]string{
 		labelResource:   resourceVolume,
 		labelResourceID: volumeID,
-		labelThreadID:   threadID,
-		labelAgentID:    agentID,
 		labelRunnerID:   runnerID,
-		labelIdentityID: agentID,
-	}, nil
+	}
+	if err := applyOwnerLabels(labels, volumeID, volume.GetOwnerKind(), volume.GetOwnerId(), volume.GetAgentId(), volume.GetThreadId()); err != nil {
+		return nil, err
+	}
+	return labels, nil
+}
+
+func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind runnersv1.RuntimeOwnerKind, ownerID, agentID, threadID string) error {
+	switch ownerKind {
+	case runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX:
+		sandboxID := strings.TrimSpace(ownerID)
+		if sandboxID == "" {
+			return fmt.Errorf("resource %s sandbox owner id missing", resourceID)
+		}
+		labels[labelOwnerKind] = "sandbox"
+		labels[labelSandboxID] = sandboxID
+		labels[labelIdentityID] = sandboxID
+	case runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_UNSPECIFIED,
+		runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE:
+		cleanAgentID := strings.TrimSpace(agentID)
+		cleanThreadID := strings.TrimSpace(threadID)
+		if cleanAgentID == "" {
+			return fmt.Errorf("resource %s agent id missing", resourceID)
+		}
+		if cleanThreadID == "" {
+			return fmt.Errorf("resource %s thread id missing", resourceID)
+		}
+		labels[labelOwnerKind] = "agent_instance"
+		labels[labelThreadID] = cleanThreadID
+		labels[labelAgentID] = cleanAgentID
+		labels[labelIdentityID] = cleanAgentID
+	default:
+		return fmt.Errorf("resource %s owner kind %s unsupported", resourceID, ownerKind.String())
+	}
+	return nil
 }
 
 func microCoreSeconds(cpuMillicores int64, duration time.Duration) (int64, error) {

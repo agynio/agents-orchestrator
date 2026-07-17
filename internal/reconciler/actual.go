@@ -56,6 +56,9 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context, orgIdentities map[
 			return nil, fmt.Errorf("list workloads: %w", err)
 		}
 		for _, workload := range resp.GetWorkloads() {
+			if workload.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
+				continue
+			}
 			if workload == nil {
 				return nil, fmt.Errorf("workload is nil")
 			}

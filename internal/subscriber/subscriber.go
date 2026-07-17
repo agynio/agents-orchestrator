@@ -34,12 +34,12 @@ type roomSubscription struct {
 
 type Subscriber struct {
 	client              notificationsv1.NotificationsServiceClient
-	agents              agentsv1.AgentsServiceClient
+	agents              agentsClient
 	wake                chan struct{}
 	roomRefreshInterval time.Duration
 }
 
-func New(client notificationsv1.NotificationsServiceClient, agents agentsv1.AgentsServiceClient) *Subscriber {
+func New(client notificationsv1.NotificationsServiceClient, agents agentsClient) *Subscriber {
 	return &Subscriber{
 		client:              client,
 		agents:              agents,

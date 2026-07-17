@@ -13,6 +13,7 @@ var ErrNotImplemented = errors.New("not implemented")
 
 type FakeAgentsClient struct {
 	GetAgentFunc                       func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
+	GetEnvironmentFunc                 func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error)
 	ResolveAgentIdentityFunc           func(context.Context, *agentsv1.ResolveAgentIdentityRequest, ...grpc.CallOption) (*agentsv1.ResolveAgentIdentityResponse, error)
 	ListAgentsFunc                     func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
 	ListSkillsFunc                     func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
@@ -334,5 +335,28 @@ func (f *FakeSecretsClient) ResolveSecretExists(ctx context.Context, req *secret
 	if f.ResolveSecretExistsFunc != nil {
 		return f.ResolveSecretExistsFunc(ctx, req, opts...)
 	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) GetUnackedInboxItems(context.Context, *agentsv1.GetUnackedInboxItemsRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) AckInboxItems(context.Context, *agentsv1.AckInboxItemsRequest, ...grpc.CallOption) (*agentsv1.AckInboxItemsResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) GetEnvironment(ctx context.Context, req *agentsv1.GetEnvironmentRequest, opts ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+	if f.GetEnvironmentFunc != nil {
+		return f.GetEnvironmentFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) ListSandboxes(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) DeleteSandbox(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {
 	return nil, ErrNotImplemented
 }

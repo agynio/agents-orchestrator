@@ -33,6 +33,8 @@ type Config struct {
 	AgentGatewayAddress                 string
 	AgentTracingAddress                 string
 	AgentLLMBaseURL                     string
+	SandboxInitImage                    string
+	SandboxWorkspaceSizeGB              string
 	PollInterval                        time.Duration
 	WorkloadReconcileInterval           time.Duration
 	IdleTimeout                         time.Duration
@@ -116,6 +118,17 @@ func FromEnv() (Config, error) {
 		} else {
 			cfg.AgentLLMBaseURL = "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1"
 		}
+	}
+	cfg.SandboxInitImage = os.Getenv("SANDBOX_INIT_IMAGE")
+	if cfg.SandboxInitImage == "" {
+		cfg.SandboxInitImage = "ghcr.io/agynio/agent-init-codex:latest"
+	}
+	cfg.SandboxWorkspaceSizeGB = os.Getenv("SANDBOX_WORKSPACE_SIZE_GB")
+	if cfg.SandboxWorkspaceSizeGB == "" {
+		cfg.SandboxWorkspaceSizeGB = "10"
+	}
+	if _, err := strconv.ParseFloat(cfg.SandboxWorkspaceSizeGB, 64); err != nil {
+		return Config{}, fmt.Errorf("parse SANDBOX_WORKSPACE_SIZE_GB: %w", err)
 	}
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
 	if cfg.ZitiManagementAddress == "" {
