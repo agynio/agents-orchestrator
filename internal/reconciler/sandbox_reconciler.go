@@ -419,9 +419,6 @@ func (r *Reconciler) createSandboxIdentity(ctx context.Context, sandboxID, envir
 		EnvironmentId:  environmentID.String(),
 		OrganizationId: organizationID,
 		WorkloadId:     workloadID.String(),
-		AdditionalRoleAttributes: []string{
-			"sandbox-environment-" + environmentID.String(),
-		},
 		Tags: map[string]string{
 			"agyn.sandbox.id":       sandboxID.String(),
 			"agyn.sandbox.owner_id": ownerID.String(),

@@ -1604,7 +1604,7 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	if sandboxIdentityReq.GetWorkloadId() != startedWorkloadID {
 		t.Fatalf("unexpected workload id: %q started %q", sandboxIdentityReq.GetWorkloadId(), startedWorkloadID)
 	}
-	if len(sandboxIdentityReq.GetAdditionalRoleAttributes()) != 1 || sandboxIdentityReq.GetAdditionalRoleAttributes()[0] != "sandbox-environment-"+environmentID {
+	if len(sandboxIdentityReq.GetAdditionalRoleAttributes()) != 0 {
 		t.Fatalf("unexpected sandbox role attributes: %v", sandboxIdentityReq.GetAdditionalRoleAttributes())
 	}
 	if sandboxIdentityReq.GetTags()["agyn.sandbox.id"] != sandboxID || sandboxIdentityReq.GetTags()["agyn.workload.id"] != startedWorkloadID {
