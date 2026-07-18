@@ -157,9 +157,59 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 }
 
 func (f *fakeAgentsClient) ListSandboxes(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error) {
-	return nil, errors.New("not implemented")
+	return nil, testutil.ErrNotImplemented
 }
 
 func (f *fakeAgentsClient) DeleteSandbox(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {
-	return nil, errors.New("not implemented")
+	return nil, testutil.ErrNotImplemented
+}
+
+func TestListActiveInstancesWithUnackedInboxPaginates(t *testing.T) {
+	ctx := context.Background()
+	firstInstanceID := uuid.New()
+	secondInstanceID := uuid.New()
+	var requests []*agentsv1.ListInstancesRequest
+	agents := &fakeAgentsClient{
+		listInstances: func(_ context.Context, req *agentsv1.ListInstancesRequest, _ ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
+			requests = append(requests, req)
+			switch req.GetPageToken() {
+			case "":
+				return &agentsv1.ListInstancesResponse{
+					Instances:     []*agentsv1.AgentInstance{{Meta: &agentsv1.EntityMeta{Id: firstInstanceID.String()}}},
+					NextPageToken: "next",
+				}, nil
+			case "next":
+				return &agentsv1.ListInstancesResponse{
+					Instances: []*agentsv1.AgentInstance{{Meta: &agentsv1.EntityMeta{Id: secondInstanceID.String()}}},
+				}, nil
+			default:
+				t.Fatalf("unexpected page token: %s", req.GetPageToken())
+				return nil, nil
+			}
+		},
+	}
+	reconciler := &Reconciler{agents: agents}
+
+	instances, err := reconciler.listActiveInstancesWithUnackedInbox(ctx)
+	if err != nil {
+		t.Fatalf("list instances: %v", err)
+	}
+	if len(instances) != 2 {
+		t.Fatalf("expected 2 instances, got %d", len(instances))
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 page requests, got %d", len(requests))
+	}
+	for _, req := range requests {
+		if req.GetHasUnacked() != true {
+			t.Fatalf("expected has_unacked=true, got %#v", req)
+		}
+		expectedStateIn := []agentsv1.AgentInstanceState{agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_ACTIVE}
+		if !reflect.DeepEqual(req.GetStateIn(), expectedStateIn) {
+			t.Fatalf("unexpected state_in: %#v", req.GetStateIn())
+		}
+	}
+	if requests[0].GetPageToken() != "" || requests[1].GetPageToken() != "next" {
+		t.Fatalf("unexpected page tokens: %#v %#v", requests[0], requests[1])
+	}
 }

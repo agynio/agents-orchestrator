@@ -19,8 +19,8 @@ import (
 func TestSubscriberWakeOnMessageCreated(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 1)
 	ack := make(chan struct{}, 1)
-	agentID := "11111111-1111-1111-1111-111111111111"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	instanceID := "11111111-1111-1111-1111-111111111111"
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
 	defer harness.cancel()
 	waitForSubscribe(t, harness.subscribeReqs, 1)
 
@@ -39,15 +39,15 @@ func TestSubscriberWakeOnMessageCreated(t *testing.T) {
 	}
 }
 
-func TestSubscriberWakeOnAgentUpdated(t *testing.T) {
+func TestSubscriberWakeOnInstanceUpdated(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 1)
 	ack := make(chan struct{}, 1)
-	agentID := "22222222-2222-2222-2222-222222222222"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	instanceID := "22222222-2222-2222-2222-222222222222"
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
 	defer harness.cancel()
 	waitForSubscribe(t, harness.subscribeReqs, 1)
 
-	responses <- messageEnvelope("agent.updated")
+	responses <- messageEnvelope("instance.updated")
 	waitForAck(t, ack, 1)
 
 	select {
@@ -65,8 +65,8 @@ func TestSubscriberWakeOnAgentUpdated(t *testing.T) {
 func TestSubscriberIgnoresOtherEvents(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 1)
 	ack := make(chan struct{}, 1)
-	agentID := "33333333-3333-3333-3333-333333333333"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	instanceID := "33333333-3333-3333-3333-333333333333"
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
 	defer harness.cancel()
 	waitForSubscribe(t, harness.subscribeReqs, 1)
 
@@ -88,8 +88,8 @@ func TestSubscriberIgnoresOtherEvents(t *testing.T) {
 func TestSubscriberCoalescesWake(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 2)
 	ack := make(chan struct{}, 2)
-	agentID := "44444444-4444-4444-4444-444444444444"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	instanceID := "44444444-4444-4444-4444-444444444444"
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
 	defer harness.cancel()
 	waitForSubscribe(t, harness.subscribeReqs, 1)
 
@@ -118,16 +118,16 @@ func TestSubscriberCoalescesWake(t *testing.T) {
 func TestSubscriberSubscribesWithRooms(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse, 1)
 	ack := make(chan struct{}, 1)
-	agentID := "55555555-5555-5555-5555-555555555555"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour)
+	instanceID := "55555555-5555-5555-5555-555555555555"
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
 	defer harness.cancel()
 
 	req := waitForSubscribe(t, harness.subscribeReqs, 1)
-	expected := []string{"agent:" + agentID, "thread_participant:" + agentID}
+	expected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID}
 	if !reflect.DeepEqual(req.req.GetRooms(), expected) {
 		t.Fatalf("expected rooms %v, got %v", expected, req.req.GetRooms())
 	}
-	assertSubscribeIdentity(t, req, agentID)
+	assertSubscribeIdentity(t, req, instanceID)
 
 	harness.cancel()
 	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
@@ -135,24 +135,24 @@ func TestSubscriberSubscribesWithRooms(t *testing.T) {
 	}
 }
 
-func TestSubscriberResubscribesOnAgentChange(t *testing.T) {
+func TestSubscriberResubscribesOnInstanceChange(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse)
 	ack := make(chan struct{}, 1)
-	agentID := "66666666-6666-6666-6666-666666666666"
-	updatedAgentID := "77777777-7777-7777-7777-777777777777"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, 10*time.Millisecond)
+	instanceID := "66666666-6666-6666-6666-666666666666"
+	updatedInstanceID := "77777777-7777-7777-7777-777777777777"
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, 10*time.Millisecond)
 	defer harness.cancel()
 
 	firstReq := waitForSubscribe(t, harness.subscribeReqs, 1)
-	firstExpected := []string{"agent:" + agentID, "thread_participant:" + agentID}
+	firstExpected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID}
 	if !reflect.DeepEqual(firstReq.req.GetRooms(), firstExpected) {
 		t.Fatalf("expected initial rooms %v, got %v", firstExpected, firstReq.req.GetRooms())
 	}
 
-	harness.store.set([]*agentsv1.Agent{agentFixture(agentID), agentFixture(updatedAgentID)})
+	harness.store.set([]*agentsv1.AgentInstance{instanceFixture(instanceID), instanceFixture(updatedInstanceID)})
 	secondReqs := waitForSubscribeRequests(t, harness.subscribeReqs, 2)
-	assertSubscribeRequestForIdentity(t, secondReqs, agentID)
-	assertSubscribeRequestForIdentity(t, secondReqs, updatedAgentID)
+	assertSubscribeRequestForIdentity(t, secondReqs, instanceID)
+	assertSubscribeRequestForIdentity(t, secondReqs, updatedInstanceID)
 
 	harness.cancel()
 	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
@@ -160,7 +160,7 @@ func TestSubscriberResubscribesOnAgentChange(t *testing.T) {
 	}
 }
 
-func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialAgents []*agentsv1.Agent, refreshInterval time.Duration) *subscriberHarness {
+func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialInstances []*agentsv1.AgentInstance, refreshInterval time.Duration) *subscriberHarness {
 	t.Helper()
 	return newSubscriberHarnessWithSandboxOrgs(t, responses, ack, initialAgents, refreshInterval, nil)
 }
@@ -168,9 +168,9 @@ func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.Subscrib
 func newSubscriberHarnessWithSandboxOrgs(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialAgents []*agentsv1.Agent, refreshInterval time.Duration, sandboxOrgIDs []string) *subscriberHarness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	store := &agentStore{agents: initialAgents}
-	agentsClient := &testutil.FakeAgentsClient{ListAgentsFunc: func(ctx context.Context, req *agentsv1.ListAgentsRequest, opts ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-		return &agentsv1.ListAgentsResponse{Agents: store.list()}, nil
+	store := &instanceStore{instances: initialInstances}
+	agentsClient := &testutil.FakeAgentsClient{ListInstancesFunc: func(ctx context.Context, req *agentsv1.ListInstancesRequest, opts ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
+		return &agentsv1.ListInstancesResponse{Instances: store.list()}, nil
 	}}
 	subscribeReqs := make(chan subscribeCall, 4)
 	client := &fakeNotificationsClient{subscribe: func(ctx context.Context, req *notificationsv1.SubscribeRequest, opts ...grpc.CallOption) (notificationsv1.NotificationsService_SubscribeClient, error) {
@@ -234,22 +234,22 @@ func waitForSubscribeRequests(t *testing.T, subscribeReqs <-chan subscribeCall, 
 	return reqs
 }
 
-func assertSubscribeRequestForIdentity(t *testing.T, reqs []subscribeCall, agentID string) {
+func assertSubscribeRequestForIdentity(t *testing.T, reqs []subscribeCall, instanceID string) {
 	t.Helper()
-	expected := []string{"agent:" + agentID, "thread_participant:" + agentID}
+	expected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID}
 	for _, req := range reqs {
 		if reflect.DeepEqual(req.req.GetRooms(), expected) {
-			assertSubscribeIdentity(t, req, agentID)
+			assertSubscribeIdentity(t, req, instanceID)
 			return
 		}
 	}
-	t.Fatalf("expected subscribe request for %s in %+v", agentID, reqs)
+	t.Fatalf("expected subscribe request for instance %s in %+v", instanceID, reqs)
 }
 
-func assertSubscribeIdentity(t *testing.T, req subscribeCall, agentID string) {
+func assertSubscribeIdentity(t *testing.T, req subscribeCall, instanceID string) {
 	t.Helper()
-	if req.identityID != agentID {
-		t.Fatalf("expected subscribe identity %s, got %q", agentID, req.identityID)
+	if req.identityID != instanceID {
+		t.Fatalf("expected subscribe identity %s, got %q", instanceID, req.identityID)
 	}
 }
 
@@ -313,35 +313,35 @@ func (f fakeClientStream) SendMsg(any) error { return nil }
 
 func (f fakeClientStream) RecvMsg(any) error { return nil }
 
-type agentStore struct {
-	mu     sync.RWMutex
-	agents []*agentsv1.Agent
+type instanceStore struct {
+	mu        sync.RWMutex
+	instances []*agentsv1.AgentInstance
 }
 
-func (s *agentStore) list() []*agentsv1.Agent {
+func (s *instanceStore) list() []*agentsv1.AgentInstance {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	agents := make([]*agentsv1.Agent, len(s.agents))
-	copy(agents, s.agents)
-	return agents
+	instances := make([]*agentsv1.AgentInstance, len(s.instances))
+	copy(instances, s.instances)
+	return instances
 }
 
-func (s *agentStore) set(agents []*agentsv1.Agent) {
+func (s *instanceStore) set(instances []*agentsv1.AgentInstance) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.agents = agents
+	s.instances = instances
 }
 
 type subscriberHarness struct {
 	subscriber    *Subscriber
 	cancel        context.CancelFunc
 	done          chan error
-	store         *agentStore
+	store         *instanceStore
 	subscribeReqs chan subscribeCall
 }
 
-func agentFixture(id string) *agentsv1.Agent {
-	return &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: id}}
+func instanceFixture(id string) *agentsv1.AgentInstance {
+	return &agentsv1.AgentInstance{Meta: &agentsv1.EntityMeta{Id: id}}
 }
 
 func TestSubscriberWakesSandboxOnSandboxUpdated(t *testing.T) {

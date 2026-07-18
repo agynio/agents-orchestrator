@@ -22,6 +22,10 @@ on:
         description: Runners ref to deploy from.
         required: false
         default: main
+      threads_ref:
+        description: Threads ref to deploy from.
+        required: false
+        default: main
 
 # Init images are resolved to the newest published release by the run-tests
 # action. Pinning one here opts this workflow out of every fix shipped after it.
@@ -30,6 +34,7 @@ env:
   K8S_RUNNER_REF: main
   AGENTS_REF: main
   RUNNERS_REF: main
+  THREADS_REF: main
 
 permissions:
   contents: read
@@ -64,6 +69,74 @@ jobs:
       - name: Deploy agents from source
         working-directory: .e2e-deps/agents
         run: devspace dev
+
+      - name: Checkout threads
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/threads
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.threads_ref || env.THREADS_REF }}
+          path: .e2e-deps/threads
+
+      - name: Deploy threads from source
+        working-directory: .e2e-deps/threads
+        run: |-
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const marker = '  restore_argocd_sync: &restore_argocd_sync |-\n';
+          if (!text.includes(marker)) {
+            throw new Error('threads DevSpace restore function not found');
+          }
+          if (!text.includes('Skipping ArgoCD auto-sync restore in CI.')) {
+            text = text.replace(marker, `${marker}    if [ -n "\${CI:-}" ]; then\n      echo "Skipping ArgoCD auto-sync restore in CI."\n      exit 0\n    fi\n`);
+          }
+          text = text.replace(
+            'kubectl patch deployment threads-threads -n ${THREADS_NAMESPACE} --type strategic --patch',
+            'kubectl patch deployment "$(kubectl get deployment threads-threads -n ${THREADS_NAMESPACE} >/dev/null 2>&1 && echo threads-threads || echo threads)" -n ${THREADS_NAMESPACE} --type strategic --patch',
+          );
+          fs.writeFileSync(path, text);
+          NODE
+          devspace dev
+
+      - name: Verify threads source deployment
+        run: |-
+          set -euo pipefail
+          selector="app.kubernetes.io/name=threads,app.kubernetes.io/instance=threads"
+          source_pod=""
+          extra_pods=""
+          elapsed=0
+          while [ "${elapsed}" -lt 180 ]; do
+            source_pod="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[?(@.spec.containers[0].image=="ghcr.io/agynio/devcontainer-go:1")]}{.metadata.name}{"\n"}{end}' \
+              | head -n 1)"
+            extra_pods="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}' \
+              | awk '$2 != "ghcr.io/agynio/devcontainer-go:1" { print }')"
+            if [ -n "${source_pod}" ] && [ -z "${extra_pods}" ]; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          if [ -z "${source_pod}" ] || [ -n "${extra_pods}" ]; then
+            if [ -z "${source_pod}" ]; then
+              echo "threads source pod not found" >&2
+            fi
+            if [ -n "${extra_pods}" ]; then
+              echo "non-source threads pods are still active:" >&2
+              printf '%s\n' "${extra_pods}" >&2
+            fi
+            kubectl get application threads -n argocd -o yaml >&2 || true
+            kubectl get deployment threads-threads -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=300 >&2 || true
+            exit 1
+          fi
+          kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
 
       - name: Checkout runners
         uses: actions/checkout@v4
@@ -602,10 +675,10 @@ jobs:
         run: |-
           set +e
           echo "== runners DevSpace log =="
-          for app in runners agents-orchestrator k8s-runner agents; do
+          for app in runners agents-orchestrator k8s-runner agents threads; do
             selector="app.kubernetes.io/name=${app},app.kubernetes.io/instance=${app}"
             echo "== ${app} deployment =="
-            kubectl get deployment "${app}" -n platform -o yaml || true
+            kubectl get deployment "${app}" -n platform -o yaml || kubectl get deployment "${app}-${app}" -n platform -o yaml || true
             echo "== ${app} pods =="
             kubectl get pods -n platform -l "${selector}" -o wide || true
             echo "== ${app} describe =="
@@ -624,6 +697,15 @@ jobs:
         run: |-
           if kubectl get application agents -n argocd >/dev/null 2>&1; then
             kubectl patch application agents -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
+
+      - name: Restore threads ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/threads/devspace.yaml') != '' }}
+        run: |-
+          if kubectl get application threads -n argocd >/dev/null 2>&1; then
+            kubectl patch application threads -n argocd \
               --type merge \
               -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
           fi
