@@ -431,6 +431,7 @@ func identityResponse(id string) *zitimgmtv1.RequestServiceIdentityResponse {
 
 type fakeZitiMgmtClient struct {
 	createAgentIdentity    func(context.Context, *zitimgmtv1.CreateAgentIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error)
+	createSandboxIdentity  func(context.Context, *zitimgmtv1.CreateSandboxIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateSandboxIdentityResponse, error)
 	createAppIdentity      func(context.Context, *zitimgmtv1.CreateAppIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAppIdentityResponse, error)
 	createService          func(context.Context, *zitimgmtv1.CreateServiceRequest, ...grpc.CallOption) (*zitimgmtv1.CreateServiceResponse, error)
 	getService             func(context.Context, *zitimgmtv1.GetServiceRequest, ...grpc.CallOption) (*zitimgmtv1.GetServiceResponse, error)
@@ -454,6 +455,13 @@ type fakeZitiMgmtClient struct {
 func (f *fakeZitiMgmtClient) CreateAgentIdentity(ctx context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
 	if f.createAgentIdentity != nil {
 		return f.createAgentIdentity(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeZitiMgmtClient) CreateSandboxIdentity(ctx context.Context, req *zitimgmtv1.CreateSandboxIdentityRequest, opts ...grpc.CallOption) (*zitimgmtv1.CreateSandboxIdentityResponse, error) {
+	if f.createSandboxIdentity != nil {
+		return f.createSandboxIdentity(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }

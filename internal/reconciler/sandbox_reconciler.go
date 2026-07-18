@@ -11,6 +11,7 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
@@ -412,14 +413,34 @@ func (r *Reconciler) createSandboxIdentity(ctx context.Context, sandboxID, envir
 	if r.zitiMgmt == nil {
 		return nil, nil
 	}
-	return nil, fmt.Errorf(
-		"sandbox workload identity is blocked: agynio/api ziti_management.v1 has no CreateSandboxIdentity RPC for sandbox %s environment %s owner %s workload %s organization %s",
-		sandboxID.String(),
-		environmentID.String(),
-		ownerID.String(),
-		workloadID.String(),
-		organizationID,
-	)
+	resp, err := r.zitiMgmt.CreateSandboxIdentity(ctx, &zitimgmtv1.CreateSandboxIdentityRequest{
+		SandboxId:      sandboxID.String(),
+		OwnerId:        ownerID.String(),
+		EnvironmentId:  environmentID.String(),
+		OrganizationId: organizationID,
+		WorkloadId:     workloadID.String(),
+		Tags: map[string]string{
+			"agyn.sandbox.id":       sandboxID.String(),
+			"agyn.sandbox.owner_id": ownerID.String(),
+			"agyn.environment.id":   environmentID.String(),
+			"agyn.workload.id":      workloadID.String(),
+			"agyn.organization.id":  organizationID,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create ziti identity for sandbox %s workload %s: %w", sandboxID.String(), workloadID.String(), err)
+	}
+	identityID := resp.GetZitiIdentityId()
+	enrollmentJWT := resp.GetEnrollmentJwt()
+	if identityID == "" || enrollmentJWT == "" {
+		var identityPtr *string
+		if identityID != "" {
+			identityPtr = &identityID
+		}
+		r.compensateIdentity(ctx, identityPtr, "missing sandbox identity fields")
+		return nil, fmt.Errorf("ziti identity response missing fields for sandbox %s workload %s", sandboxID.String(), workloadID.String())
+	}
+	return &identityInfo{id: identityID, enrollmentJWT: enrollmentJWT}, nil
 }
 
 func (r *Reconciler) stopSandboxWorkload(ctx context.Context, workload *runnersv1.Workload) error {
