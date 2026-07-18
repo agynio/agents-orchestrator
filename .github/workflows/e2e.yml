@@ -395,15 +395,6 @@ jobs:
           const fs = require('fs');
           const path = 'devspace.yaml';
           let text = fs.readFileSync(path, 'utf8');
-          const original = `  deploy:
-            run: |-
-              disable_argocd_sync
-              patch_deployment
-              kubectl rollout status deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --timeout=120s
-              start_dev --disable-pod-replace k8s-runner-deploy
-              wait_for_k8s_runner
-              echo "Deploy complete. k8s-runner is running from source."
-          `;
           const replacement = `  deploy:
             run: |-
               disable_argocd_sync
@@ -421,10 +412,11 @@ jobs:
               wait_for_k8s_runner
               echo "Deploy complete. k8s-runner is running from source."
           `;
-          if (!text.includes(original)) {
+          const deployPipelinePattern = /(\n  deploy:\n    run: \|-\n)([\s\S]*?)(\n  restore-argocd:\n    run: \|-)/;
+          if (!deployPipelinePattern.test(text)) {
             throw new Error('k8s-runner deploy pipeline block not found');
           }
-          text = text.replace(original, replacement);
+          text = text.replace(deployPipelinePattern, `\n${replacement}$3`);
           fs.writeFileSync(path, text);
           NODE
           devspace run deploy
