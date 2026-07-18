@@ -373,7 +373,61 @@ jobs:
 
       - name: Deploy k8s-runner from source
         working-directory: .e2e-deps/k8s-runner
-        run: devspace run deploy
+        run: |-
+          set -euo pipefail
+          dump_k8s_runner_source_diagnostics() {
+            selector="app.kubernetes.io/name=k8s-runner,app.kubernetes.io/instance=k8s-runner"
+            echo "== k8s-runner source deployment diagnostics ==" >&2
+            kubectl get application k8s-runner -n argocd -o yaml >&2 || true
+            kubectl get deployment k8s-runner -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== k8s-runner current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== k8s-runner previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_k8s_runner_source_diagnostics ERR
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const original = `  deploy:
+            run: |-
+              disable_argocd_sync
+              patch_deployment
+              kubectl rollout status deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --timeout=120s
+              start_dev --disable-pod-replace k8s-runner-deploy
+              wait_for_k8s_runner
+              echo "Deploy complete. k8s-runner is running from source."
+          `;
+          const replacement = `  deploy:
+            run: |-
+              disable_argocd_sync
+              LABEL_SELECTOR="app.kubernetes.io/name=k8s-runner,app.kubernetes.io/instance=k8s-runner"
+              echo "Scaling k8s-runner down before source patch..."
+              kubectl scale deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --replicas=0
+              if [ -n "$(kubectl get pods -n \${K8S_RUNNER_NAMESPACE} -l "\${LABEL_SELECTOR}" -o name)" ]; then
+                kubectl wait --for=delete pod -n \${K8S_RUNNER_NAMESPACE} -l "\${LABEL_SELECTOR}" --timeout=240s
+              fi
+              patch_deployment
+              kubectl patch deployment k8s-runner -n \${K8S_RUNNER_NAMESPACE} --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+              kubectl scale deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --replicas=1
+              kubectl rollout status deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --timeout=240s
+              start_dev --disable-pod-replace k8s-runner-deploy
+              wait_for_k8s_runner
+              echo "Deploy complete. k8s-runner is running from source."
+          `;
+          if (!text.includes(original)) {
+            throw new Error('k8s-runner deploy pipeline block not found');
+          }
+          text = text.replace(original, replacement);
+          fs.writeFileSync(path, text);
+          NODE
+          devspace run deploy
 
       # Validation shim only: source-of-truth workload egress belongs in k8s-runner.
       # Keep this PR check strict while regular E2E consumes main refs.
