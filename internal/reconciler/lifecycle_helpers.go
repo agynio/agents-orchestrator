@@ -54,17 +54,19 @@ func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, 
 	}
 }
 
-func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runnerID string, target AgentThread, assembled *assembler.AssembleResult, zitiIdentityID *string) error {
+func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runnerID string, target AgentInstanceTarget, assembled *assembler.AssembleResult, zitiIdentityID *string) error {
 	status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING
 	zitiIdentityValue := ""
 	if zitiIdentityID != nil {
 		zitiIdentityValue = *zitiIdentityID
 	}
+	agentClassID := target.AgentID.String()
+	agentInstanceID := target.AgentInstanceID.String()
 	_, err := r.runners.CreateWorkload(runnersContext(ctx), &runnersv1.CreateWorkloadRequest{
 		Id:                     workloadID,
 		RunnerId:               runnerID,
-		ThreadId:               target.ThreadID.String(),
-		AgentId:                target.AgentID.String(),
+		ThreadId:               agentInstanceID,
+		AgentId:                agentClassID,
 		OrganizationId:         assembled.OrganizationID,
 		Status:                 status,
 		ZitiIdentityId:         zitiIdentityValue,
@@ -72,13 +74,14 @@ func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runne
 		AllocatedRamBytes:      assembled.AllocatedRAMBytes,
 		Flavor:                 assembled.Flavor,
 		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
-		OwnerId:                target.ThreadID.String(),
-		AgentClassId:           stringPtr(target.AgentID.String()),
+		OwnerId:                agentInstanceID,
+		AgentClassId:           &agentClassID,
+		AgentInstanceId:        &agentInstanceID,
 	})
 	return err
 }
 
-func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRecord, runnerID string, target AgentThread, organizationID string) ([]volumeRecord, error) {
+func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRecord, runnerID string, target AgentInstanceTarget, organizationID string) ([]volumeRecord, error) {
 	if len(records) == 0 {
 		return nil, nil
 	}
@@ -93,18 +96,22 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 		if record.sizeGB == "" {
 			return created, ErrInvalidVolumeRecord
 		}
+		agentClassID := target.AgentID.String()
+		agentInstanceID := target.AgentInstanceID.String()
 		req := &runnersv1.CreateVolumeRequest{
-			Id:             record.id,
-			RunnerId:       runnerID,
-			ThreadId:       target.ThreadID.String(),
-			AgentId:        target.AgentID.String(),
-			OrganizationId: organizationID,
-			VolumeId:       record.volumeID,
-			SizeGb:         record.sizeGB,
-			Status:         runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
-			OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
-			OwnerId:        target.ThreadID.String(),
-			AgentClassId:   stringPtr(target.AgentID.String()),
+			Id:                 record.id,
+			RunnerId:           runnerID,
+			ThreadId:           agentInstanceID,
+			AgentId:            agentClassID,
+			OrganizationId:     organizationID,
+			VolumeId:           record.volumeID,
+			SizeGb:             record.sizeGB,
+			Status:             runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
+			OwnerKind:          runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
+			OwnerId:            agentInstanceID,
+			VolumeDefinitionId: &record.volumeID,
+			AgentClassId:       &agentClassID,
+			AgentInstanceId:    &agentInstanceID,
 		}
 		if _, err := r.runners.CreateVolume(runnersContext(ctx), req); err != nil {
 			if status.Code(err) != codes.AlreadyExists {

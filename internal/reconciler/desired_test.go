@@ -2,7 +2,6 @@ package reconciler
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -17,21 +16,14 @@ import (
 
 type fakeAgentsClient struct {
 	testutil.FakeAgentsClient
-	listAgents func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
-}
-
-func (f *fakeAgentsClient) ListAgents(ctx context.Context, req *agentsv1.ListAgentsRequest, opts ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-	if f.listAgents != nil {
-		return f.listAgents(ctx, req, opts...)
-	}
-	return nil, testutil.ErrNotImplemented
+	listAgents    func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
+	listInstances func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
+	getAgent      func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
+	pauseInstance func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
 }
 
 type fakeThreadsClient struct {
-	getThreads              func(context.Context, *threadsv1.GetThreadsRequest, ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error)
-	getUnackedMessages      func(context.Context, *threadsv1.GetUnackedMessagesRequest, ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error)
-	getUnackedMessageCounts func(context.Context, *threadsv1.GetUnackedMessageCountsRequest, ...grpc.CallOption) (*threadsv1.GetUnackedMessageCountsResponse, error)
-	degradeThread           func(context.Context, *threadsv1.DegradeThreadRequest, ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error)
+	degradeThread func(context.Context, *threadsv1.DegradeThreadRequest, ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error)
 }
 
 func (f *fakeThreadsClient) CreateThread(context.Context, *threadsv1.CreateThreadRequest, ...grpc.CallOption) (*threadsv1.CreateThreadResponse, error) {
@@ -57,36 +49,31 @@ func (f *fakeThreadsClient) SendMessage(context.Context, *threadsv1.SendMessageR
 	return nil, testutil.ErrNotImplemented
 }
 
-func (f *fakeThreadsClient) GetThreads(ctx context.Context, req *threadsv1.GetThreadsRequest, opts ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
-	if f.getThreads != nil {
-		return f.getThreads(ctx, req, opts...)
-	}
+func (f *fakeThreadsClient) GetThreads(context.Context, *threadsv1.GetThreadsRequest, ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
-func (f *fakeThreadsClient) ListOrganizationThreads(ctx context.Context, req *threadsv1.ListOrganizationThreadsRequest, opts ...grpc.CallOption) (*threadsv1.ListOrganizationThreadsResponse, error) {
+
+func (f *fakeThreadsClient) ListOrganizationThreads(context.Context, *threadsv1.ListOrganizationThreadsRequest, ...grpc.CallOption) (*threadsv1.ListOrganizationThreadsResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
+
 func (f *fakeThreadsClient) GetThread(context.Context, *threadsv1.GetThreadRequest, ...grpc.CallOption) (*threadsv1.GetThreadResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
+
 func (f *fakeThreadsClient) GetOrganizationThreads(context.Context, *threadsv1.GetOrganizationThreadsRequest, ...grpc.CallOption) (*threadsv1.GetOrganizationThreadsResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
+
 func (f *fakeThreadsClient) GetMessages(context.Context, *threadsv1.GetMessagesRequest, ...grpc.CallOption) (*threadsv1.GetMessagesResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
 
-func (f *fakeThreadsClient) GetUnackedMessages(ctx context.Context, req *threadsv1.GetUnackedMessagesRequest, opts ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
-	if f.getUnackedMessages != nil {
-		return f.getUnackedMessages(ctx, req, opts...)
-	}
+func (f *fakeThreadsClient) GetUnackedMessages(context.Context, *threadsv1.GetUnackedMessagesRequest, ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
 
-func (f *fakeThreadsClient) GetUnackedMessageCounts(ctx context.Context, req *threadsv1.GetUnackedMessageCountsRequest, opts ...grpc.CallOption) (*threadsv1.GetUnackedMessageCountsResponse, error) {
-	if f.getUnackedMessageCounts != nil {
-		return f.getUnackedMessageCounts(ctx, req, opts...)
-	}
+func (f *fakeThreadsClient) GetUnackedMessageCounts(context.Context, *threadsv1.GetUnackedMessageCountsRequest, ...grpc.CallOption) (*threadsv1.GetUnackedMessageCountsResponse, error) {
 	return nil, testutil.ErrNotImplemented
 }
 
@@ -94,172 +81,78 @@ func (f *fakeThreadsClient) AckMessages(context.Context, *threadsv1.AckMessagesR
 	return nil, testutil.ErrNotImplemented
 }
 
-func TestFetchDesiredSkipsPassiveThreads(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	activeThreadID := uuid.New()
-	passiveThreadID := uuid.New()
-	otherParticipantID := uuid.New()
-	updatedAt := timestamppb.New(time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC))
-
-	agents := &fakeAgentsClient{
-		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
-				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
-			}}, nil
-		},
+func (f *fakeAgentsClient) ListAgents(ctx context.Context, req *agentsv1.ListAgentsRequest, opts ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+	if f.listAgents != nil {
+		return f.listAgents(ctx, req, opts...)
 	}
-
-	threads := &fakeThreadsClient{
-		getUnackedMessages: func(_ context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
-			if req.GetParticipantId() != agentID.String() {
-				return nil, errors.New("unexpected participant id")
-			}
-			return &threadsv1.GetUnackedMessagesResponse{Messages: []*threadsv1.Message{
-				{Id: uuid.NewString(), ThreadId: activeThreadID.String()},
-				{Id: uuid.NewString(), ThreadId: passiveThreadID.String()},
-			}}, nil
-		},
-		getThreads: func(_ context.Context, req *threadsv1.GetThreadsRequest, _ ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
-			if req.GetParticipantId() != agentID.String() {
-				return nil, errors.New("unexpected participant id")
-			}
-			return &threadsv1.GetThreadsResponse{Threads: []*threadsv1.Thread{
-				{
-					Id: activeThreadID.String(),
-					Participants: []*threadsv1.Participant{
-						{Id: agentID.String(), Passive: false},
-						{Id: otherParticipantID.String(), Passive: false},
-					},
-				},
-				{
-					Id: passiveThreadID.String(),
-					Participants: []*threadsv1.Participant{
-						{Id: agentID.String(), Passive: true},
-						{Id: otherParticipantID.String(), Passive: false},
-					},
-				},
-			}}, nil
-		},
-	}
-
-	reconciler := New(Config{Agents: agents, Threads: threads})
-	result, _, _, err := reconciler.fetchDesired(ctx)
-	if err != nil {
-		t.Fatalf("fetch desired: %v", err)
-	}
-
-	expected := []AgentThread{{AgentID: agentID, ThreadID: activeThreadID}}
-	sortAgentThreads(result)
-	sortAgentThreads(expected)
-
-	if !reflect.DeepEqual(result, expected) {
-		t.Fatalf("expected %+v, got %+v", expected, result)
-	}
+	return f.FakeAgentsClient.ListAgents(ctx, req, opts...)
 }
 
-func TestFetchDesiredSkipsDegradedThreads(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	activeThreadID := uuid.New()
-	degradedThreadID := uuid.New()
-	otherParticipantID := uuid.New()
-	updatedAt := timestamppb.New(time.Date(2024, time.January, 4, 0, 0, 0, 0, time.UTC))
-
-	agents := &fakeAgentsClient{
-		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
-				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
-			}}, nil
-		},
+func (f *fakeAgentsClient) ListInstances(ctx context.Context, req *agentsv1.ListInstancesRequest, opts ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
+	if f.listInstances != nil {
+		return f.listInstances(ctx, req, opts...)
 	}
-
-	threads := &fakeThreadsClient{
-		getUnackedMessages: func(_ context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
-			if req.GetParticipantId() != agentID.String() {
-				return nil, errors.New("unexpected participant id")
-			}
-			return &threadsv1.GetUnackedMessagesResponse{Messages: []*threadsv1.Message{
-				{Id: uuid.NewString(), ThreadId: activeThreadID.String()},
-				{Id: uuid.NewString(), ThreadId: degradedThreadID.String()},
-			}}, nil
-		},
-		getThreads: func(_ context.Context, req *threadsv1.GetThreadsRequest, _ ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
-			if req.GetParticipantId() != agentID.String() {
-				return nil, errors.New("unexpected participant id")
-			}
-			return &threadsv1.GetThreadsResponse{Threads: []*threadsv1.Thread{
-				{
-					Id: activeThreadID.String(),
-					Participants: []*threadsv1.Participant{
-						{Id: agentID.String(), Passive: false},
-						{Id: otherParticipantID.String(), Passive: false},
-					},
-				},
-				{
-					Id:     degradedThreadID.String(),
-					Status: threadsv1.ThreadStatus_THREAD_STATUS_DEGRADED,
-					Participants: []*threadsv1.Participant{
-						{Id: agentID.String(), Passive: false},
-						{Id: otherParticipantID.String(), Passive: false},
-					},
-				},
-			}}, nil
-		},
-	}
-
-	reconciler := New(Config{Agents: agents, Threads: threads})
-	result, _, _, err := reconciler.fetchDesired(ctx)
-	if err != nil {
-		t.Fatalf("fetch desired: %v", err)
-	}
-
-	expected := []AgentThread{{AgentID: agentID, ThreadID: activeThreadID}}
-	sortAgentThreads(result)
-	sortAgentThreads(expected)
-
-	if !reflect.DeepEqual(result, expected) {
-		t.Fatalf("expected %+v, got %+v", expected, result)
-	}
+	return f.FakeAgentsClient.ListInstances(ctx, req, opts...)
 }
 
-func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
+func (f *fakeAgentsClient) GetAgent(ctx context.Context, req *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+	if f.getAgent != nil {
+		return f.getAgent(ctx, req, opts...)
+	}
+	return f.FakeAgentsClient.GetAgent(ctx, req, opts...)
+}
+
+func (f *fakeAgentsClient) PauseInstance(ctx context.Context, req *agentsv1.PauseInstanceRequest, opts ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error) {
+	if f.pauseInstance != nil {
+		return f.pauseInstance(ctx, req, opts...)
+	}
+	return f.FakeAgentsClient.PauseInstance(ctx, req, opts...)
+}
+
+func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
-	getThreadsCalled := false
-	updatedAt := timestamppb.New(time.Date(2024, time.January, 2, 0, 0, 0, 0, time.UTC))
-
+	instanceID := uuid.New()
+	orgID := uuid.New()
+	updatedAt := time.Now().UTC()
+	var listReq *agentsv1.ListInstancesRequest
 	agents := &fakeAgentsClient{
-		listAgents: func(_ context.Context, _ *agentsv1.ListAgentsRequest, _ ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{
-				{Meta: &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: updatedAt}},
+		listInstances: func(_ context.Context, req *agentsv1.ListInstancesRequest, _ ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
+			listReq = req
+			return &agentsv1.ListInstancesResponse{Instances: []*agentsv1.AgentInstance{{
+				Meta:           &agentsv1.EntityMeta{Id: instanceID.String()},
+				AgentId:        agentID.String(),
+				OrganizationId: orgID.String(),
+			}}}, nil
+		},
+		getAgent: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				t.Fatalf("unexpected agent id: %s", req.GetId())
+			}
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{
+				Meta:           &agentsv1.EntityMeta{Id: agentID.String(), UpdatedAt: timestamppb.New(updatedAt)},
+				OrganizationId: orgID.String(),
 			}}, nil
 		},
 	}
+	reconciler := &Reconciler{agents: agents, idle: time.Hour}
 
-	threads := &fakeThreadsClient{
-		getUnackedMessages: func(_ context.Context, req *threadsv1.GetUnackedMessagesRequest, _ ...grpc.CallOption) (*threadsv1.GetUnackedMessagesResponse, error) {
-			if req.GetParticipantId() != agentID.String() {
-				return nil, errors.New("unexpected participant id")
-			}
-			return &threadsv1.GetUnackedMessagesResponse{}, nil
-		},
-		getThreads: func(context.Context, *threadsv1.GetThreadsRequest, ...grpc.CallOption) (*threadsv1.GetThreadsResponse, error) {
-			getThreadsCalled = true
-			return nil, errors.New("unexpected get threads")
-		},
-	}
-
-	reconciler := New(Config{Agents: agents, Threads: threads})
-	result, _, _, err := reconciler.fetchDesired(ctx)
+	desired, idleTimeouts, agentUpdatedAt, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
 	}
-	if len(result) != 0 {
-		t.Fatalf("expected no desired workloads, got %+v", result)
+	expected := []AgentInstanceTarget{{AgentID: agentID, AgentInstanceID: instanceID, OrganizationID: orgID}}
+	if !reflect.DeepEqual(desired, expected) {
+		t.Fatalf("unexpected desired: %#v", desired)
 	}
-	if getThreadsCalled {
-		t.Fatalf("expected no get threads call")
+	if listReq == nil || listReq.GetHasUnacked() != true || !reflect.DeepEqual(listReq.GetStateIn(), []agentsv1.AgentInstanceState{agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_ACTIVE}) {
+		t.Fatalf("unexpected list instances request: %#v", listReq)
+	}
+	if idleTimeouts[agentID] != time.Hour {
+		t.Fatalf("unexpected idle timeout: %v", idleTimeouts[agentID])
+	}
+	if !agentUpdatedAt[agentID].Equal(updatedAt) {
+		t.Fatalf("unexpected updated_at: %v", agentUpdatedAt[agentID])
 	}
 }
 

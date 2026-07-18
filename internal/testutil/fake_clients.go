@@ -28,6 +28,8 @@ type FakeAgentsClient struct {
 	ListSandboxesFunc                  func(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
 	UpdateSandboxRuntimeStateFunc      func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)
 	DeleteSandboxFunc                  func(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error)
+	ListInstancesFunc                  func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
+	PauseInstanceFunc                  func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
 }
 
 func (f *FakeAgentsClient) CreateAgent(context.Context, *agentsv1.CreateAgentRequest, ...grpc.CallOption) (*agentsv1.CreateAgentResponse, error) {
@@ -95,6 +97,110 @@ func (f *FakeAgentsClient) ListAgentRoles(context.Context, *agentsv1.ListAgentRo
 }
 
 func (f *FakeAgentsClient) ListMyAgentRoles(context.Context, *agentsv1.ListMyAgentRolesRequest, ...grpc.CallOption) (*agentsv1.ListMyAgentRolesResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) CreateEnvironment(context.Context, *agentsv1.CreateEnvironmentRequest, ...grpc.CallOption) (*agentsv1.CreateEnvironmentResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) GetEnvironment(ctx context.Context, req *agentsv1.GetEnvironmentRequest, opts ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+	if f.GetEnvironmentFunc != nil {
+		return f.GetEnvironmentFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) UpdateEnvironment(context.Context, *agentsv1.UpdateEnvironmentRequest, ...grpc.CallOption) (*agentsv1.UpdateEnvironmentResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) DeleteEnvironment(context.Context, *agentsv1.DeleteEnvironmentRequest, ...grpc.CallOption) (*agentsv1.DeleteEnvironmentResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) ListEnvironments(context.Context, *agentsv1.ListEnvironmentsRequest, ...grpc.CallOption) (*agentsv1.ListEnvironmentsResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) CreateSandbox(context.Context, *agentsv1.CreateSandboxRequest, ...grpc.CallOption) (*agentsv1.CreateSandboxResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) GetSandbox(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) ListSandboxes(ctx context.Context, req *agentsv1.ListSandboxesRequest, opts ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error) {
+	if f.ListSandboxesFunc != nil {
+		return f.ListSandboxesFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) StopSandbox(context.Context, *agentsv1.StopSandboxRequest, ...grpc.CallOption) (*agentsv1.StopSandboxResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) DeleteSandbox(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) EnsureSandboxRunning(context.Context, *agentsv1.EnsureSandboxRunningRequest, ...grpc.CallOption) (*agentsv1.EnsureSandboxRunningResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) UpdateSandboxLastSession(context.Context, *agentsv1.UpdateSandboxLastSessionRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxLastSessionResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) CreateInstance(context.Context, *agentsv1.CreateInstanceRequest, ...grpc.CallOption) (*agentsv1.CreateInstanceResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) GetInstance(context.Context, *agentsv1.GetInstanceRequest, ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) ListInstances(ctx context.Context, req *agentsv1.ListInstancesRequest, opts ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
+	if f.ListInstancesFunc != nil {
+		return f.ListInstancesFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) PauseInstance(ctx context.Context, req *agentsv1.PauseInstanceRequest, opts ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error) {
+	if f.PauseInstanceFunc != nil {
+		return f.PauseInstanceFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) ResumeInstance(context.Context, *agentsv1.ResumeInstanceRequest, ...grpc.CallOption) (*agentsv1.ResumeInstanceResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) DeleteInstance(context.Context, *agentsv1.DeleteInstanceRequest, ...grpc.CallOption) (*agentsv1.DeleteInstanceResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) WriteInboxItem(context.Context, *agentsv1.WriteInboxItemRequest, ...grpc.CallOption) (*agentsv1.WriteInboxItemResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) FanoutInboxItem(context.Context, *agentsv1.FanoutInboxItemRequest, ...grpc.CallOption) (*agentsv1.FanoutInboxItemResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) GetUnackedInboxItems(context.Context, *agentsv1.GetUnackedInboxItemsRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) AckInboxItems(context.Context, *agentsv1.AckInboxItemsRequest, ...grpc.CallOption) (*agentsv1.AckInboxItemsResponse, error) {
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) GetUnackedInboxCount(context.Context, *agentsv1.GetUnackedInboxCountRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxCountResponse, error) {
 	return nil, ErrNotImplemented
 }
 

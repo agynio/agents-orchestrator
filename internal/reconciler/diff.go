@@ -10,7 +10,7 @@ import (
 )
 
 type Actions struct {
-	ToStart []AgentThread
+	ToStart []AgentInstanceTarget
 	ToStop  []*runnersv1.Workload
 }
 
@@ -19,19 +19,15 @@ type workloadEntry struct {
 	activityAt time.Time
 }
 
-func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTimeouts map[uuid.UUID]time.Duration, fallbackIdleTimeout time.Duration, now time.Time) (Actions, error) {
-	desiredSet := make(map[AgentThread]struct{}, len(desired))
+func ComputeActions(desired []AgentInstanceTarget, actual []*runnersv1.Workload, idleTimeouts map[uuid.UUID]time.Duration, fallbackIdleTimeout time.Duration, now time.Time) (Actions, error) {
+	desiredSet := make(map[uuid.UUID]AgentInstanceTarget, len(desired))
 	for _, item := range desired {
-		desiredSet[item] = struct{}{}
+		desiredSet[item.AgentInstanceID] = item
 	}
-	actualSet := make(map[AgentThread]workloadEntry, len(actual))
+	actualSet := make(map[uuid.UUID]workloadEntry, len(actual))
 	var duplicates []*runnersv1.Workload
 	for _, workload := range actual {
-		agentID, err := uuidutil.ParseUUID(workload.GetAgentId(), "workload.agent_id")
-		if err != nil {
-			return Actions{}, err
-		}
-		threadID, err := uuidutil.ParseUUID(workload.GetThreadId(), "workload.thread_id")
+		agentInstanceID, err := uuidutil.ParseUUID(workloadAgentInstanceID(workload), "workload.agent_instance_id")
 		if err != nil {
 			return Actions{}, err
 		}
@@ -39,34 +35,37 @@ func ComputeActions(desired []AgentThread, actual []*runnersv1.Workload, idleTim
 		if err != nil {
 			return Actions{}, err
 		}
-		key := AgentThread{AgentID: agentID, ThreadID: threadID}
 		entry := workloadEntry{workload: workload, activityAt: activityAt}
-		if existing, ok := actualSet[key]; ok {
+		if existing, ok := actualSet[agentInstanceID]; ok {
 			if entry.activityAt.Before(existing.activityAt) {
 				duplicates = append(duplicates, existing.workload)
-				actualSet[key] = entry
+				actualSet[agentInstanceID] = entry
 			} else {
 				duplicates = append(duplicates, entry.workload)
 			}
 			continue
 		}
-		actualSet[key] = entry
+		actualSet[agentInstanceID] = entry
 	}
 	result := Actions{ToStop: duplicates}
 	for _, item := range desired {
-		if _, ok := actualSet[item]; !ok {
+		if _, ok := actualSet[item.AgentInstanceID]; !ok {
 			result.ToStart = append(result.ToStart, item)
 		}
 	}
-	for key, entry := range actualSet {
-		if _, ok := desiredSet[key]; ok {
+	for agentInstanceID, entry := range actualSet {
+		if _, ok := desiredSet[agentInstanceID]; ok {
 			continue
 		}
 		if entry.workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING {
 			result.ToStop = append(result.ToStop, entry.workload)
 			continue
 		}
-		idleTimeout, ok := idleTimeouts[key.AgentID]
+		agentID, err := uuidutil.ParseUUID(workloadAgentClassID(entry.workload), "workload.agent_class_id")
+		if err != nil {
+			return Actions{}, err
+		}
+		idleTimeout, ok := idleTimeouts[agentID]
 		if !ok {
 			idleTimeout = fallbackIdleTimeout
 		}

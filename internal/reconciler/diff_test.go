@@ -46,7 +46,7 @@ func TestComputeActions(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		desired  []AgentThread
+		desired  []AgentInstanceTarget
 		actual   []*runnersv1.Workload
 		expected Actions
 	}{
@@ -58,10 +58,10 @@ func TestComputeActions(t *testing.T) {
 		},
 		{
 			name:    "start missing",
-			desired: []AgentThread{{AgentID: agent1, ThreadID: thread1}},
+			desired: []AgentInstanceTarget{{AgentID: agent1, AgentInstanceID: thread1}},
 			actual:  nil,
 			expected: Actions{
-				ToStart: []AgentThread{{AgentID: agent1, ThreadID: thread1}},
+				ToStart: []AgentInstanceTarget{{AgentID: agent1, AgentInstanceID: thread1}},
 			},
 		},
 		{
@@ -98,7 +98,7 @@ func TestComputeActions(t *testing.T) {
 		},
 		{
 			name:    "stop duplicates with desired",
-			desired: []AgentThread{{AgentID: agent1, ThreadID: thread1}},
+			desired: []AgentInstanceTarget{{AgentID: agent1, AgentInstanceID: thread1}},
 			actual:  []*runnersv1.Workload{workloadDuplicateNew, workloadDuplicateOld},
 			expected: Actions{
 				ToStop: []*runnersv1.Workload{workloadDuplicateNew},
@@ -113,18 +113,18 @@ func TestComputeActions(t *testing.T) {
 		},
 		{
 			name:    "match",
-			desired: []AgentThread{{AgentID: agent1, ThreadID: thread1}},
+			desired: []AgentInstanceTarget{{AgentID: agent1, AgentInstanceID: thread1}},
 			actual:  []*runnersv1.Workload{workload1},
 		},
 		{
 			name: "mixed",
-			desired: []AgentThread{
-				{AgentID: agent1, ThreadID: thread1},
-				{AgentID: agent2, ThreadID: thread2},
+			desired: []AgentInstanceTarget{
+				{AgentID: agent1, AgentInstanceID: thread1},
+				{AgentID: agent2, AgentInstanceID: thread2},
 			},
 			actual: []*runnersv1.Workload{workload3, workload2},
 			expected: Actions{
-				ToStart: []AgentThread{{AgentID: agent2, ThreadID: thread2}},
+				ToStart: []AgentInstanceTarget{{AgentID: agent2, AgentInstanceID: thread2}},
 				ToStop:  []*runnersv1.Workload{workload2},
 			},
 		},
@@ -136,9 +136,9 @@ func TestComputeActions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("compute actions: %v", err)
 			}
-			sortAgentThreads(result.ToStart)
+			sortAgentInstanceTargets(result.ToStart)
 			sortWorkloads(result.ToStop)
-			sortAgentThreads(testCase.expected.ToStart)
+			sortAgentInstanceTargets(testCase.expected.ToStart)
 			sortWorkloads(testCase.expected.ToStop)
 			if !reflect.DeepEqual(result, testCase.expected) {
 				t.Fatalf("expected %+v, got %+v", testCase.expected, result)
@@ -147,14 +147,15 @@ func TestComputeActions(t *testing.T) {
 	}
 }
 
-func makeWorkload(agentID, threadID uuid.UUID, createdAt time.Time, lastActivityAt *time.Time) *runnersv1.Workload {
+func makeWorkload(agentID, agentInstanceID uuid.UUID, createdAt time.Time, lastActivityAt *time.Time) *runnersv1.Workload {
 	workload := &runnersv1.Workload{
 		Meta: &runnersv1.EntityMeta{
 			Id:        uuid.NewString(),
 			CreatedAt: timestamppb.New(createdAt),
 		},
-		AgentId:  agentID.String(),
-		ThreadId: threadID.String(),
+		AgentId:         agentID.String(),
+		AgentClassId:    stringPtr(agentID.String()),
+		AgentInstanceId: stringPtr(agentInstanceID.String()),
 	}
 	if lastActivityAt != nil {
 		workload.LastActivityAt = timestamppb.New(*lastActivityAt)
@@ -162,10 +163,10 @@ func makeWorkload(agentID, threadID uuid.UUID, createdAt time.Time, lastActivity
 	return workload
 }
 
-func sortAgentThreads(values []AgentThread) {
+func sortAgentInstanceTargets(values []AgentInstanceTarget) {
 	sort.Slice(values, func(i, j int) bool {
 		if values[i].AgentID == values[j].AgentID {
-			return values[i].ThreadID.String() < values[j].ThreadID.String()
+			return values[i].AgentInstanceID.String() < values[j].AgentInstanceID.String()
 		}
 		return values[i].AgentID.String() < values[j].AgentID.String()
 	})

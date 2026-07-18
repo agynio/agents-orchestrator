@@ -152,9 +152,9 @@ func TestAssemblerMainContainer(t *testing.T) {
 		t.Fatal("expected labels in request additional properties")
 	}
 	expectedLabels := map[string]string{
-		LabelKeyPrefix + LabelManagedBy: ManagedByValue,
-		LabelKeyPrefix + LabelAgentID:   agentID.String(),
-		LabelKeyPrefix + LabelThreadID:  threadID.String(),
+		LabelKeyPrefix + LabelManagedBy:  ManagedByValue,
+		LabelKeyPrefix + LabelAgentID:    agentID.String(),
+		LabelKeyPrefix + LabelInstanceID: threadID.String(),
 	}
 	if !equalStringMap(labels, expectedLabels) {
 		t.Fatalf("expected labels %+v, got %+v", expectedLabels, labels)
@@ -168,7 +168,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_ROLE", agent.GetRole())
 	assertEnv(t, envs, "AGENT_MODEL", agent.GetModel())
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
-	assertEnv(t, envs, "THREAD_ID", threadID.String())
+	assertEnv(t, envs, "AGENT_INSTANCE_ID", threadID.String())
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)

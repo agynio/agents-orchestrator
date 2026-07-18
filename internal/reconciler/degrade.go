@@ -8,9 +8,12 @@ import (
 )
 
 const (
-	degradeReasonRunnerDeprovisioned = "runner_deprovisioned"
-	degradeReasonVolumeLost          = "volume_lost"
-	degradeReasonStartFailures       = "agent_start_failures_exhausted"
+	degradeReasonRunnerDeprovisioned  = "runner_deprovisioned"
+	degradeReasonVolumeLost           = "volume_lost"
+	degradeReasonStartFailures        = "agent_start_failures_exhausted"
+	pauseReasonRunnerDeprovisioned    = "runner_deprovisioned"
+	pauseReasonVolumeLost             = "volume_lost"
+	pauseReasonStartFailuresExhausted = "start_failures_exhausted"
 )
 
 type degradeTracker struct {

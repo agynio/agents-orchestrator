@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
-	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -18,27 +18,27 @@ import (
 
 func TestShouldStartWorkloadStripsRunnerIdentityContext(t *testing.T) {
 	ctx := context.Background()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	agentID := uuid.MustParse(testAgentID)
 	listCalls := 0
 
 	runners := &fakeRunnersClient{
-		listWorkloadsByThread: func(ctx context.Context, req *runnersv1.ListWorkloadsByThreadRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsByThreadResponse, error) {
+		listWorkloadsByAgentInstance: func(ctx context.Context, req *runnersv1.ListWorkloadsByAgentInstanceRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsByAgentInstanceResponse, error) {
 			listCalls++
-			if req.GetThreadId() != threadID.String() {
-				return nil, errors.New("unexpected thread id")
+			if req.GetAgentInstanceId() != agentInstanceID.String() {
+				return nil, errors.New("unexpected agent instance id")
 			}
 			metadataValues, _ := metadata.FromOutgoingContext(ctx)
 			identityValues := metadataValues.Get(identityMetadataKey)
 			if len(identityValues) != 0 {
 				return nil, fmt.Errorf("unexpected identity metadata: %v", identityValues)
 			}
-			return &runnersv1.ListWorkloadsByThreadResponse{}, nil
+			return &runnersv1.ListWorkloadsByAgentInstanceResponse{}, nil
 		},
 	}
 
 	reconciler := newTestReconciler(Config{Runners: runners})
-	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, time.Now().UTC(), map[uuid.UUID]time.Time{}, nil)
+	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, time.Now().UTC(), map[uuid.UUID]time.Time{})
 	if err != nil {
 		t.Fatalf("should start workload: %v", err)
 	}
@@ -54,20 +54,19 @@ func TestShouldStartWorkloadSkipsActiveWorkloads(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	agentID := uuid.New()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	fixture := startDecisionFixture{
-		t:        t,
-		agentID:  agentID,
-		threadID: threadID,
+		t:               t,
+		agentInstanceID: agentInstanceID,
 		active: []*runnersv1.Workload{
 			makeDecisionWorkload("active", runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, now.Add(-2*time.Minute), time.Time{}),
 		},
 	}
 
-	runners := &fakeRunnersClient{listWorkloadsByThread: fixture.list}
+	runners := &fakeRunnersClient{listWorkloadsByAgentInstance: fixture.list}
 	reconciler := newTestReconciler(Config{Runners: runners})
 
-	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, now, map[uuid.UUID]time.Time{agentID: now.Add(-time.Hour)}, nil)
+	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, now, map[uuid.UUID]time.Time{agentID: now.Add(-time.Hour)})
 	if err != nil {
 		t.Fatalf("should start workload: %v", err)
 	}
@@ -80,20 +79,19 @@ func TestShouldStartWorkloadAllowsStoppedOrEmpty(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	agentID := uuid.New()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	fixture := startDecisionFixture{
-		t:        t,
-		agentID:  agentID,
-		threadID: threadID,
+		t:               t,
+		agentInstanceID: agentInstanceID,
 		latest: []*runnersv1.Workload{
 			makeDecisionWorkload("stopped", runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED, now.Add(-time.Hour), now.Add(-time.Hour)),
 		},
 	}
 
-	runners := &fakeRunnersClient{listWorkloadsByThread: fixture.list}
+	runners := &fakeRunnersClient{listWorkloadsByAgentInstance: fixture.list}
 	reconciler := newTestReconciler(Config{Runners: runners})
 
-	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, now, map[uuid.UUID]time.Time{}, nil)
+	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, now, map[uuid.UUID]time.Time{})
 	if err != nil {
 		t.Fatalf("should start workload: %v", err)
 	}
@@ -106,21 +104,20 @@ func TestShouldStartWorkloadRetriesAfterAgentUpdate(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	agentID := uuid.New()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	removedAt := now.Add(-5 * time.Minute)
 	fixture := startDecisionFixture{
-		t:        t,
-		agentID:  agentID,
-		threadID: threadID,
+		t:               t,
+		agentInstanceID: agentInstanceID,
 		latest: []*runnersv1.Workload{
 			makeDecisionWorkload("failed", runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED, removedAt.Add(-time.Minute), removedAt),
 		},
 	}
 
-	runners := &fakeRunnersClient{listWorkloadsByThread: fixture.list}
+	runners := &fakeRunnersClient{listWorkloadsByAgentInstance: fixture.list}
 	reconciler := newTestReconciler(Config{Runners: runners})
 
-	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, now, map[uuid.UUID]time.Time{agentID: removedAt.Add(time.Minute)}, nil)
+	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, now, map[uuid.UUID]time.Time{agentID: removedAt.Add(time.Minute)})
 	if err != nil {
 		t.Fatalf("should start workload: %v", err)
 	}
@@ -133,7 +130,7 @@ func TestShouldStartWorkloadBackoffSchedule(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2024, 10, 10, 9, 0, 0, 0, time.UTC)
 	agentID := uuid.New()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	updatedAt := base.Add(-24 * time.Hour)
 
 	for failures := 1; failures <= 6; failures++ {
@@ -154,17 +151,16 @@ func TestShouldStartWorkloadBackoffSchedule(t *testing.T) {
 			t.Run(fmt.Sprintf("failures-%d-%s", failures, delta.name), func(t *testing.T) {
 				failuresList := makeDecisionFailures(failures, delta.removedAt)
 				fixture := startDecisionFixture{
-					t:        t,
-					agentID:  agentID,
-					threadID: threadID,
-					latest:   []*runnersv1.Workload{failuresList[0]},
-					failed:   failuresList,
+					t:               t,
+					agentInstanceID: agentInstanceID,
+					latest:          []*runnersv1.Workload{failuresList[0]},
+					failed:          failuresList,
 				}
 
-				runners := &fakeRunnersClient{listWorkloadsByThread: fixture.list}
+				runners := &fakeRunnersClient{listWorkloadsByAgentInstance: fixture.list}
 				reconciler := newTestReconciler(Config{Runners: runners})
 
-				shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, base, map[uuid.UUID]time.Time{agentID: updatedAt}, nil)
+				shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, base, map[uuid.UUID]time.Time{agentID: updatedAt})
 				if err != nil {
 					t.Fatalf("should start workload: %v", err)
 				}
@@ -180,15 +176,14 @@ func TestShouldStartWorkloadResetsOnLastStopped(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2024, 10, 10, 9, 0, 0, 0, time.UTC)
 	agentID := uuid.New()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	updatedAt := base
 	lastStoppedAt := base.Add(2 * time.Minute)
 	latestRemovedAt := base.Add(4*time.Minute + 15*time.Second)
 
 	fixture := startDecisionFixture{
-		t:        t,
-		agentID:  agentID,
-		threadID: threadID,
+		t:               t,
+		agentInstanceID: agentInstanceID,
 		latest: []*runnersv1.Workload{
 			makeDecisionWorkload("latest", runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED, latestRemovedAt.Add(-time.Minute), latestRemovedAt),
 		},
@@ -201,10 +196,10 @@ func TestShouldStartWorkloadResetsOnLastStopped(t *testing.T) {
 		},
 	}
 
-	runners := &fakeRunnersClient{listWorkloadsByThread: fixture.list}
+	runners := &fakeRunnersClient{listWorkloadsByAgentInstance: fixture.list}
 	reconciler := newTestReconciler(Config{Runners: runners})
 
-	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, base.Add(4*time.Minute+30*time.Second), map[uuid.UUID]time.Time{agentID: updatedAt}, nil)
+	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, base.Add(4*time.Minute+30*time.Second), map[uuid.UUID]time.Time{agentID: updatedAt})
 	if err != nil {
 		t.Fatalf("should start workload: %v", err)
 	}
@@ -213,67 +208,62 @@ func TestShouldStartWorkloadResetsOnLastStopped(t *testing.T) {
 	}
 }
 
-func TestShouldStartWorkloadDegradesAfterMaxFailures(t *testing.T) {
+func TestShouldStartWorkloadPausesAfterMaxFailures(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	agentID := uuid.New()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 
-	var degradedRequest *threadsv1.DegradeThreadRequest
-	threads := &fakeThreadsClient{
-		degradeThread: func(_ context.Context, req *threadsv1.DegradeThreadRequest, _ ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error) {
-			degradedRequest = req
-			return &threadsv1.DegradeThreadResponse{}, nil
+	var pauseRequest *agentsv1.PauseInstanceRequest
+	agents := &fakeAgentsClient{
+		pauseInstance: func(_ context.Context, req *agentsv1.PauseInstanceRequest, _ ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error) {
+			pauseRequest = req
+			return &agentsv1.PauseInstanceResponse{}, nil
 		},
 	}
 
 	failures := makeDecisionFailures(maxStartAttempts, now.Add(-2*time.Minute))
 	fixture := startDecisionFixture{
-		t:        t,
-		agentID:  agentID,
-		threadID: threadID,
-		latest:   []*runnersv1.Workload{failures[0]},
-		failed:   failures,
+		t:               t,
+		agentInstanceID: agentInstanceID,
+		latest:          []*runnersv1.Workload{failures[0]},
+		failed:          failures,
 	}
 
-	runners := &fakeRunnersClient{listWorkloadsByThread: fixture.list}
-	reconciler := newTestReconciler(Config{Runners: runners, Threads: threads})
+	runners := &fakeRunnersClient{listWorkloadsByAgentInstance: fixture.list}
+	reconciler := newTestReconciler(Config{Runners: runners, Agents: agents})
 
-	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, now, map[uuid.UUID]time.Time{agentID: now.Add(-time.Hour)}, newDegradeTracker())
+	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, now, map[uuid.UUID]time.Time{agentID: now.Add(-time.Hour)})
 	if err != nil {
 		t.Fatalf("should start workload: %v", err)
 	}
 	if shouldStart {
 		t.Fatal("expected start decision to be blocked")
 	}
-	if degradedRequest == nil {
-		t.Fatal("expected degraded thread request")
+	if pauseRequest == nil {
+		t.Fatal("expected pause instance request")
 	}
-	if degradedRequest.GetThreadId() != threadID.String() {
-		t.Fatalf("unexpected degraded thread id: %s", degradedRequest.GetThreadId())
+	if pauseRequest.GetId() != agentInstanceID.String() {
+		t.Fatalf("unexpected paused instance id: %s", pauseRequest.GetId())
 	}
-	if degradedRequest.GetReason() != degradeReasonStartFailures {
-		t.Fatalf("unexpected degraded reason: %s", degradedRequest.GetReason())
+	if pauseRequest.GetPauseReason() != pauseReasonStartFailuresExhausted {
+		t.Fatalf("unexpected pause reason: %s", pauseRequest.GetPauseReason())
 	}
 }
 
 type startDecisionFixture struct {
-	t        *testing.T
-	agentID  uuid.UUID
-	threadID uuid.UUID
-	active   []*runnersv1.Workload
-	latest   []*runnersv1.Workload
-	stopped  []*runnersv1.Workload
-	failed   []*runnersv1.Workload
+	t               *testing.T
+	agentInstanceID uuid.UUID
+	active          []*runnersv1.Workload
+	latest          []*runnersv1.Workload
+	stopped         []*runnersv1.Workload
+	failed          []*runnersv1.Workload
 }
 
-func (f startDecisionFixture) list(_ context.Context, req *runnersv1.ListWorkloadsByThreadRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsByThreadResponse, error) {
+func (f startDecisionFixture) list(_ context.Context, req *runnersv1.ListWorkloadsByAgentInstanceRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsByAgentInstanceResponse, error) {
 	f.t.Helper()
-	if req.GetThreadId() != f.threadID.String() {
-		return nil, fmt.Errorf("unexpected thread id: %s", req.GetThreadId())
-	}
-	if req.GetAgentId() != f.agentID.String() {
-		return nil, fmt.Errorf("unexpected agent id: %s", req.GetAgentId())
+	if req.GetAgentInstanceId() != f.agentInstanceID.String() {
+		return nil, fmt.Errorf("unexpected agent instance id: %s", req.GetAgentInstanceId())
 	}
 	statuses := req.GetStatuses()
 	switch {
@@ -282,20 +272,20 @@ func (f startDecisionFixture) list(_ context.Context, req *runnersv1.ListWorkloa
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
 	}):
-		return &runnersv1.ListWorkloadsByThreadResponse{Workloads: f.active}, nil
+		return &runnersv1.ListWorkloadsByAgentInstanceResponse{Workloads: f.active}, nil
 	case matchStatuses(statuses, []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 	}):
-		return &runnersv1.ListWorkloadsByThreadResponse{Workloads: f.latest}, nil
+		return &runnersv1.ListWorkloadsByAgentInstanceResponse{Workloads: f.latest}, nil
 	case matchStatuses(statuses, []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
 	}):
-		return &runnersv1.ListWorkloadsByThreadResponse{Workloads: f.stopped}, nil
+		return &runnersv1.ListWorkloadsByAgentInstanceResponse{Workloads: f.stopped}, nil
 	case matchStatuses(statuses, []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 	}):
-		return &runnersv1.ListWorkloadsByThreadResponse{Workloads: f.failed}, nil
+		return &runnersv1.ListWorkloadsByAgentInstanceResponse{Workloads: f.failed}, nil
 	default:
 		return nil, fmt.Errorf("unexpected statuses: %v", statuses)
 	}
