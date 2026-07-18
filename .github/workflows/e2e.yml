@@ -18,6 +18,10 @@ on:
         description: Agents ref to deploy from.
         required: false
         default: main
+      runners_ref:
+        description: Runners ref to deploy from.
+        required: false
+        default: main
 
 # Init images are resolved to the newest published release by the run-tests
 # action. Pinning one here opts this workflow out of every fix shipped after it.
@@ -25,6 +29,7 @@ env:
   BOOTSTRAP_REF: main
   K8S_RUNNER_REF: main
   AGENTS_REF: main
+  RUNNERS_REF: main
 
 permissions:
   contents: read
@@ -58,6 +63,27 @@ jobs:
 
       - name: Deploy agents from source
         working-directory: .e2e-deps/agents
+        run: devspace dev
+
+      - name: Checkout runners
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/runners
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.runners_ref || env.RUNNERS_REF }}
+          path: .e2e-deps/runners
+
+      - name: Install gRPC health probe
+        run: |-
+          set -euo pipefail
+          version="v0.4.38"
+          curl -fsSL --retry 3 --retry-delay 5 \
+            -o /tmp/grpc_health_probe \
+            "https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${version}/grpc_health_probe-linux-amd64"
+          sudo install -c -m 0755 /tmp/grpc_health_probe /usr/local/bin/grpc_health_probe
+          grpc_health_probe -version
+
+      - name: Deploy runners from source
+        working-directory: .e2e-deps/runners
         run: devspace dev
 
       - name: Checkout k8s-runner
@@ -529,6 +555,11 @@ jobs:
               --type merge \
               -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
           fi
+
+      - name: Restore runners ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/runners/devspace.yaml') != '' }}
+        working-directory: .e2e-deps/runners
+        run: devspace run-pipeline restore-argocd
 
       - name: Restore k8s-runner ArgoCD sync
         if: ${{ always() && hashFiles('.e2e-deps/k8s-runner/devspace.yaml') != '' }}
