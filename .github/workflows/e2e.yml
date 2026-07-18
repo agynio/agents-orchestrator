@@ -22,6 +22,10 @@ on:
         description: Runners ref to deploy from.
         required: false
         default: main
+      identity_ref:
+        description: Identity ref to deploy from.
+        required: false
+        default: main
       threads_ref:
         description: Threads ref to deploy from.
         required: false
@@ -34,6 +38,7 @@ env:
   K8S_RUNNER_REF: main
   AGENTS_REF: main
   RUNNERS_REF: main
+  IDENTITY_REF: main
   THREADS_REF: main
 
 permissions:
@@ -69,6 +74,93 @@ jobs:
       - name: Deploy agents from source
         working-directory: .e2e-deps/agents
         run: devspace dev
+
+      - name: Checkout identity
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/identity
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.identity_ref || env.IDENTITY_REF }}
+          path: .e2e-deps/identity
+
+      - name: Deploy identity from source
+        working-directory: .e2e-deps/identity
+        run: |-
+          set -euo pipefail
+          dump_identity_source_diagnostics() {
+            selector="app.kubernetes.io/name=identity,app.kubernetes.io/instance=identity"
+            echo "== identity source deployment diagnostics ==" >&2
+            kubectl get application identity -n argocd -o yaml >&2 || true
+            kubectl get deployment identity -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== identity current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== identity previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_identity_source_diagnostics ERR
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const marker = '  restore_argocd_sync: &restore_argocd_sync |-\n';
+          if (!text.includes(marker)) {
+            throw new Error('identity DevSpace restore function not found');
+          }
+          if (!text.includes('Skipping ArgoCD auto-sync restore in CI.')) {
+            text = text.replace(marker, `${marker}    if [ -n "\${CI:-}" ]; then\n      echo "Skipping ArgoCD auto-sync restore in CI."\n      exit 0\n    fi\n`);
+          }
+          text = text.replace(
+            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout" >&2; exit 1; }',
+            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source binary" >&2; ls -la /opt/app/data/dist >&2 || true; exit 1; }',
+          );
+          fs.writeFileSync(path, text);
+          NODE
+          mkdir -p dist
+          buf generate buf.build/agynio/api --path agynio/api/identity/v1 --path agynio/api/authorization/v1
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/identity-devspace ./cmd/identity-service
+          devspace dev
+
+      - name: Verify identity source deployment
+        run: |-
+          set -euo pipefail
+          selector="app.kubernetes.io/name=identity,app.kubernetes.io/instance=identity"
+          source_pod=""
+          extra_pods=""
+          elapsed=0
+          while [ "${elapsed}" -lt 180 ]; do
+            source_pod="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[?(@.spec.containers[0].image=="ghcr.io/agynio/devcontainer-go:1")]}{.metadata.name}{"\n"}{end}' \
+              | head -n 1)"
+            extra_pods="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}' \
+              | awk '$2 != "ghcr.io/agynio/devcontainer-go:1" { print }')"
+            if [ -n "${source_pod}" ] && [ -z "${extra_pods}" ]; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          if [ -z "${source_pod}" ] || [ -n "${extra_pods}" ]; then
+            if [ -z "${source_pod}" ]; then
+              echo "identity source pod not found" >&2
+            fi
+            if [ -n "${extra_pods}" ]; then
+              echo "non-source identity pods are still active:" >&2
+              printf '%s\n' "${extra_pods}" >&2
+            fi
+            kubectl get application identity -n argocd -o yaml >&2 || true
+            kubectl get deployment identity -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=300 >&2 || true
+            exit 1
+          fi
+          kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
 
       - name: Checkout threads
         uses: actions/checkout@v4
@@ -732,7 +824,7 @@ jobs:
         run: |-
           set +e
           echo "== runners DevSpace log =="
-          for app in runners agents-orchestrator k8s-runner agents threads; do
+          for app in runners agents-orchestrator k8s-runner agents identity threads; do
             selector="app.kubernetes.io/name=${app},app.kubernetes.io/instance=${app}"
             echo "== ${app} deployment =="
             kubectl get deployment "${app}" -n platform -o yaml || kubectl get deployment "${app}-${app}" -n platform -o yaml || true
@@ -763,6 +855,15 @@ jobs:
         run: |-
           if kubectl get application threads -n argocd >/dev/null 2>&1; then
             kubectl patch application threads -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
+
+      - name: Restore identity ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/identity/devspace.yaml') != '' }}
+        run: |-
+          if kubectl get application identity -n argocd >/dev/null 2>&1; then
+            kubectl patch application identity -n argocd \
               --type merge \
               -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
           fi
