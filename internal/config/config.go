@@ -17,6 +17,7 @@ type Config struct {
 	MeteringServiceAddress              string
 	MeteringSampleInterval              time.Duration
 	ZitiEnabled                         bool
+	SandboxReconcileEnabled             bool
 	ZitiManagementAddress               string
 	GroupsAddress                       string
 	GroupSyncEnabled                    bool
@@ -129,6 +130,14 @@ func FromEnv() (Config, error) {
 	}
 	if _, err := strconv.ParseFloat(cfg.SandboxWorkspaceSizeGB, 64); err != nil {
 		return Config{}, fmt.Errorf("parse SANDBOX_WORKSPACE_SIZE_GB: %w", err)
+	}
+	sandboxReconcileEnabled := os.Getenv("SANDBOX_RECONCILE_ENABLED")
+	if sandboxReconcileEnabled != "" {
+		parsed, err := strconv.ParseBool(sandboxReconcileEnabled)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse SANDBOX_RECONCILE_ENABLED: %w", err)
+		}
+		cfg.SandboxReconcileEnabled = parsed
 	}
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
 	if cfg.ZitiManagementAddress == "" {

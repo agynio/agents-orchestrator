@@ -47,6 +47,9 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.GroupSyncEnabled {
 		t.Fatal("expected group sync to be disabled")
 	}
+	if cfg.SandboxReconcileEnabled {
+		t.Fatal("expected sandbox reconciliation to be disabled")
+	}
 	if cfg.GroupsAddress != "groups:50051" {
 		t.Fatalf("expected groups address %q, got %q", "groups:50051", cfg.GroupsAddress)
 	}
@@ -296,6 +299,9 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_TRACING_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
+	t.Setenv("SANDBOX_INIT_IMAGE", "")
+	t.Setenv("SANDBOX_WORKSPACE_SIZE_GB", "")
+	t.Setenv("SANDBOX_RECONCILE_ENABLED", "")
 	t.Setenv("POLL_INTERVAL", "")
 	t.Setenv("WORKLOAD_RECONCILE_INTERVAL", "")
 	t.Setenv("IDLE_TIMEOUT", "")
@@ -303,6 +309,29 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("LEASE_NAME", "")
 	t.Setenv("LEASE_NAMESPACE", "")
 	t.Setenv("EGRESS_CA_NAMESPACE", "")
+}
+
+func TestFromEnvSandboxReconcileEnabled(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("SANDBOX_RECONCILE_ENABLED", "true")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if !cfg.SandboxReconcileEnabled {
+		t.Fatal("expected sandbox reconciliation to be enabled")
+	}
+}
+
+func TestFromEnvSandboxReconcileEnabledInvalid(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("SANDBOX_RECONCILE_ENABLED", "not-bool")
+
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatal("expected SANDBOX_RECONCILE_ENABLED parse error")
+	}
 }
 
 func TestFromEnvGroupSyncConfig(t *testing.T) {
