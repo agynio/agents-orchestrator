@@ -84,7 +84,48 @@ jobs:
 
       - name: Deploy runners from source
         working-directory: .e2e-deps/runners
-        run: devspace dev
+        run: |-
+          set -euo pipefail
+          RUNNER_TRACKING_ID="" devspace dev --watch > /tmp/runners-devspace.log 2>&1 &
+          echo "$!" > /tmp/runners-devspace.pid
+          devspace run-pipeline wait-runners
+
+      - name: Verify runners source deployment
+        run: |-
+          set -euo pipefail
+          selector="app.kubernetes.io/name=runners,app.kubernetes.io/instance=runners"
+          source_pod=""
+          extra_pods=""
+          elapsed=0
+          while [ "${elapsed}" -lt 180 ]; do
+            source_pod="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[?(@.spec.containers[0].image=="ghcr.io/agynio/devcontainer-go:1")]}{.metadata.name}{"\n"}{end}' \
+              | head -n 1)"
+            extra_pods="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}' \
+              | awk '$2 != "ghcr.io/agynio/devcontainer-go:1" { print }')"
+            if [ -n "${source_pod}" ] && [ -z "${extra_pods}" ]; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          if [ -z "${source_pod}" ] || [ -n "${extra_pods}" ]; then
+            if [ -z "${source_pod}" ]; then
+              echo "runners source pod not found" >&2
+            fi
+            if [ -n "${extra_pods}" ]; then
+              echo "non-source runners pods are still active:" >&2
+              printf '%s\n' "${extra_pods}" >&2
+            fi
+            cat /tmp/runners-devspace.log >&2 || true
+            kubectl get deployment runners -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            exit 1
+          fi
+          kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
 
       - name: Checkout k8s-runner
         uses: actions/checkout@v4
@@ -547,6 +588,29 @@ jobs:
           service: agents_orchestrator
           include_smoke: "false"
 
+      - name: Print runtime diagnostics on failure
+        if: failure()
+        run: |-
+          set +e
+          echo "== runners DevSpace log =="
+          cat /tmp/runners-devspace.log || true
+          for app in runners agents-orchestrator k8s-runner agents; do
+            selector="app.kubernetes.io/name=${app},app.kubernetes.io/instance=${app}"
+            echo "== ${app} deployment =="
+            kubectl get deployment "${app}" -n platform -o yaml || true
+            echo "== ${app} pods =="
+            kubectl get pods -n platform -l "${selector}" -o wide || true
+            echo "== ${app} describe =="
+            kubectl describe pods -n platform -l "${selector}" || true
+            echo "== ${app} logs =="
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=300 || true
+          done
+          echo "== platform events =="
+          kubectl get events -n platform --sort-by=.metadata.creationTimestamp || true
+          echo "== workload pods =="
+          kubectl get pods -n agyn-workloads -o wide || true
+          kubectl describe pods -n agyn-workloads || true
+
       - name: Restore agents ArgoCD sync
         if: ${{ always() && hashFiles('.e2e-deps/agents/devspace.yaml') != '' }}
         run: |-
@@ -559,7 +623,13 @@ jobs:
       - name: Restore runners ArgoCD sync
         if: ${{ always() && hashFiles('.e2e-deps/runners/devspace.yaml') != '' }}
         working-directory: .e2e-deps/runners
-        run: devspace run-pipeline restore-argocd
+        run: |-
+          set +e
+          if [ -f /tmp/runners-devspace.pid ]; then
+            kill "$(cat /tmp/runners-devspace.pid)"
+            wait "$(cat /tmp/runners-devspace.pid)" || true
+          fi
+          devspace run-pipeline restore-argocd
 
       - name: Restore k8s-runner ArgoCD sync
         if: ${{ always() && hashFiles('.e2e-deps/k8s-runner/devspace.yaml') != '' }}
