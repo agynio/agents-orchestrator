@@ -25,58 +25,61 @@ const (
 )
 
 type Reconciler struct {
-	threads                   threadsv1.ThreadsServiceClient
-	agents                    agentsClient
-	runnerDialer              runnerdial.RunnerDialer
-	runners                   runnersClient
-	metering                  meteringv1.MeteringServiceClient
-	meteringSampleInterval    time.Duration
-	zitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
-	groups                    groupsClient
-	assembler                 *assembler.Assembler
-	wake                      <-chan struct{}
-	sandboxReconcileEnabled   bool
-	poll                      time.Duration
-	workloadReconcileInterval time.Duration
-	idle                      time.Duration
-	stopSec                   uint32
+	sandboxReconcileOrganizationIDs []string
+	threads                         threadsv1.ThreadsServiceClient
+	agents                          agentsClient
+	runnerDialer                    runnerdial.RunnerDialer
+	runners                         runnersClient
+	metering                        meteringv1.MeteringServiceClient
+	meteringSampleInterval          time.Duration
+	zitiMgmt                        zitimgmtv1.ZitiManagementServiceClient
+	groups                          groupsClient
+	assembler                       *assembler.Assembler
+	wake                            <-chan struct{}
+	sandboxReconcileEnabled         bool
+	poll                            time.Duration
+	workloadReconcileInterval       time.Duration
+	idle                            time.Duration
+	stopSec                         uint32
 }
 
 type Config struct {
-	Threads                   threadsv1.ThreadsServiceClient
-	Agents                    agentsClient
-	RunnerDialer              runnerdial.RunnerDialer
-	Runners                   runnersClient
-	Metering                  meteringv1.MeteringServiceClient
-	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
-	Groups                    groupsClient
-	Assembler                 *assembler.Assembler
-	Wake                      <-chan struct{}
-	Poll                      time.Duration
-	WorkloadReconcileInterval time.Duration
-	Idle                      time.Duration
-	StopSec                   uint32
-	MeteringSampleInterval    time.Duration
-	SandboxReconcileEnabled   bool
+	SandboxReconcileOrganizationIDs []string
+	Threads                         threadsv1.ThreadsServiceClient
+	Agents                          agentsClient
+	RunnerDialer                    runnerdial.RunnerDialer
+	Runners                         runnersClient
+	Metering                        meteringv1.MeteringServiceClient
+	ZitiMgmt                        zitimgmtv1.ZitiManagementServiceClient
+	Groups                          groupsClient
+	Assembler                       *assembler.Assembler
+	Wake                            <-chan struct{}
+	Poll                            time.Duration
+	WorkloadReconcileInterval       time.Duration
+	Idle                            time.Duration
+	StopSec                         uint32
+	MeteringSampleInterval          time.Duration
+	SandboxReconcileEnabled         bool
 }
 
 func New(cfg Config) *Reconciler {
 	return &Reconciler{
-		threads:                   cfg.Threads,
-		agents:                    cfg.Agents,
-		runnerDialer:              cfg.RunnerDialer,
-		runners:                   cfg.Runners,
-		metering:                  cfg.Metering,
-		meteringSampleInterval:    cfg.MeteringSampleInterval,
-		sandboxReconcileEnabled:   cfg.SandboxReconcileEnabled,
-		zitiMgmt:                  cfg.ZitiMgmt,
-		groups:                    cfg.Groups,
-		assembler:                 cfg.Assembler,
-		wake:                      cfg.Wake,
-		poll:                      cfg.Poll,
-		workloadReconcileInterval: cfg.WorkloadReconcileInterval,
-		idle:                      cfg.Idle,
-		stopSec:                   cfg.StopSec,
+		sandboxReconcileOrganizationIDs: append([]string(nil), cfg.SandboxReconcileOrganizationIDs...),
+		threads:                         cfg.Threads,
+		agents:                          cfg.Agents,
+		runnerDialer:                    cfg.RunnerDialer,
+		runners:                         cfg.Runners,
+		metering:                        cfg.Metering,
+		meteringSampleInterval:          cfg.MeteringSampleInterval,
+		sandboxReconcileEnabled:         cfg.SandboxReconcileEnabled,
+		zitiMgmt:                        cfg.ZitiMgmt,
+		groups:                          cfg.Groups,
+		assembler:                       cfg.Assembler,
+		wake:                            cfg.Wake,
+		poll:                            cfg.Poll,
+		workloadReconcileInterval:       cfg.WorkloadReconcileInterval,
+		idle:                            cfg.Idle,
+		stopSec:                         cfg.StopSec,
 	}
 }
 

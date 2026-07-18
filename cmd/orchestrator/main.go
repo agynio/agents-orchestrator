@@ -163,21 +163,22 @@ func run() error {
 	}
 	assembler := assembler.NewWithRunnersAndEgressCA(agentsClient, runnersClient, secretsClient, &cfg, egressCACert)
 	reconciler := reconciler.New(reconciler.Config{
-		Threads:                   threadsClient,
-		Agents:                    agentsClient,
-		RunnerDialer:              runnerDialer,
-		ZitiMgmt:                  zitiMgmtClient,
-		Groups:                    groupsClient,
-		Runners:                   runnersClient,
-		Metering:                  meteringClient,
-		Assembler:                 assembler,
-		Wake:                      subscriber.Wake(),
-		Poll:                      cfg.PollInterval,
-		WorkloadReconcileInterval: cfg.WorkloadReconcileInterval,
-		Idle:                      cfg.IdleTimeout,
-		StopSec:                   cfg.StopTimeoutSec,
-		MeteringSampleInterval:    cfg.MeteringSampleInterval,
-		SandboxReconcileEnabled:   cfg.SandboxReconcileEnabled,
+		Threads:                         threadsClient,
+		Agents:                          agentsClient,
+		RunnerDialer:                    runnerDialer,
+		ZitiMgmt:                        zitiMgmtClient,
+		Groups:                          groupsClient,
+		Runners:                         runnersClient,
+		Metering:                        meteringClient,
+		Assembler:                       assembler,
+		Wake:                            subscriber.Wake(),
+		Poll:                            cfg.PollInterval,
+		WorkloadReconcileInterval:       cfg.WorkloadReconcileInterval,
+		Idle:                            cfg.IdleTimeout,
+		StopSec:                         cfg.StopTimeoutSec,
+		MeteringSampleInterval:          cfg.MeteringSampleInterval,
+		SandboxReconcileOrganizationIDs: append([]string(nil), cfg.SandboxReconcileOrganizationIDs...),
+		SandboxReconcileEnabled:         cfg.SandboxReconcileEnabled,
 	})
 
 	start := func(leadCtx context.Context) {

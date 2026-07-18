@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Config struct {
@@ -18,6 +21,7 @@ type Config struct {
 	MeteringSampleInterval              time.Duration
 	ZitiEnabled                         bool
 	SandboxReconcileEnabled             bool
+	SandboxReconcileOrganizationIDs     []string
 	ZitiManagementAddress               string
 	GroupsAddress                       string
 	GroupSyncEnabled                    bool
@@ -138,6 +142,11 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("parse SANDBOX_RECONCILE_ENABLED: %w", err)
 		}
 		cfg.SandboxReconcileEnabled = parsed
+	}
+	var err error
+	cfg.SandboxReconcileOrganizationIDs, err = parseUUIDList(os.Getenv("SANDBOX_RECONCILE_ORGANIZATION_IDS"), "SANDBOX_RECONCILE_ORGANIZATION_IDS")
+	if err != nil {
+		return Config{}, err
 	}
 	cfg.ZitiManagementAddress = os.Getenv("ZITI_MANAGEMENT_ADDRESS")
 	if cfg.ZitiManagementAddress == "" {
@@ -289,4 +298,25 @@ func FromEnv() (Config, error) {
 	cfg.LeaseNamespace = os.Getenv("LEASE_NAMESPACE")
 	cfg.EgressCANamespace = os.Getenv("EGRESS_CA_NAMESPACE")
 	return cfg, nil
+}
+
+func parseUUIDList(raw string, name string) ([]string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parts := strings.Split(trimmed, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		parsed, err := uuid.Parse(value)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", name, err)
+		}
+		values = append(values, parsed.String())
+	}
+	return values, nil
 }

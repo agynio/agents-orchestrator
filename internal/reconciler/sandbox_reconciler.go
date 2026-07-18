@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,23 +40,63 @@ func (r *Reconciler) reconcileSandboxes(ctx context.Context) error {
 }
 
 func (r *Reconciler) listTrackedSandboxes(ctx context.Context) ([]*agentsv1.Sandbox, error) {
+	orgIDs, err := r.listKnownSandboxOrgIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var sandboxes []*agentsv1.Sandbox
-	pageToken := ""
-	for {
-		resp, err := r.agents.ListSandboxes(ctx, &agentsv1.ListSandboxesRequest{
-			IncludeTerminated: true,
-			PageSize:          sandboxPageSize,
-			PageToken:         pageToken,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list sandboxes: %w", err)
-		}
-		sandboxes = append(sandboxes, resp.GetSandboxes()...)
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			return sandboxes, nil
+	for _, orgID := range orgIDs {
+		pageToken := ""
+		for {
+			resp, err := r.agents.ListSandboxes(ctx, &agentsv1.ListSandboxesRequest{
+				OrganizationId:    orgID,
+				IncludeTerminated: true,
+				PageSize:          sandboxPageSize,
+				PageToken:         pageToken,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("list sandboxes for org %s: %w", orgID, err)
+			}
+			sandboxes = append(sandboxes, resp.GetSandboxes()...)
+			pageToken = resp.GetNextPageToken()
+			if pageToken == "" {
+				break
+			}
 		}
 	}
+	return sandboxes, nil
+}
+
+func (r *Reconciler) listKnownSandboxOrgIDs(ctx context.Context) ([]string, error) {
+	return r.sandboxReconcileOrgIDs(ctx)
+}
+
+func (r *Reconciler) sandboxReconcileOrgIDs(ctx context.Context) ([]string, error) {
+	orgIDs := map[string]struct{}{}
+	for _, configuredOrgID := range r.sandboxReconcileOrganizationIDs {
+		parsedOrgID, err := uuidutil.ParseUUID(configuredOrgID, "sandbox_reconcile.organization_id")
+		if err != nil {
+			return nil, err
+		}
+		orgIDs[parsedOrgID.String()] = struct{}{}
+	}
+	agentOrgIDs, err := r.agentIdentityByOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for orgID := range agentOrgIDs {
+		parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent.organization_id")
+		if err != nil {
+			return nil, err
+		}
+		orgIDs[parsedOrgID.String()] = struct{}{}
+	}
+	ordered := make([]string, 0, len(orgIDs))
+	for orgID := range orgIDs {
+		ordered = append(ordered, orgID)
+	}
+	sort.Strings(ordered)
+	return ordered, nil
 }
 
 func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.Sandbox, now time.Time) error {
@@ -71,10 +112,16 @@ func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.San
 		if plan.activeWorkload == nil {
 			return r.startSandboxWorkload(ctx, plan)
 		}
+		if err := r.reconcileActiveSandboxWorkload(ctx, plan); err != nil {
+			return err
+		}
 		return nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING:
 		if plan.activeWorkload == nil {
 			return r.startSandboxWorkload(ctx, plan)
+		}
+		if err := r.reconcileActiveSandboxWorkload(ctx, plan); err != nil {
+			return err
 		}
 		if sandboxIdle(sandbox, plan.activeWorkload, now) {
 			return r.stopSandboxWorkload(ctx, plan.activeWorkload)
@@ -187,6 +234,37 @@ func (r *Reconciler) listSandboxVolumes(ctx context.Context, sandboxID string) (
 			return volumes, nil
 		}
 	}
+}
+
+func (r *Reconciler) reconcileActiveSandboxWorkload(ctx context.Context, plan *sandboxWorkloadPlan) error {
+	workload := plan.activeWorkload
+	if workload == nil {
+		return nil
+	}
+	runnerID := strings.TrimSpace(workload.GetRunnerId())
+	if runnerID == "" {
+		return fmt.Errorf("sandbox workload %s runner id missing", workload.GetMeta().GetId())
+	}
+	ownerID := strings.TrimSpace(workload.GetOwnerId())
+	if ownerID == "" {
+		return fmt.Errorf("sandbox workload %s owner id missing", workload.GetMeta().GetId())
+	}
+	runnerCtx, err := runnerIdentityContext(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
+	if err != nil {
+		return fmt.Errorf("dial runner %s for sandbox workload %s: %w", runnerID, workload.GetMeta().GetId(), err)
+	}
+	instanceID := normalizeRunnerWorkloadID(workload.GetInstanceId())
+	if instanceID == "" {
+		return nil
+	}
+	return r.handlePresentRunnerWorkload(runnerCtx, runnerClient, workload, &runnerv1.WorkloadListItem{
+		InstanceId:  instanceID,
+		WorkloadKey: workload.GetMeta().GetId(),
+	})
 }
 
 func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWorkloadPlan) error {

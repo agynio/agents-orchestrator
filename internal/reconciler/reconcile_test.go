@@ -1409,40 +1409,54 @@ func TestReconcileVolumesSkipsSandboxOwnedVolumes(t *testing.T) {
 	}
 }
 
-func TestListTrackedSandboxesDoesNotRequireAgents(t *testing.T) {
+func TestListTrackedSandboxesUsesConfiguredOrganizations(t *testing.T) {
 	ctx := context.Background()
 	sandboxID := uuid.NewString()
-	listAgentsCalled := false
+	configuredOrgID := uuid.New().String()
 	var requests []*agentsv1.ListSandboxesRequest
 	agents := &testutil.FakeAgentsClient{
 		ListAgentsFunc: func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-			listAgentsCalled = true
 			return &agentsv1.ListAgentsResponse{}, nil
 		},
 		ListSandboxesFunc: func(_ context.Context, req *agentsv1.ListSandboxesRequest, _ ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error) {
 			requests = append(requests, req)
+			if req.GetOrganizationId() == "" {
+				return nil, errors.New("organization id is required")
+			}
+			if req.GetOrganizationId() != configuredOrgID {
+				return &agentsv1.ListSandboxesResponse{}, nil
+			}
 			return &agentsv1.ListSandboxesResponse{Sandboxes: []*agentsv1.Sandbox{
-				{Meta: &agentsv1.EntityMeta{Id: sandboxID}, OrganizationId: testOrganizationID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING},
+				{Meta: &agentsv1.EntityMeta{Id: sandboxID}, OrganizationId: configuredOrgID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING},
 			}}, nil
 		},
 	}
-	reconciler := newTestReconciler(Config{Agents: agents})
+	reconciler := newTestReconciler(Config{
+		Agents:                          agents,
+		SandboxReconcileOrganizationIDs: []string{configuredOrgID},
+	})
 
 	sandboxes, err := reconciler.listTrackedSandboxes(ctx)
 	if err != nil {
 		t.Fatalf("list tracked sandboxes: %v", err)
 	}
-	if listAgentsCalled {
-		t.Fatal("expected sandbox inventory not to call ListAgents")
-	}
 	if len(requests) != 1 {
 		t.Fatalf("expected 1 list sandboxes request, got %d", len(requests))
 	}
-	if requests[0].GetOrganizationId() != "" {
-		t.Fatalf("expected unscoped sandbox list, got org %q", requests[0].GetOrganizationId())
+	seenConfigured := false
+	for _, request := range requests {
+		if request.GetOrganizationId() == "" {
+			t.Fatal("expected org-scoped sandbox list")
+		}
+		if !request.GetIncludeTerminated() {
+			t.Fatal("expected terminated sandboxes included")
+		}
+		if request.GetOrganizationId() == configuredOrgID {
+			seenConfigured = true
+		}
 	}
-	if !requests[0].GetIncludeTerminated() {
-		t.Fatal("expected terminated sandboxes included")
+	if !seenConfigured {
+		t.Fatal("expected configured sandbox org to be listed")
 	}
 	if len(sandboxes) != 1 || sandboxes[0].GetMeta().GetId() != sandboxID {
 		t.Fatalf("unexpected sandboxes: %v", sandboxes)
@@ -1554,5 +1568,74 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	}
 	if updateWorkloadReq.GetInstanceId() != startedWorkloadID {
 		t.Fatalf("unexpected instance id: %q", updateWorkloadReq.GetInstanceId())
+	}
+}
+
+func TestReconcileSandboxPromotesStartingWorkload(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	sandboxID := uuid.NewString()
+	ownerID := uuid.NewString()
+	workloadID := uuid.NewString()
+	createdAt := timestamppb.New(time.Now().Add(-time.Minute))
+	var updateReq *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			if len(req.GetFilter().GetOwnerKindIn()) != 1 || req.GetFilter().GetOwnerKindIn()[0] != runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
+				return nil, errors.New("expected sandbox owner filter")
+			}
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: workloadID, CreatedAt: createdAt}, RunnerId: runnerID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, InstanceId: stringPtr(workloadID), OwnerKind: runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX, OwnerId: sandboxID},
+			}}, nil
+		},
+		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+	runner := &fakeRunnerClient{
+		inspectWorkload: func(_ context.Context, req *runnerv1.InspectWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
+			if req.GetWorkloadId() != workloadID {
+				return nil, errors.New("unexpected workload id")
+			}
+			return &runnerv1.InspectWorkloadResponse{
+				StateRunning: true,
+				Containers: []*runnerv1.WorkloadContainer{
+					{Name: "sandbox", Role: runnerv1.ContainerRole_CONTAINER_ROLE_MAIN, Status: runnerv1.ContainerStatus_CONTAINER_STATUS_RUNNING},
+				},
+			}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+		if id != runnerID {
+			return nil, errors.New("unexpected runner id")
+		}
+		return runner, nil
+	}}
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       &testutil.FakeAgentsClient{},
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	sandbox := &agentsv1.Sandbox{Meta: &agentsv1.EntityMeta{Id: sandboxID, CreatedAt: createdAt}, OrganizationId: testOrganizationID, OwnerId: ownerID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING}
+
+	if err := reconciler.reconcileSandbox(ctx, sandbox, time.Now().UTC()); err != nil {
+		t.Fatalf("reconcile sandbox: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected workload update")
+	}
+	if updateReq.GetId() != workloadID {
+		t.Fatalf("unexpected workload id: %s", updateReq.GetId())
+	}
+	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	}
+	if len(updateReq.GetContainers()) != 1 || updateReq.GetContainers()[0].GetStatus() != runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING {
+		t.Fatalf("expected running container update")
 	}
 }
