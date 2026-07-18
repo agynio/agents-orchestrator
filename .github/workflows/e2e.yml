@@ -86,9 +86,18 @@ jobs:
         working-directory: .e2e-deps/runners
         run: |-
           set -euo pipefail
-          RUNNER_TRACKING_ID="" devspace dev --watch > /tmp/runners-devspace.log 2>&1 &
-          echo "$!" > /tmp/runners-devspace.pid
-          devspace run-pipeline wait-runners
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const trap = "      trap 'echo \"Restoring ArgoCD sync...\"; restore_argocd_sync' EXIT\n";
+          if (!text.includes(trap)) {
+            throw new Error('runners DevSpace restore trap not found');
+          }
+          text = text.replace(trap, '');
+          fs.writeFileSync(path, text);
+          NODE
+          devspace dev
 
       - name: Verify runners source deployment
         run: |-
@@ -593,7 +602,6 @@ jobs:
         run: |-
           set +e
           echo "== runners DevSpace log =="
-          cat /tmp/runners-devspace.log || true
           for app in runners agents-orchestrator k8s-runner agents; do
             selector="app.kubernetes.io/name=${app},app.kubernetes.io/instance=${app}"
             echo "== ${app} deployment =="
@@ -623,13 +631,7 @@ jobs:
       - name: Restore runners ArgoCD sync
         if: ${{ always() && hashFiles('.e2e-deps/runners/devspace.yaml') != '' }}
         working-directory: .e2e-deps/runners
-        run: |-
-          set +e
-          if [ -f /tmp/runners-devspace.pid ]; then
-            kill "$(cat /tmp/runners-devspace.pid)"
-            wait "$(cat /tmp/runners-devspace.pid)" || true
-          fi
-          devspace run-pipeline restore-argocd
+        run: devspace run-pipeline restore-argocd
 
       - name: Restore k8s-runner ArgoCD sync
         if: ${{ always() && hashFiles('.e2e-deps/k8s-runner/devspace.yaml') != '' }}
