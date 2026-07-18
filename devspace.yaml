@@ -62,6 +62,7 @@ functions:
     spec:
       strategy:
         type: Recreate
+        rollingUpdate: null
       template:
         spec:
           securityContext:
