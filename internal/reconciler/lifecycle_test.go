@@ -1969,10 +1969,6 @@ func (f *fakeRunnersClient) CreateFlavor(context.Context, *runnersv1.CreateFlavo
 	return nil, errNotImplemented
 }
 
-func (f *fakeRunnersClient) GetFlavor(context.Context, *runnersv1.GetFlavorRequest, ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
-	return nil, errNotImplemented
-}
-
 func (f *fakeRunnersClient) UpdateFlavor(context.Context, *runnersv1.UpdateFlavorRequest, ...grpc.CallOption) (*runnersv1.UpdateFlavorResponse, error) {
 	return nil, errNotImplemented
 }
