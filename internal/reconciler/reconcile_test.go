@@ -1473,6 +1473,9 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	var createWorkloadReq *runnersv1.CreateWorkloadRequest
 	var createVolumeReq *runnersv1.CreateVolumeRequest
 	var updateWorkloadReq *runnersv1.UpdateWorkloadRequest
+	var sandboxIdentityReq *zitimgmtv1.CreateSandboxIdentityRequest
+	var agentIdentityCalled bool
+	var deviceIdentityCalled bool
 	var startedWorkloadID string
 	agents := &testutil.FakeAgentsClient{
 		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
@@ -1525,17 +1528,40 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 		return runner, nil
 	}}
 	cfg := &config.Config{
-		AgentGatewayAddress:    "gateway:50051",
-		AgentLLMBaseURL:        "http://llm:8080/v1",
-		SandboxInitImage:       "sandbox-init-image",
-		SandboxWorkspaceSizeGB: "10",
+		AgentGatewayAddress:                 "gateway:50051",
+		AgentLLMBaseURL:                     "http://llm:8080/v1",
+		SandboxInitImage:                    "sandbox-init-image",
+		SandboxWorkspaceSizeGB:              "10",
+		ZitiEnabled:                         true,
+		ZitiSidecarImage:                    "ziti-sidecar-image",
+		WorkloadDNSUpstream:                 "10.43.0.10",
+		ZitiEnrollmentDNSUpstream:           "10.43.0.10",
+		ZitiEnrollmentControllerResolveHost: "ziti-controller-client.ziti.svc.cluster.local",
+		ZitiEnrollmentControllerPort:        "2496",
+		ZitiRuntimeControllerResolveHost:    "istio-ingressgateway.istio-gateway.svc.cluster.local",
+		ZitiRuntimeControllerPort:           "443",
 	}
 	sandboxAssembler := assembler.NewWithRunners(agents, runners, &testutil.FakeSecretsClient{}, cfg)
+	zitiMgmt := &fakeZitiMgmtClient{
+		createSandboxIdentity: func(_ context.Context, req *zitimgmtv1.CreateSandboxIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateSandboxIdentityResponse, error) {
+			sandboxIdentityReq = req
+			return &zitimgmtv1.CreateSandboxIdentityResponse{ZitiIdentityId: "sandbox-ziti-id", EnrollmentJwt: "sandbox-jwt"}, nil
+		},
+		createAgentIdentity: func(context.Context, *zitimgmtv1.CreateAgentIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
+			agentIdentityCalled = true
+			return nil, errors.New("agent identity must not be used for sandbox")
+		},
+		createDeviceIdentity: func(context.Context, *zitimgmtv1.CreateDeviceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.CreateDeviceIdentityResponse, error) {
+			deviceIdentityCalled = true
+			return nil, errors.New("device identity must not be used for sandbox")
+		},
+	}
 	reconciler := newTestReconciler(Config{
 		RunnerDialer: runnerDialer,
 		Runners:      runners,
 		Agents:       agents,
 		Assembler:    sandboxAssembler,
+		ZitiMgmt:     zitiMgmt,
 	})
 	plan := &sandboxWorkloadPlan{sandboxID: uuid.MustParse(sandboxID), sandbox: &agentsv1.Sandbox{Meta: &agentsv1.EntityMeta{Id: sandboxID}, OrganizationId: testOrganizationID, Name: "sandbox", EnvironmentId: environmentID, OwnerId: ownerID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING}}
 
@@ -1556,6 +1582,39 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	}
 	if createWorkloadReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING {
 		t.Fatalf("unexpected create workload status: %v", createWorkloadReq.GetStatus())
+	}
+	if createWorkloadReq.GetZitiIdentityId() != "sandbox-ziti-id" {
+		t.Fatalf("unexpected ziti identity id: %q", createWorkloadReq.GetZitiIdentityId())
+	}
+	if sandboxIdentityReq == nil {
+		t.Fatal("expected sandbox identity create")
+	}
+	if sandboxIdentityReq.GetSandboxId() != sandboxID {
+		t.Fatalf("unexpected sandbox id: %q", sandboxIdentityReq.GetSandboxId())
+	}
+	if sandboxIdentityReq.GetOwnerId() != ownerID {
+		t.Fatalf("unexpected owner id: %q", sandboxIdentityReq.GetOwnerId())
+	}
+	if sandboxIdentityReq.GetEnvironmentId() != environmentID {
+		t.Fatalf("unexpected environment id: %q", sandboxIdentityReq.GetEnvironmentId())
+	}
+	if sandboxIdentityReq.GetOrganizationId() != testOrganizationID {
+		t.Fatalf("unexpected organization id: %q", sandboxIdentityReq.GetOrganizationId())
+	}
+	if sandboxIdentityReq.GetWorkloadId() != startedWorkloadID {
+		t.Fatalf("unexpected workload id: %q started %q", sandboxIdentityReq.GetWorkloadId(), startedWorkloadID)
+	}
+	if len(sandboxIdentityReq.GetAdditionalRoleAttributes()) != 1 || sandboxIdentityReq.GetAdditionalRoleAttributes()[0] != "sandbox-environment-"+environmentID {
+		t.Fatalf("unexpected sandbox role attributes: %v", sandboxIdentityReq.GetAdditionalRoleAttributes())
+	}
+	if sandboxIdentityReq.GetTags()["agyn.sandbox.id"] != sandboxID || sandboxIdentityReq.GetTags()["agyn.workload.id"] != startedWorkloadID {
+		t.Fatalf("unexpected sandbox tags: %v", sandboxIdentityReq.GetTags())
+	}
+	if agentIdentityCalled {
+		t.Fatal("CreateAgentIdentity must not be used for sandbox workloads")
+	}
+	if deviceIdentityCalled {
+		t.Fatal("CreateDeviceIdentity must not be used for sandbox workloads")
 	}
 	if updateWorkloadReq == nil {
 		t.Fatal("expected workload update")
