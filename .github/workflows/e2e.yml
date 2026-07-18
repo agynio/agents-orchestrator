@@ -81,6 +81,22 @@ jobs:
         working-directory: .e2e-deps/threads
         run: |-
           set -euo pipefail
+          dump_threads_source_diagnostics() {
+            selector="app.kubernetes.io/name=threads,app.kubernetes.io/instance=threads"
+            echo "== threads source deployment diagnostics ==" >&2
+            kubectl get application threads -n argocd -o yaml >&2 || true
+            kubectl get deployment threads-threads -n platform -o yaml >&2 || kubectl get deployment threads -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== threads current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== threads previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_threads_source_diagnostics ERR
           node <<'NODE'
           const fs = require('fs');
           const path = 'devspace.yaml';
@@ -99,6 +115,43 @@ jobs:
           text = text.replace(
             'kubectl patch deployment threads-threads -n ${THREADS_NAMESPACE} --type strategic --patch',
             'kubectl patch deployment "$(kubectl get deployment threads-threads -n ${THREADS_NAMESPACE} >/dev/null 2>&1 && echo threads-threads || echo threads)" -n ${THREADS_NAMESPACE} --type strategic --patch',
+          );
+          text = text.replace(
+            '              workingDir: /opt/app/data\n              command:',
+            '              workingDir: /opt/app/data\n              livenessProbe: null\n              readinessProbe: null\n              startupProbe: null\n              command:',
+          );
+          text = text.replace(
+            '[ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }',
+            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source files" >&2; ls -la /opt/app/data >&2 || true; exit 1; }',
+          );
+          text = text.replace(
+            '                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1\n                  exec go run ./cmd/threads',
+            '                  echo "Files synced, starting buf generate..."\n                  ls -la /opt/app/data/\n                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1\n                  echo "buf generate complete, starting go run..."\n                  exec go run ./cmd/threads',
+          );
+          text = text.replace(
+            `                  elapsed=0
+                  while [ ! -f /opt/app/data/go.mod ]; do
+                    sleep 1; elapsed=$((elapsed + 1))
+                    [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
+                  done
+                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1`,
+            `                  start=$(date +%s)
+                  while [ ! -f /opt/app/data/go.mod ] \
+                    || [ ! -f /opt/app/data/go.sum ] \
+                    || [ ! -f /opt/app/data/buf.gen.yaml ] \
+                    || [ ! -f /opt/app/data/buf.yaml ] \
+                    || [ ! -f /opt/app/data/cmd/threads/main.go ] \
+                    || [ ! -f /opt/app/data/internal/config/config.go ] \
+                    || [ ! -f /opt/app/data/internal/db/migrate.go ] \
+                    || [ ! -f /opt/app/data/internal/server/server.go ]; do
+                    sleep 1
+                    elapsed=$(( $(date +%s) - start ))
+                    [ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source files" >&2; ls -la /opt/app/data >&2 || true; exit 1; }
+                  done
+                  echo "Files synced, starting buf generate..."
+                  ls -la /opt/app/data/
+                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1
+                  echo "buf generate complete, starting go run..."`,
           );
           fs.writeFileSync(path, text);
           NODE
