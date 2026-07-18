@@ -262,3 +262,11 @@ func TestFetchDesiredSkipsPassiveLookupWithoutMessages(t *testing.T) {
 		t.Fatalf("expected no get threads call")
 	}
 }
+
+func (f *fakeAgentsClient) ListSandboxes(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (f *fakeAgentsClient) DeleteSandbox(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {
+	return nil, errors.New("not implemented")
+}

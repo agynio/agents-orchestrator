@@ -1640,6 +1640,7 @@ func (f *fakeRunnerDialer) Close() {}
 type fakeRunnersClient struct {
 	createWorkload        func(context.Context, *runnersv1.CreateWorkloadRequest, ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error)
 	createVolume          func(context.Context, *runnersv1.CreateVolumeRequest, ...grpc.CallOption) (*runnersv1.CreateVolumeResponse, error)
+	getFlavor             func(context.Context, *runnersv1.GetFlavorRequest, ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error)
 	deleteWorkload        func(context.Context, *runnersv1.DeleteWorkloadRequest, ...grpc.CallOption) (*runnersv1.DeleteWorkloadResponse, error)
 	getRunner             func(context.Context, *runnersv1.GetRunnerRequest, ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error)
 	listWorkloads         func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error)
@@ -1662,6 +1663,13 @@ func (f *fakeRunnersClient) RegisterRunner(context.Context, *runnersv1.RegisterR
 func (f *fakeRunnersClient) GetRunner(ctx context.Context, req *runnersv1.GetRunnerRequest, opts ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
 	if f.getRunner != nil {
 		return f.getRunner(ctx, req, opts...)
+	}
+	return nil, errNotImplemented
+}
+
+func (f *fakeRunnersClient) GetFlavor(ctx context.Context, req *runnersv1.GetFlavorRequest, opts ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
+	if f.getFlavor != nil {
+		return f.getFlavor(ctx, req, opts...)
 	}
 	return nil, errNotImplemented
 }

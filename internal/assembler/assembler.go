@@ -346,7 +346,8 @@ var reservedEnvNames = map[string]struct{}{
 }
 
 type Assembler struct {
-	agents       agentsv1.AgentsServiceClient
+	agents       agentsClient
+	runners      runnersClient
 	secrets      secretsv1.SecretsServiceClient
 	cfg          *config.Config
 	egressCACert []byte
@@ -367,12 +368,20 @@ type PersistentVolumeInfo struct {
 	Spec   *runnerv1.VolumeSpec
 }
 
-func New(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
+func New(agents agentsClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
 	return NewWithEgressCA(agents, secrets, cfg, nil)
 }
 
-func NewWithEgressCA(agents agentsv1.AgentsServiceClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config, egressCACert []byte) *Assembler {
-	return &Assembler{agents: agents, secrets: secrets, cfg: cfg, egressCACert: append([]byte(nil), egressCACert...)}
+func NewWithRunners(agents agentsClient, runners runnersClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
+	return NewWithRunnersAndEgressCA(agents, runners, secrets, cfg, nil)
+}
+
+func NewWithEgressCA(agents agentsClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config, egressCACert []byte) *Assembler {
+	return NewWithRunnersAndEgressCA(agents, nil, secrets, cfg, egressCACert)
+}
+
+func NewWithRunnersAndEgressCA(agents agentsClient, runners runnersClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config, egressCACert []byte) *Assembler {
+	return &Assembler{agents: agents, runners: runners, secrets: secrets, cfg: cfg, egressCACert: append([]byte(nil), egressCACert...)}
 }
 
 func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (*AssembleResult, error) {
@@ -1106,13 +1115,13 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 }
 
 type volumeResolver struct {
-	agents   agentsv1.AgentsServiceClient
+	agents   agentsClient
 	threadID uuid.UUID
 	cache    map[string]*agentsv1.Volume
 	specs    map[string]*runnerv1.VolumeSpec
 }
 
-func newVolumeResolver(agents agentsv1.AgentsServiceClient, threadID uuid.UUID) *volumeResolver {
+func newVolumeResolver(agents agentsClient, threadID uuid.UUID) *volumeResolver {
 	return &volumeResolver{
 		agents:   agents,
 		threadID: threadID,

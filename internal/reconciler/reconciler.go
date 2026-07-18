@@ -6,7 +6,6 @@ import (
 	"log"
 	"time"
 
-	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
@@ -26,55 +25,61 @@ const (
 )
 
 type Reconciler struct {
-	threads                   threadsv1.ThreadsServiceClient
-	agents                    agentsv1.AgentsServiceClient
-	runnerDialer              runnerdial.RunnerDialer
-	runners                   runnersv1.RunnersServiceClient
-	metering                  meteringv1.MeteringServiceClient
-	meteringSampleInterval    time.Duration
-	zitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
-	groups                    groupsClient
-	assembler                 *assembler.Assembler
-	wake                      <-chan struct{}
-	poll                      time.Duration
-	workloadReconcileInterval time.Duration
-	idle                      time.Duration
-	stopSec                   uint32
+	sandboxReconcileOrganizationIDs []string
+	threads                         threadsv1.ThreadsServiceClient
+	agents                          agentsClient
+	runnerDialer                    runnerdial.RunnerDialer
+	runners                         runnersClient
+	metering                        meteringv1.MeteringServiceClient
+	meteringSampleInterval          time.Duration
+	zitiMgmt                        zitimgmtv1.ZitiManagementServiceClient
+	groups                          groupsClient
+	assembler                       *assembler.Assembler
+	wake                            <-chan struct{}
+	sandboxReconcileEnabled         bool
+	poll                            time.Duration
+	workloadReconcileInterval       time.Duration
+	idle                            time.Duration
+	stopSec                         uint32
 }
 
 type Config struct {
-	Threads                   threadsv1.ThreadsServiceClient
-	Agents                    agentsv1.AgentsServiceClient
-	RunnerDialer              runnerdial.RunnerDialer
-	Runners                   runnersv1.RunnersServiceClient
-	Metering                  meteringv1.MeteringServiceClient
-	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
-	Groups                    groupsClient
-	Assembler                 *assembler.Assembler
-	Wake                      <-chan struct{}
-	Poll                      time.Duration
-	WorkloadReconcileInterval time.Duration
-	Idle                      time.Duration
-	StopSec                   uint32
-	MeteringSampleInterval    time.Duration
+	SandboxReconcileOrganizationIDs []string
+	Threads                         threadsv1.ThreadsServiceClient
+	Agents                          agentsClient
+	RunnerDialer                    runnerdial.RunnerDialer
+	Runners                         runnersClient
+	Metering                        meteringv1.MeteringServiceClient
+	ZitiMgmt                        zitimgmtv1.ZitiManagementServiceClient
+	Groups                          groupsClient
+	Assembler                       *assembler.Assembler
+	Wake                            <-chan struct{}
+	Poll                            time.Duration
+	WorkloadReconcileInterval       time.Duration
+	Idle                            time.Duration
+	StopSec                         uint32
+	MeteringSampleInterval          time.Duration
+	SandboxReconcileEnabled         bool
 }
 
 func New(cfg Config) *Reconciler {
 	return &Reconciler{
-		threads:                   cfg.Threads,
-		agents:                    cfg.Agents,
-		runnerDialer:              cfg.RunnerDialer,
-		runners:                   cfg.Runners,
-		metering:                  cfg.Metering,
-		meteringSampleInterval:    cfg.MeteringSampleInterval,
-		zitiMgmt:                  cfg.ZitiMgmt,
-		groups:                    cfg.Groups,
-		assembler:                 cfg.Assembler,
-		wake:                      cfg.Wake,
-		poll:                      cfg.Poll,
-		workloadReconcileInterval: cfg.WorkloadReconcileInterval,
-		idle:                      cfg.Idle,
-		stopSec:                   cfg.StopSec,
+		sandboxReconcileOrganizationIDs: append([]string(nil), cfg.SandboxReconcileOrganizationIDs...),
+		threads:                         cfg.Threads,
+		agents:                          cfg.Agents,
+		runnerDialer:                    cfg.RunnerDialer,
+		runners:                         cfg.Runners,
+		metering:                        cfg.Metering,
+		meteringSampleInterval:          cfg.MeteringSampleInterval,
+		sandboxReconcileEnabled:         cfg.SandboxReconcileEnabled,
+		zitiMgmt:                        cfg.ZitiMgmt,
+		groups:                          cfg.Groups,
+		assembler:                       cfg.Assembler,
+		wake:                            cfg.Wake,
+		poll:                            cfg.Poll,
+		workloadReconcileInterval:       cfg.WorkloadReconcileInterval,
+		idle:                            cfg.Idle,
+		stopSec:                         cfg.StopSec,
 	}
 }
 
@@ -86,6 +91,9 @@ func (r *Reconciler) Run(ctx context.Context) error {
 		return fmt.Errorf("metering sample interval must be greater than 0")
 	}
 	go r.runWorkloadReconcileLoop(ctx)
+	if r.sandboxReconcileEnabled {
+		go r.runSandboxReconcileLoop(ctx)
+	}
 	go r.runVolumeReconcileLoop(ctx)
 	go r.runMeteringSampleLoop(ctx)
 
@@ -351,55 +359,56 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 }
 
 func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workload) {
-	workloadID := workload.GetMeta().GetId()
-	if workloadID == "" {
-		log.Printf("reconciler: workload missing id")
-		return
-	}
 	runnerCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
 	if err != nil {
-		log.Printf("reconciler: build runner identity for workload %s: %v", workloadID, err)
+		log.Printf("reconciler: build runner identity for workload %s: %v", workload.GetMeta().GetId(), err)
 		return
+	}
+	if err := r.stopWorkloadWithContext(runnerCtx, workload); err != nil {
+		log.Printf("reconciler: stop workload %s: %v", workload.GetMeta().GetId(), err)
+	}
+}
+
+func (r *Reconciler) stopWorkloadWithContext(runnerCtx context.Context, workload *runnersv1.Workload) error {
+	workloadID := workload.GetMeta().GetId()
+	if workloadID == "" {
+		return fmt.Errorf("workload missing id")
 	}
 	instanceID := normalizeRunnerWorkloadID(workload.GetInstanceId())
 	if instanceID == "" {
-		log.Printf("reconciler: workload %s missing instance id", workloadID)
 		r.markWorkloadFailed(runnerCtx, workloadID, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST, "missing instance id", nil)
-		return
+		return nil
 	}
 	runnerID := workload.GetRunnerId()
 	if runnerID == "" {
-		log.Printf("reconciler: workload %s missing runner id", workloadID)
-		return
+		return fmt.Errorf("workload %s missing runner id", workloadID)
 	}
-	runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
+	runnerClient, err := r.runnerDialer.Dial(runnerCtx, runnerID)
 	if err != nil {
 		if runnerdial.IsNoTerminators(err) {
 			if err := r.handleMissingRunnerWorkload(runnerCtx, workload); err != nil {
-				log.Printf("reconciler: handle missing workload %s after runner dial failure: %v", workloadID, err)
+				return fmt.Errorf("handle missing workload %s after runner dial failure: %w", workloadID, err)
 			}
-			return
+			return nil
 		}
-		log.Printf("reconciler: dial runner %s for workload %s: %v", runnerID, workloadID, err)
-		return
+		return fmt.Errorf("dial runner %s for workload %s: %w", runnerID, workloadID, err)
 	}
 	stoppingStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING
 	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
 		Id:     workloadID,
 		Status: &stoppingStatus,
 	}); err != nil {
-		log.Printf("reconciler: update workload %s to stopping: %v", workloadID, err)
+		return fmt.Errorf("update workload %s to stopping: %w", workloadID, err)
 	}
 	workload.Status = stoppingStatus
 	if err := r.stopRunnerWorkload(runnerCtx, runnerClient, instanceID); err != nil {
 		if runnerdial.IsNoTerminators(err) {
 			if err := r.handleMissingRunnerWorkload(runnerCtx, workload); err != nil {
-				log.Printf("reconciler: handle missing workload %s after runner stop failure: %v", workloadID, err)
+				return fmt.Errorf("handle missing workload %s after runner stop failure: %w", workloadID, err)
 			}
-			return
+			return nil
 		}
-		log.Printf("reconciler: stop workload %s: %v", workloadID, err)
-		return
+		return fmt.Errorf("stop workload %s: %w", workloadID, err)
 	}
 	stoppedStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
 	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
@@ -407,13 +416,14 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 		Status:    &stoppedStatus,
 		RemovedAt: timestamppb.New(time.Now().UTC()),
 	}); err != nil {
-		log.Printf("reconciler: update workload %s to stopped: %v", workloadID, err)
+		return fmt.Errorf("update workload %s to stopped: %w", workloadID, err)
 	}
 	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
-		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
-			log.Printf("reconciler: delete ziti identity %s after stopping workload %s: %v", workload.GetZitiIdentityId(), workloadID, err)
+		if err := r.deleteIdentity(runnerCtx, workload.GetZitiIdentityId()); err != nil {
+			return fmt.Errorf("delete ziti identity %s after stopping workload %s: %w", workload.GetZitiIdentityId(), workloadID, err)
 		}
 	}
+	return nil
 }
 
 func (r *Reconciler) stopRunnerWorkload(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, instanceID string) error {

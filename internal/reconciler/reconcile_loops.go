@@ -20,6 +20,28 @@ func (r *Reconciler) runWorkloadReconcileLoop(ctx context.Context) {
 	}
 }
 
+func (r *Reconciler) runSandboxReconcileLoop(ctx context.Context) {
+	ticker := time.NewTicker(r.workloadReconcileInterval)
+	defer ticker.Stop()
+	r.runSandboxReconcileCycle(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.runSandboxReconcileCycle(ctx)
+		}
+	}
+}
+
+func (r *Reconciler) runSandboxReconcileCycle(ctx context.Context) {
+	rctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+	if err := r.reconcileSandboxes(rctx); err != nil {
+		log.Printf("reconciler: sandbox reconciliation failed: %v", err)
+	}
+}
+
 func (r *Reconciler) runWorkloadReconcileCycle(ctx context.Context) {
 	rctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()

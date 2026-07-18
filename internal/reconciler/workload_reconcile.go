@@ -55,6 +55,9 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 	workloadsByRunner := make(map[string]map[string]*runnersv1.Workload)
 	runnerIdentities := map[string]string{}
 	for _, workload := range tracked {
+		if workload.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
+			continue
+		}
 		runnerID := workload.GetRunnerId()
 		if runnerID == "" {
 			log.Printf("reconciler: warn: workload %s missing runner id", workload.GetMeta().GetId())

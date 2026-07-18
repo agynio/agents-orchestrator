@@ -123,6 +123,14 @@ env:
     value: ""
   - name: AGENT_TRACING_ADDRESS
     value: ""
+  - name: SANDBOX_INIT_IMAGE
+    value: "ghcr.io/agynio/agent-init-codex:latest"
+  - name: SANDBOX_WORKSPACE_SIZE_GB
+    value: "10"
+  - name: SANDBOX_RECONCILE_ENABLED
+    value: "false"
+  - name: SANDBOX_RECONCILE_ORGANIZATION_IDS
+    value: ""
   - name: POLL_INTERVAL
     value: "5s"
   - name: IDLE_TIMEOUT

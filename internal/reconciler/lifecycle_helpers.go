@@ -67,6 +67,9 @@ func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runne
 		ZitiIdentityId:         zitiIdentityValue,
 		AllocatedCpuMillicores: allocatedCPUMillicores,
 		AllocatedRamBytes:      allocatedRAMBytes,
+		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
+		OwnerId:                target.ThreadID.String(),
+		AgentClassId:           stringPtr(target.AgentID.String()),
 	})
 	return err
 }
@@ -95,6 +98,9 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 			VolumeId:       record.volumeID,
 			SizeGb:         record.sizeGB,
 			Status:         runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
+			OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
+			OwnerId:        target.ThreadID.String(),
+			AgentClassId:   stringPtr(target.AgentID.String()),
 		}
 		if _, err := r.runners.CreateVolume(runnersContext(ctx), req); err != nil {
 			return created, err
