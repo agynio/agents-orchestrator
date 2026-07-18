@@ -168,6 +168,100 @@ jobs:
           fi
           kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
 
+      - name: Register bootstrap identities
+        working-directory: .e2e-deps/identity
+        run: |-
+          set -euo pipefail
+          identity_ids="a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10"
+          bootstrap_dir="${GITHUB_WORKSPACE}/bootstrap"
+          k8s_stack="${bootstrap_dir}/stacks/k8s"
+          platform_stack="${bootstrap_dir}/stacks/platform"
+          if [ -d "${k8s_stack}" ] && [ -d "${platform_stack}" ]; then
+            domain="$(terraform -chdir="${k8s_stack}" output -raw domain)"
+            ingress_port="$(terraform -chdir="${k8s_stack}" output -raw ingress_port)"
+            api_token="$(terraform -chdir="${platform_stack}" output -raw cluster_admin_api_token)"
+            gateway_url="https://gateway.${domain}:${ingress_port}"
+            me_payload="$(curl -fsSk -H "Authorization: Bearer ${api_token}" "${gateway_url}/me" || true)"
+            gateway_identity_id="$(node -e 'let data=""; process.stdin.on("data", c => data += c); process.stdin.on("end", () => { try { const p = JSON.parse(data || "{}"); process.stdout.write(String(p.identity_id || "").trim()); } catch (_) {} });' <<<"${me_payload}")"
+            if [ -n "${gateway_identity_id}" ] && ! printf '%s\n' "${identity_ids}" | grep -Fxq "${gateway_identity_id}"; then
+              identity_ids="$(printf '%s\n%s' "${identity_ids}" "${gateway_identity_id}")"
+            fi
+          fi
+          kubectl port-forward -n platform svc/identity 15051:50051 >/tmp/identity-port-forward.log 2>&1 &
+          port_forward_pid="$!"
+          cleanup() {
+            kill "${port_forward_pid}" >/dev/null 2>&1 || true
+            wait "${port_forward_pid}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          for i in $(seq 1 60); do
+            if (echo >/dev/tcp/127.0.0.1/15051) >/dev/null 2>&1; then
+              break
+            fi
+            if ! kill -0 "${port_forward_pid}" >/dev/null 2>&1; then
+              cat /tmp/identity-port-forward.log >&2 || true
+              exit 1
+            fi
+            if [ "${i}" -eq 60 ]; then
+              cat /tmp/identity-port-forward.log >&2 || true
+              exit 1
+            fi
+            sleep 1
+          done
+          seed_file="$(mktemp register-e2e-identities-XXXX.go)"
+          trap 'rm -f "${seed_file}"; cleanup' EXIT
+          cat >"${seed_file}" <<'GO'
+          package main
+
+          import (
+            "context"
+            "fmt"
+            "os"
+            "strings"
+            "time"
+
+            identityv1 "github.com/agynio/identity/.gen/go/agynio/api/identity/v1"
+            "google.golang.org/grpc"
+            "google.golang.org/grpc/codes"
+            "google.golang.org/grpc/credentials/insecure"
+            "google.golang.org/grpc/status"
+          )
+
+          func main() {
+            rawIDs := strings.TrimSpace(os.Getenv("E2E_IDENTITY_IDS"))
+            if rawIDs == "" {
+              panic("E2E_IDENTITY_IDS is empty")
+            }
+            ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+            defer cancel()
+            conn, err := grpc.NewClient("127.0.0.1:15051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+            if err != nil {
+              panic(err)
+            }
+            defer conn.Close()
+            client := identityv1.NewIdentityServiceClient(conn)
+            ids := strings.Fields(rawIDs)
+            for _, identityID := range ids {
+              _, err := client.RegisterIdentity(ctx, &identityv1.RegisterIdentityRequest{
+                IdentityId: identityID,
+                IdentityType: identityv1.IdentityType_IDENTITY_TYPE_USER,
+              })
+              if err != nil && status.Code(err) != codes.AlreadyExists {
+                panic(fmt.Errorf("register identity %s: %w", identityID, err))
+              }
+            }
+            response, err := client.BatchGetIdentityTypes(ctx, &identityv1.BatchGetIdentityTypesRequest{IdentityIds: ids})
+            if err != nil {
+              panic(fmt.Errorf("verify identities: %w", err))
+            }
+            if len(response.GetEntries()) != len(ids) {
+              panic(fmt.Errorf("verify identities: expected %d entries, got %d", len(ids), len(response.GetEntries())))
+            }
+            fmt.Printf("registered %d bootstrap identities\n", len(ids))
+          }
+          GO
+          E2E_IDENTITY_IDS="${identity_ids}" go run "${seed_file}"
+
       - name: Checkout threads
         uses: actions/checkout@v4
         with:
@@ -252,7 +346,36 @@ jobs:
                   echo "buf generate complete, starting go run..."`,
           );
           fs.writeFileSync(path, text);
+
+          const serverPath = 'internal/server/server.go';
+          let serverText = fs.readFileSync(serverPath, 'utf8');
+          const serverOriginal = [
+            'func (s *Server) createAgentInstance(ctx context.Context, agentID uuid.UUID) (uuid.UUID, error) {',
+            '\tif s.agents == nil {',
+            '\t\treturn uuid.UUID{}, status.Error(codes.Internal, "agents service not configured")',
+            '\t}',
+            '\tresponse, err := s.agents.CreateInstance(ctx, &agentsv1.CreateInstanceRequest{AgentId: agentID.String()})',
+          ].join('\n');
+          const serverReplacement = [
+            'func (s *Server) createAgentInstance(ctx context.Context, agentID uuid.UUID) (uuid.UUID, error) {',
+            '\tif s.agents == nil {',
+            '\t\treturn uuid.UUID{}, status.Error(codes.Internal, "agents service not configured")',
+            '\t}',
+            '\tagentsCtx, err := identityClientContext(ctx)',
+            '\tif err != nil {',
+            '\t\treturn uuid.UUID{}, err',
+            '\t}',
+            '\tresponse, err := s.agents.CreateInstance(agentsCtx, &agentsv1.CreateInstanceRequest{AgentId: agentID.String()})',
+          ].join('\n');
+          if (serverText.includes(serverOriginal)) {
+            serverText = serverText.replace(serverOriginal, serverReplacement);
+            fs.writeFileSync(serverPath, serverText);
+          } else if (!serverText.includes(serverReplacement)) {
+            throw new Error('threads createAgentInstance metadata block not found');
+          }
           NODE
+          buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1
+          CGO_ENABLED=0 go test ./internal/server -run TestCreateThreadStoresAgentInstanceForAgentClassParticipant -count=1
           devspace dev
 
       - name: Verify threads source deployment
