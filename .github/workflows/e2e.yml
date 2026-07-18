@@ -92,6 +92,10 @@ jobs:
           if (!text.includes('Skipping ArgoCD auto-sync restore in CI.')) {
             text = text.replace(marker, `${marker}    if [ -n "\${CI:-}" ]; then\n      echo "Skipping ArgoCD auto-sync restore in CI."\n      exit 0\n    fi\n`);
           }
+          if (text.includes('  test:e2e:')) {
+            text = text.replaceAll('  test:e2e:', '  test-e2e:');
+            text = text.replaceAll('devspace run-pipeline test:e2e', 'devspace run-pipeline test-e2e');
+          }
           text = text.replace(
             'kubectl patch deployment threads-threads -n ${THREADS_NAMESPACE} --type strategic --patch',
             'kubectl patch deployment "$(kubectl get deployment threads-threads -n ${THREADS_NAMESPACE} >/dev/null 2>&1 && echo threads-threads || echo threads)" -n ${THREADS_NAMESPACE} --type strategic --patch',
