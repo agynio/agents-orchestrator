@@ -66,7 +66,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	tracked, err := r.listActiveVolumes(ctx, orgIdentities)
+	tracked, ignoredVolumeKeysByRunner, err := r.listActiveVolumes(ctx, orgIdentities)
 	if err != nil {
 		return err
 	}
@@ -205,6 +205,9 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			}
 			runnerVolumes[volumeKey] = item
 		}
+		for volumeID := range ignoredVolumeKeysByRunner[runnerID] {
+			delete(runnerVolumes, volumeID)
+		}
 
 		for volumeID, volume := range trackedVolumes {
 			volumeCtx, err := runnerIdentityContext(ctx, volume.GetAgentId())
@@ -241,10 +244,11 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 	return nil
 }
 
-func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Volume, error) {
+func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Volume, map[string]map[string]struct{}, error) {
 	active := []*runnersv1.Volume{}
+	ignoredVolumeKeysByRunner := map[string]map[string]struct{}{}
 	if len(orgIdentities) == 0 {
-		return active, nil
+		return active, ignoredVolumeKeysByRunner, nil
 	}
 	pageToken := ""
 	statuses := []runnersv1.VolumeStatus{
@@ -261,26 +265,36 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list volumes: %w", err)
+			return nil, nil, fmt.Errorf("list volumes: %w", err)
 		}
 		for _, volume := range resp.GetVolumes() {
 			if volume == nil {
-				return nil, fmt.Errorf("volume is nil")
+				return nil, nil, fmt.Errorf("volume is nil")
 			}
 			meta := volume.GetMeta()
 			if meta == nil {
-				return nil, fmt.Errorf("volume meta missing")
+				return nil, nil, fmt.Errorf("volume meta missing")
 			}
 			if meta.GetId() == "" {
-				return nil, fmt.Errorf("volume meta id missing")
+				return nil, nil, fmt.Errorf("volume meta id missing")
+			}
+			if volume.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
+				runnerID := strings.TrimSpace(volume.GetRunnerId())
+				if runnerID != "" {
+					if ignoredVolumeKeysByRunner[runnerID] == nil {
+						ignoredVolumeKeysByRunner[runnerID] = map[string]struct{}{}
+					}
+					ignoredVolumeKeysByRunner[runnerID][meta.GetId()] = struct{}{}
+				}
+				continue
 			}
 			orgID := strings.TrimSpace(volume.GetOrganizationId())
 			if orgID == "" {
-				return nil, fmt.Errorf("volume %s organization id missing", meta.GetId())
+				return nil, nil, fmt.Errorf("volume %s organization id missing", meta.GetId())
 			}
 			parsedOrgID, err := uuidutil.ParseUUID(orgID, "volume.organization_id")
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if _, ok := orgIdentities[parsedOrgID.String()]; !ok {
 				continue
@@ -292,7 +306,7 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 			break
 		}
 	}
-	return active, nil
+	return active, ignoredVolumeKeysByRunner, nil
 }
 
 func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runnersv1.Volume) error {

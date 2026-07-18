@@ -11,6 +11,8 @@ import (
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
+	"github.com/agynio/agents-orchestrator/internal/assembler"
+	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -1338,5 +1340,219 @@ func TestRunnerIdentityForWorkloadsRejectsAmbiguousClusterRunner(t *testing.T) {
 	}
 	if _, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, workloads); err == nil {
 		t.Fatal("expected multiple identities error")
+	}
+}
+
+func TestReconcileVolumesSkipsSandboxOwnedVolumes(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	agentVolumeKey := "volume-agent"
+	sandboxVolumeKey := "volume-sandbox"
+	instanceID := "volume-instance-1"
+	threadID := uuid.New().String()
+	sandboxID := uuid.New().String()
+
+	var updateReq *runnersv1.UpdateVolumeRequest
+	runners := &fakeRunnersClient{
+		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
+				{Meta: &runnersv1.EntityMeta{Id: sandboxVolumeKey}, RunnerId: runnerID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, OwnerKind: runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX, OwnerId: sandboxID},
+				{Meta: &runnersv1.EntityMeta{Id: agentVolumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: threadID, VolumeId: uuid.NewString()},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateVolumeResponse{}, nil
+		},
+	}
+	runner := &fakeRunnerClient{
+		listVolumes: func(_ context.Context, _ *runnerv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnerv1.ListVolumesResponse, error) {
+			return &runnerv1.ListVolumesResponse{Volumes: []*runnerv1.VolumeListItem{
+				{VolumeKey: agentVolumeKey, InstanceId: instanceID},
+				{VolumeKey: sandboxVolumeKey, InstanceId: "sandbox-volume-instance"},
+			}}, nil
+		},
+		removeVolume: func(_ context.Context, req *runnerv1.RemoveVolumeRequest, _ ...grpc.CallOption) (*runnerv1.RemoveVolumeResponse, error) {
+			if req.GetVolumeName() == sandboxVolumeKey {
+				return nil, errors.New("sandbox volume should not be reconciled as an orphan")
+			}
+			return &runnerv1.RemoveVolumeResponse{}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+		if id != runnerID {
+			return nil, errors.New("unexpected runner id")
+		}
+		return runner, nil
+	}}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       &testutil.FakeAgentsClient{},
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileVolumes(ctx); err != nil {
+		t.Fatalf("reconcile volumes: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected agent volume update")
+	}
+	if updateReq.GetId() != agentVolumeKey {
+		t.Fatalf("unexpected volume update: %v", updateReq.GetId())
+	}
+	if updateReq.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
+		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	}
+}
+
+func TestListTrackedSandboxesDoesNotRequireAgents(t *testing.T) {
+	ctx := context.Background()
+	sandboxID := uuid.NewString()
+	listAgentsCalled := false
+	var requests []*agentsv1.ListSandboxesRequest
+	agents := &testutil.FakeAgentsClient{
+		ListAgentsFunc: func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+			listAgentsCalled = true
+			return &agentsv1.ListAgentsResponse{}, nil
+		},
+		ListSandboxesFunc: func(_ context.Context, req *agentsv1.ListSandboxesRequest, _ ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error) {
+			requests = append(requests, req)
+			return &agentsv1.ListSandboxesResponse{Sandboxes: []*agentsv1.Sandbox{
+				{Meta: &agentsv1.EntityMeta{Id: sandboxID}, OrganizationId: testOrganizationID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING},
+			}}, nil
+		},
+	}
+	reconciler := newTestReconciler(Config{Agents: agents})
+
+	sandboxes, err := reconciler.listTrackedSandboxes(ctx)
+	if err != nil {
+		t.Fatalf("list tracked sandboxes: %v", err)
+	}
+	if listAgentsCalled {
+		t.Fatal("expected sandbox inventory not to call ListAgents")
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected 1 list sandboxes request, got %d", len(requests))
+	}
+	if requests[0].GetOrganizationId() != "" {
+		t.Fatalf("expected unscoped sandbox list, got org %q", requests[0].GetOrganizationId())
+	}
+	if !requests[0].GetIncludeTerminated() {
+		t.Fatal("expected terminated sandboxes included")
+	}
+	if len(sandboxes) != 1 || sandboxes[0].GetMeta().GetId() != sandboxID {
+		t.Fatalf("unexpected sandboxes: %v", sandboxes)
+	}
+}
+
+func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	environmentID := uuid.NewString()
+	ownerID := uuid.NewString()
+	sandboxID := uuid.NewString()
+	flavorID := "flavor-1"
+	var createWorkloadReq *runnersv1.CreateWorkloadRequest
+	var createVolumeReq *runnersv1.CreateVolumeRequest
+	var updateWorkloadReq *runnersv1.UpdateWorkloadRequest
+	var startedWorkloadID string
+	agents := &testutil.FakeAgentsClient{
+		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+			if req.GetId() != environmentID {
+				return nil, errors.New("unexpected environment id")
+			}
+			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", FlavorId: flavorID, Image: "sandbox-image"}}, nil
+		},
+		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+	}
+	runners := &fakeRunnersClient{
+		getFlavor: func(_ context.Context, req *runnersv1.GetFlavorRequest, _ ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
+			if req.GetId() != flavorID {
+				return nil, errors.New("unexpected flavor id")
+			}
+			return &runnersv1.GetFlavorResponse{Flavor: &runnersv1.Flavor{Meta: &runnersv1.EntityMeta{Id: flavorID}, RunnerId: runnerID, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}}}, nil
+		},
+		getRunner: func(_ context.Context, req *runnersv1.GetRunnerRequest, _ ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
+			if req.GetId() != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.GetRunnerResponse{Runner: buildRunner(runnerID)}, nil
+		},
+		createVolume: func(_ context.Context, req *runnersv1.CreateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.CreateVolumeResponse, error) {
+			createVolumeReq = req
+			return &runnersv1.CreateVolumeResponse{}, nil
+		},
+		createWorkload: func(_ context.Context, req *runnersv1.CreateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
+			createWorkloadReq = req
+			return &runnersv1.CreateWorkloadResponse{}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateWorkloadReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+	runner := &fakeRunnerClient{startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
+		startedWorkloadID = req.GetWorkloadId()
+		return &runnerv1.StartWorkloadResponse{Id: req.GetWorkloadId(), Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING}, nil
+	}}
+	runnerDialer := &fakeRunnerDialer{dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+		if id != runnerID {
+			return nil, errors.New("unexpected runner id")
+		}
+		return runner, nil
+	}}
+	cfg := &config.Config{
+		AgentGatewayAddress:    "gateway:50051",
+		AgentLLMBaseURL:        "http://llm:8080/v1",
+		SandboxInitImage:       "sandbox-init-image",
+		SandboxWorkspaceSizeGB: "10",
+	}
+	sandboxAssembler := assembler.NewWithRunners(agents, runners, &testutil.FakeSecretsClient{}, cfg)
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       agents,
+		Assembler:    sandboxAssembler,
+	})
+	plan := &sandboxWorkloadPlan{sandboxID: uuid.MustParse(sandboxID), sandbox: &agentsv1.Sandbox{Meta: &agentsv1.EntityMeta{Id: sandboxID}, OrganizationId: testOrganizationID, Name: "sandbox", EnvironmentId: environmentID, OwnerId: ownerID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING}}
+
+	if err := reconciler.startSandboxWorkload(ctx, plan); err != nil {
+		t.Fatalf("start sandbox workload: %v", err)
+	}
+	if createVolumeReq == nil {
+		t.Fatal("expected workspace volume create")
+	}
+	if createVolumeReq.GetAgentId() != "" {
+		t.Fatalf("expected no agent id on sandbox volume, got %q", createVolumeReq.GetAgentId())
+	}
+	if createVolumeReq.GetOwnerKind() != runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX || createVolumeReq.GetOwnerId() != sandboxID {
+		t.Fatalf("unexpected volume owner: %v %q", createVolumeReq.GetOwnerKind(), createVolumeReq.GetOwnerId())
+	}
+	if createWorkloadReq == nil {
+		t.Fatal("expected workload create")
+	}
+	if createWorkloadReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING {
+		t.Fatalf("unexpected create workload status: %v", createWorkloadReq.GetStatus())
+	}
+	if updateWorkloadReq == nil {
+		t.Fatal("expected workload update")
+	}
+	if updateWorkloadReq.GetId() == "" || updateWorkloadReq.GetId() != startedWorkloadID {
+		t.Fatalf("unexpected workload update id: %q started %q", updateWorkloadReq.GetId(), startedWorkloadID)
+	}
+	if updateWorkloadReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+		t.Fatalf("unexpected update workload status: %v", updateWorkloadReq.GetStatus())
+	}
+	if updateWorkloadReq.GetInstanceId() != startedWorkloadID {
+		t.Fatalf("unexpected instance id: %q", updateWorkloadReq.GetInstanceId())
 	}
 }

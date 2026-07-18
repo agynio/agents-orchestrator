@@ -39,34 +39,23 @@ func (r *Reconciler) reconcileSandboxes(ctx context.Context) error {
 }
 
 func (r *Reconciler) listTrackedSandboxes(ctx context.Context) ([]*agentsv1.Sandbox, error) {
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(orgIdentities) == 0 {
-		return nil, nil
-	}
 	var sandboxes []*agentsv1.Sandbox
-	for orgID := range orgIdentities {
-		pageToken := ""
-		for {
-			resp, err := r.agents.ListSandboxes(ctx, &agentsv1.ListSandboxesRequest{
-				OrganizationId:    orgID,
-				IncludeTerminated: true,
-				PageSize:          sandboxPageSize,
-				PageToken:         pageToken,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list sandboxes for org %s: %w", orgID, err)
-			}
-			sandboxes = append(sandboxes, resp.GetSandboxes()...)
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
-			}
+	pageToken := ""
+	for {
+		resp, err := r.agents.ListSandboxes(ctx, &agentsv1.ListSandboxesRequest{
+			IncludeTerminated: true,
+			PageSize:          sandboxPageSize,
+			PageToken:         pageToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list sandboxes: %w", err)
+		}
+		sandboxes = append(sandboxes, resp.GetSandboxes()...)
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return sandboxes, nil
 		}
 	}
-	return sandboxes, nil
 }
 
 func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.Sandbox, now time.Time) error {
@@ -295,11 +284,16 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload id mismatch")
 		return nil
 	}
-	_, err = r.runners.UpdateWorkload(runnersContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
+	updateReq := &runnersv1.UpdateWorkloadRequest{
 		Id:         workloadID,
 		InstanceId: stringPtr(instanceID),
 		Containers: containers,
-	})
+	}
+	if resp.GetStatus() == runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
+		updateReq.Status = &status
+	}
+	_, err = r.runners.UpdateWorkload(runnersContext(runnerCtx), updateReq)
 	return err
 }
 
