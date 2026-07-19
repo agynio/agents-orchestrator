@@ -98,7 +98,7 @@ jobs:
           set -euo pipefail
           node "${GITHUB_WORKSPACE}/.github/scripts/patch-agynd-instance-inbox.js"
           buf generate buf.build/agynio/api
-          gofmt -w internal/config/config.go internal/platform/threads.go internal/platform/consumer.go internal/platform/notifications.go internal/platform/agents.go internal/platform/runners.go internal/subscriber/subscriber.go internal/tracingproxy/proxy.go internal/daemon/daemon.go internal/daemon/agn.go internal/daemon/claude.go
+          gofmt -w internal/config/config.go internal/platform/grpc.go internal/platform/threads.go internal/platform/consumer.go internal/platform/notifications.go internal/platform/agents.go internal/platform/runners.go internal/subscriber/subscriber.go internal/tracingproxy/proxy.go internal/daemon/daemon.go internal/daemon/agn.go internal/daemon/claude.go
           CGO_ENABLED=0 go test ./internal/subscriber ./internal/tracingproxy
           mkdir -p .build
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o .build/agynd ./cmd/agynd
@@ -962,6 +962,26 @@ jobs:
             echo "istio-ingressgateway endpoints are empty" >&2
             exit 1
           fi
+          agents_service_ip="$(kubectl get service agents -n platform -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${agents_service_ip}" ]; then
+            echo "agents ClusterIP is empty" >&2
+            exit 1
+          fi
+          agents_endpoint_ips="$(service_endpoint_ips agents platform)"
+          if [ -z "${agents_endpoint_ips}" ]; then
+            echo "agents endpoints are empty" >&2
+            exit 1
+          fi
+          runners_service_ip="$(kubectl get service runners -n platform -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${runners_service_ip}" ]; then
+            echo "runners ClusterIP is empty" >&2
+            exit 1
+          fi
+          runners_endpoint_ips="$(service_endpoint_ips runners platform)"
+          if [ -z "${runners_endpoint_ips}" ]; then
+            echo "runners endpoints are empty" >&2
+            exit 1
+          fi
 
           add_tcp_egress_ip() {
             patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"$1/32\"}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":$2}]}}"
@@ -974,6 +994,14 @@ jobs:
           add_tcp_egress_ip "${istio_gateway_ip}" 443
           for istio_gateway_endpoint_ip in ${istio_gateway_endpoint_ips}; do
             add_tcp_egress_ip "${istio_gateway_endpoint_ip}" 443
+          done
+          add_tcp_egress_ip "${agents_service_ip}" 50051
+          for agents_endpoint_ip in ${agents_endpoint_ips}; do
+            add_tcp_egress_ip "${agents_endpoint_ip}" 50051
+          done
+          add_tcp_egress_ip "${runners_service_ip}" 50051
+          for runners_endpoint_ip in ${runners_endpoint_ips}; do
+            add_tcp_egress_ip "${runners_endpoint_ip}" 50051
           done
           add_tcp_egress_ip "${ziti_controller_ip}" 2496
           for ziti_controller_endpoint_ip in ${ziti_controller_endpoint_ips}; do

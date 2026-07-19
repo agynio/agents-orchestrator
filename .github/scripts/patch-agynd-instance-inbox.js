@@ -80,6 +80,97 @@ replace(
   ].join('\n'),
 );
 
+
+fs.writeFileSync('internal/platform/grpc.go', `package platform
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"strings"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+func DialGateway(address string) (*grpc.ClientConn, error) {
+	return grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+}
+
+func DialKubernetesService(address string) (*grpc.ClientConn, error) {
+	if strings.TrimSpace(address) == "" {
+		return nil, fmt.Errorf("address is required")
+	}
+	return grpc.NewClient(
+		"passthrough:///"+address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(dialKubernetesService),
+	)
+}
+
+func dialKubernetesService(ctx context.Context, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	dialer := &net.Dialer{}
+	if net.ParseIP(host) != nil {
+		return dialer.DialContext(ctx, "tcp", address)
+	}
+	resolver := kubernetesResolver()
+	ips, err := resolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("resolve %s: no addresses", host)
+	}
+	var lastErr error
+	for _, ip := range ips {
+		conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip.IP.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func kubernetesResolver() *net.Resolver {
+	server := clusterDNSServer()
+	if server == "" {
+		return net.DefaultResolver
+	}
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network string, address string) (net.Conn, error) {
+			dialer := &net.Dialer{}
+			return dialer.DialContext(ctx, "udp", net.JoinHostPort(server, "53"))
+		},
+	}
+}
+
+func clusterDNSServer() string {
+	contents, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(contents), "\\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != "nameserver" {
+			continue
+		}
+		ip := net.ParseIP(fields[1])
+		if ip == nil || ip.IsLoopback() {
+			continue
+		}
+		return ip.String()
+	}
+	return ""
+}
+`);
+
 replace(
   'internal/platform/threads.go',
   'InboxItemID string',
@@ -476,16 +567,16 @@ replace(
   [
     '\trunnersGateway := gatewayv1.NewRunnersGatewayClient(gatewayConn)',
     '',
-    '\tagentsConn, err := platform.DialGateway("agents:50051")',
+    '\tagentsConn, err := platform.DialKubernetesService("agents.platform.svc.cluster.local:50051")',
     '\tif err != nil {',
     '\t\t_ = gatewayConn.Close()',
-    '\t\treturn nil, config.Config{}, fmt.Errorf("dial agents service: %w", err)',
+    '\t\treturn nil, config.Config{}, fmt.Errorf("dial agents service agents.platform.svc.cluster.local:50051: %w", err)',
     '\t}',
-    '\trunnersConn, err := platform.DialGateway("runners:50051")',
+    '\trunnersConn, err := platform.DialKubernetesService("runners.platform.svc.cluster.local:50051")',
     '\tif err != nil {',
     '\t\t_ = gatewayConn.Close()',
     '\t\t_ = agentsConn.Close()',
-    '\t\treturn nil, config.Config{}, fmt.Errorf("dial runners service: %w", err)',
+    '\t\treturn nil, config.Config{}, fmt.Errorf("dial runners service runners.platform.svc.cluster.local:50051: %w", err)',
     '\t}',
     '\tcloseConns := func() {',
     '\t\t_ = gatewayConn.Close()',
