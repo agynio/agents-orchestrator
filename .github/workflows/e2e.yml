@@ -983,6 +983,53 @@ jobs:
             exit 1
           fi
 
+          apply_workload_service_alias() {
+            service_name="$1"
+            endpoint_ips="$2"
+            cat <<EOF_ALIAS_SERVICE | kubectl apply -f -
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: ${service_name}
+            namespace: agyn-workloads
+          spec:
+            ports:
+              - name: grpc
+                protocol: TCP
+                port: 50051
+                targetPort: 50051
+          EOF_ALIAS_SERVICE
+            {
+              cat <<EOF_ALIAS_ENDPOINTS
+          apiVersion: v1
+          kind: Endpoints
+          metadata:
+            name: ${service_name}
+            namespace: agyn-workloads
+          subsets:
+            - addresses:
+          EOF_ALIAS_ENDPOINTS
+              for endpoint_ip in ${endpoint_ips}; do
+                echo "                - ip: ${endpoint_ip}"
+              done
+              cat <<EOF_ALIAS_ENDPOINTS
+              ports:
+                - name: grpc
+                  protocol: TCP
+                  port: 50051
+          EOF_ALIAS_ENDPOINTS
+            } | kubectl apply -f -
+          }
+          apply_workload_service_alias agents "${agents_endpoint_ips}"
+          apply_workload_service_alias runners "${runners_endpoint_ips}"
+          agents_alias_service_ip="$(kubectl get service agents -n agyn-workloads -o jsonpath='{.spec.clusterIP}')"
+          runners_alias_service_ip="$(kubectl get service runners -n agyn-workloads -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${agents_alias_service_ip}" ] || [ -z "${runners_alias_service_ip}" ]; then
+            echo "workload namespace service alias ClusterIP is empty" >&2
+            kubectl get service,endpoints -n agyn-workloads agents runners -o wide >&2 || true
+            exit 1
+          fi
+
           add_tcp_egress_ip() {
             patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"$1/32\"}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":$2}]}}"
           }
@@ -995,6 +1042,8 @@ jobs:
           for istio_gateway_endpoint_ip in ${istio_gateway_endpoint_ips}; do
             add_tcp_egress_ip "${istio_gateway_endpoint_ip}" 443
           done
+          add_tcp_egress_ip "${agents_alias_service_ip}" 50051
+          add_tcp_egress_ip "${runners_alias_service_ip}" 50051
           add_tcp_egress_ip "${agents_service_ip}" 50051
           for agents_endpoint_ip in ${agents_endpoint_ips}; do
             add_tcp_egress_ip "${agents_endpoint_ip}" 50051
