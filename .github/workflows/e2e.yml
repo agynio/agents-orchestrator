@@ -1054,6 +1054,10 @@ jobs:
             patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"$1/32\"}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":$2}]}}"
           }
 
+          add_platform_backend_egress() {
+            patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"platform\"}},\"podSelector\":{\"matchExpressions\":[{\"key\":\"app.kubernetes.io/name\",\"operator\":\"In\",\"values\":[\"agents\",\"runners\"]}]}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":50051}]}}"
+          }
+
           patch='[{"op":"add","path":"/spec/egress/-","value":{"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ziti"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"ziti-workload-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},{"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"'"${ziti_dns_ip}"'/32"}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}}'
           for ziti_dns_endpoint_ip in ${ziti_dns_endpoint_ips}; do
             patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"${ziti_dns_endpoint_ip}/32\"}}],\"ports\":[{\"protocol\":\"UDP\",\"port\":53},{\"protocol\":\"TCP\",\"port\":53}]}}"
@@ -1062,6 +1066,7 @@ jobs:
           for istio_gateway_endpoint_ip in ${istio_gateway_endpoint_ips}; do
             add_tcp_egress_ip "${istio_gateway_endpoint_ip}" 443
           done
+          add_platform_backend_egress
           add_tcp_egress_ip "${agents_alias_service_ip}" 50051
           add_tcp_egress_ip "${runners_alias_service_ip}" 50051
           add_tcp_egress_ip "${agents_service_ip}" 50051
