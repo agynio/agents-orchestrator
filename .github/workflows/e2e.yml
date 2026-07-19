@@ -349,14 +349,37 @@ jobs:
 
           const serverPath = 'internal/server/server.go';
           let serverText = fs.readFileSync(serverPath, 'utf8');
-          const serverOriginal = [
+          const interfaceOriginal = [
+            'type agentsService interface {',
+            '\tGetAgent(ctx context.Context, in *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)',
+            '\tCreateInstance(ctx context.Context, in *agentsv1.CreateInstanceRequest, opts ...grpc.CallOption) (*agentsv1.CreateInstanceResponse, error)',
+            '\tGetInstance(ctx context.Context, in *agentsv1.GetInstanceRequest, opts ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error)',
+            '\tFanoutInboxItem(ctx context.Context, in *agentsv1.FanoutInboxItemRequest, opts ...grpc.CallOption) (*agentsv1.FanoutInboxItemResponse, error)',
+            '}',
+          ].join('\n');
+          const interfaceReplacement = [
+            'type agentsService interface {',
+            '\tGetAgent(ctx context.Context, in *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)',
+            '\tUpdateAgent(ctx context.Context, in *agentsv1.UpdateAgentRequest, opts ...grpc.CallOption) (*agentsv1.UpdateAgentResponse, error)',
+            '\tCreateInstance(ctx context.Context, in *agentsv1.CreateInstanceRequest, opts ...grpc.CallOption) (*agentsv1.CreateInstanceResponse, error)',
+            '\tGetInstance(ctx context.Context, in *agentsv1.GetInstanceRequest, opts ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error)',
+            '\tFanoutInboxItem(ctx context.Context, in *agentsv1.FanoutInboxItemRequest, opts ...grpc.CallOption) (*agentsv1.FanoutInboxItemResponse, error)',
+            '}',
+          ].join('\n');
+          if (serverText.includes(interfaceOriginal)) {
+            serverText = serverText.replace(interfaceOriginal, interfaceReplacement);
+          } else if (!serverText.includes(interfaceReplacement)) {
+            throw new Error('threads agentsService interface block not found');
+          }
+
+          const createOriginal = [
             'func (s *Server) createAgentInstance(ctx context.Context, agentID uuid.UUID) (uuid.UUID, error) {',
             '\tif s.agents == nil {',
             '\t\treturn uuid.UUID{}, status.Error(codes.Internal, "agents service not configured")',
             '\t}',
             '\tresponse, err := s.agents.CreateInstance(ctx, &agentsv1.CreateInstanceRequest{AgentId: agentID.String()})',
           ].join('\n');
-          const serverReplacement = [
+          const createMetadataOnly = [
             'func (s *Server) createAgentInstance(ctx context.Context, agentID uuid.UUID) (uuid.UUID, error) {',
             '\tif s.agents == nil {',
             '\t\treturn uuid.UUID{}, status.Error(codes.Internal, "agents service not configured")',
@@ -367,12 +390,139 @@ jobs:
             '\t}',
             '\tresponse, err := s.agents.CreateInstance(agentsCtx, &agentsv1.CreateInstanceRequest{AgentId: agentID.String()})',
           ].join('\n');
-          if (serverText.includes(serverOriginal)) {
-            serverText = serverText.replace(serverOriginal, serverReplacement);
-            fs.writeFileSync(serverPath, serverText);
-          } else if (!serverText.includes(serverReplacement)) {
-            throw new Error('threads createAgentInstance metadata block not found');
+          const createReplacement = [
+            'func (s *Server) createAgentInstance(ctx context.Context, agentID uuid.UUID) (uuid.UUID, error) {',
+            '\tif s.agents == nil {',
+            '\t\treturn uuid.UUID{}, status.Error(codes.Internal, "agents service not configured")',
+            '\t}',
+            '\tagentsCtx, err := identityClientContext(ctx)',
+            '\tif err != nil {',
+            '\t\treturn uuid.UUID{}, err',
+            '\t}',
+            '\tagentResponse, err := s.agents.GetAgent(agentsCtx, &agentsv1.GetAgentRequest{Id: agentID.String()})',
+            '\tif err != nil {',
+            '\t\treturn uuid.UUID{}, status.Errorf(codes.Internal, "get agent: %v", err)',
+            '\t}',
+            '\tagent := agentResponse.GetAgent()',
+            '\tif agent == nil {',
+            '\t\treturn uuid.UUID{}, status.Error(codes.Internal, "get agent: agent missing")',
+            '\t}',
+            '\tif strings.TrimSpace(agent.GetNickname()) == "" {',
+            '\t\tstem := strings.ReplaceAll(agentID.String(), "-", "")',
+            '\t\tnickname := "agent-" + stem[:26]',
+            '\t\t_, err := s.agents.UpdateAgent(agentsCtx, &agentsv1.UpdateAgentRequest{Id: agentID.String(), Nickname: &nickname})',
+            '\t\tif err != nil {',
+            '\t\t\treturn uuid.UUID{}, status.Errorf(codes.Internal, "set agent nickname: %v", err)',
+            '\t\t}',
+            '\t}',
+            '\tresponse, err := s.agents.CreateInstance(agentsCtx, &agentsv1.CreateInstanceRequest{AgentId: agentID.String()})',
+          ].join('\n');
+          if (serverText.includes(createOriginal)) {
+            serverText = serverText.replace(createOriginal, createReplacement);
+          } else if (serverText.includes(createMetadataOnly)) {
+            serverText = serverText.replace(createMetadataOnly, createReplacement);
+          } else if (!serverText.includes(createReplacement)) {
+            throw new Error('threads createAgentInstance block not found');
           }
+
+
+          const testPath = 'internal/server/server_test.go';
+          let testText = fs.readFileSync(testPath, 'utf8');
+          const stubStructOriginal = [
+            'type stubAgentsService struct {',
+            '\tt             *testing.T',
+            '\tgetAgentFn    func(ctx context.Context, req *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)',
+            '\tcreateFn      func(ctx context.Context, req *agentsv1.CreateInstanceRequest, opts ...grpc.CallOption) (*agentsv1.CreateInstanceResponse, error)',
+            '\tgetInstanceFn func(ctx context.Context, req *agentsv1.GetInstanceRequest, opts ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error)',
+            '\tfanoutFn      func(ctx context.Context, req *agentsv1.FanoutInboxItemRequest, opts ...grpc.CallOption) (*agentsv1.FanoutInboxItemResponse, error)',
+            '}',
+          ].join('\n');
+          const stubStructReplacement = [
+            'type stubAgentsService struct {',
+            '\tt             *testing.T',
+            '\tgetAgentFn    func(ctx context.Context, req *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)',
+            '\tupdateAgentFn func(ctx context.Context, req *agentsv1.UpdateAgentRequest, opts ...grpc.CallOption) (*agentsv1.UpdateAgentResponse, error)',
+            '\tcreateFn      func(ctx context.Context, req *agentsv1.CreateInstanceRequest, opts ...grpc.CallOption) (*agentsv1.CreateInstanceResponse, error)',
+            '\tgetInstanceFn func(ctx context.Context, req *agentsv1.GetInstanceRequest, opts ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error)',
+            '\tfanoutFn      func(ctx context.Context, req *agentsv1.FanoutInboxItemRequest, opts ...grpc.CallOption) (*agentsv1.FanoutInboxItemResponse, error)',
+            '}',
+          ].join('\n');
+          if (testText.includes(stubStructOriginal)) {
+            testText = testText.replace(stubStructOriginal, stubStructReplacement);
+          } else if (!testText.includes(stubStructReplacement)) {
+            throw new Error('threads stubAgentsService struct block not found');
+          }
+
+          const createMethodOriginal = [
+            'func (s *stubAgentsService) CreateInstance(ctx context.Context, req *agentsv1.CreateInstanceRequest, opts ...grpc.CallOption) (*agentsv1.CreateInstanceResponse, error) {',
+            '\ts.t.Helper()',
+            '\tif s.createFn == nil {',
+            '\t\ts.t.Fatalf("unexpected CreateInstance call")',
+            '\t}',
+            '\treturn s.createFn(ctx, req, opts...)',
+            '}',
+          ].join('\n');
+          const updateAndCreateMethods = [
+            'func (s *stubAgentsService) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentRequest, opts ...grpc.CallOption) (*agentsv1.UpdateAgentResponse, error) {',
+            '\ts.t.Helper()',
+            '\tif s.updateAgentFn == nil {',
+            '\t\ts.t.Fatalf("unexpected UpdateAgent call")',
+            '\t}',
+            '\treturn s.updateAgentFn(ctx, req, opts...)',
+            '}',
+            '',
+            createMethodOriginal,
+          ].join('\n');
+          if (testText.includes(createMethodOriginal) && !testText.includes('func (s *stubAgentsService) UpdateAgent(')) {
+            testText = testText.replace(createMethodOriginal, updateAndCreateMethods);
+          } else if (!testText.includes('func (s *stubAgentsService) UpdateAgent(')) {
+            throw new Error('threads stubAgentsService CreateInstance method block not found');
+          }
+
+          const agentsStubOriginal = [
+            '\tagentsStub := &stubAgentsService{',
+            '\t\tt: t,',
+            '\t\tcreateFn: func(ctx context.Context, req *agentsv1.CreateInstanceRequest, opts ...grpc.CallOption) (*agentsv1.CreateInstanceResponse, error) {',
+            '\t\t\tif req.GetAgentId() != agentID.String() {',
+            '\t\t\t\tt.Fatalf("expected agent id %s, got %s", agentID, req.GetAgentId())',
+            '\t\t\t}',
+            '\t\t\treturn &agentsv1.CreateInstanceResponse{Instance: &agentsv1.AgentInstance{Meta: &agentsv1.EntityMeta{Id: instanceID.String()}, AgentId: agentID.String()}}, nil',
+            '\t\t},',
+            '\t}',
+          ].join('\n');
+          const agentsStubReplacement = [
+            '\tagentsStub := &stubAgentsService{',
+            '\t\tt: t,',
+            '\t\tgetAgentFn: func(ctx context.Context, req *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {',
+            '\t\t\tif req.GetId() != agentID.String() {',
+            '\t\t\t\tt.Fatalf("expected get agent id %s, got %s", agentID, req.GetId())',
+            '\t\t\t}',
+            '\t\t\treturn &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}}}, nil',
+            '\t\t},',
+            '\t\tupdateAgentFn: func(ctx context.Context, req *agentsv1.UpdateAgentRequest, opts ...grpc.CallOption) (*agentsv1.UpdateAgentResponse, error) {',
+            '\t\t\tif req.GetId() != agentID.String() {',
+            '\t\t\t\tt.Fatalf("expected update agent id %s, got %s", agentID, req.GetId())',
+            '\t\t\t}',
+            '\t\t\tif req.GetNickname() == "" {',
+            '\t\t\t\tt.Fatal("expected generated nickname")',
+            '\t\t\t}',
+            '\t\t\treturn &agentsv1.UpdateAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, Nickname: req.GetNickname()}}, nil',
+            '\t\t},',
+            '\t\tcreateFn: func(ctx context.Context, req *agentsv1.CreateInstanceRequest, opts ...grpc.CallOption) (*agentsv1.CreateInstanceResponse, error) {',
+            '\t\t\tif req.GetAgentId() != agentID.String() {',
+            '\t\t\t\tt.Fatalf("expected agent id %s, got %s", agentID, req.GetAgentId())',
+            '\t\t\t}',
+            '\t\t\treturn &agentsv1.CreateInstanceResponse{Instance: &agentsv1.AgentInstance{Meta: &agentsv1.EntityMeta{Id: instanceID.String()}, AgentId: agentID.String()}}, nil',
+            '\t\t},',
+            '\t}',
+          ].join('\n');
+          if (testText.includes(agentsStubOriginal)) {
+            testText = testText.replace(agentsStubOriginal, agentsStubReplacement);
+          } else if (!testText.includes('expected generated nickname')) {
+            throw new Error('threads CreateThread agent instance test stub block not found');
+          }
+          fs.writeFileSync(testPath, testText);
+          fs.writeFileSync(serverPath, serverText);
           NODE
           buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1
           CGO_ENABLED=0 go test ./internal/server -run TestCreateThreadStoresAgentInstanceForAgentClassParticipant -count=1
