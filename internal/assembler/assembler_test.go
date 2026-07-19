@@ -169,6 +169,9 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_MODEL", agent.GetModel())
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
 	assertEnv(t, envs, "AGENT_INSTANCE_ID", threadID.String())
+	if _, ok := envs["THREAD_ID"]; ok {
+		t.Fatal("expected THREAD_ID to be absent")
+	}
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)

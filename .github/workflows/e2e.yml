@@ -34,6 +34,10 @@ on:
         description: Threads ref to deploy from.
         required: false
         default: main
+      agynd_cli_ref:
+        description: agynd-cli ref to build workload daemon from.
+        required: false
+        default: main
 
 # Init images are resolved to the newest published release by the run-tests
 # action. Pinning one here opts this workflow out of every fix shipped after it.
@@ -45,6 +49,7 @@ env:
   RUNNERS_REF: main
   IDENTITY_REF: main
   THREADS_REF: main
+  AGYND_CLI_REF: main
 
 permissions:
   contents: read
@@ -74,6 +79,55 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           version: 1.66.0
+
+      - name: Checkout agynd-cli
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/agynd-cli
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.agynd_cli_ref || env.AGYND_CLI_REF }}
+          path: .e2e-deps/agynd-cli
+
+      - name: Setup Go for agynd-cli
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: .e2e-deps/agynd-cli/go.mod
+
+      - name: Build agent init images with instance inbox agynd
+        working-directory: .e2e-deps/agynd-cli
+        run: |-
+          set -euo pipefail
+          node "${GITHUB_WORKSPACE}/.github/scripts/patch-agynd-instance-inbox.js"
+          buf generate buf.build/agynio/api
+          gofmt -w internal/config/config.go internal/platform/threads.go internal/platform/consumer.go internal/platform/notifications.go internal/platform/agents.go internal/subscriber/subscriber.go internal/tracingproxy/proxy.go internal/daemon/daemon.go internal/daemon/agn.go internal/daemon/claude.go
+          CGO_ENABLED=0 go test ./internal/subscriber ./internal/tracingproxy
+          mkdir -p .build
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o .build/agynd ./cmd/agynd
+
+          build_context="${GITHUB_WORKSPACE}/.e2e-deps/agent-init-instance-inbox"
+          mkdir -p "${build_context}"
+          cp .build/agynd "${build_context}/agynd"
+          cat >"${build_context}/Dockerfile" <<'EOF'
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE}
+          COPY agynd /tools/agynd
+          EOF
+          codex_image="e2e/agent-init-codex:instance-inbox"
+          agn_image="e2e/agent-init-agn:instance-inbox"
+          claude_image="e2e/agent-init-claude:instance-inbox"
+          docker build --build-arg BASE_IMAGE="${CODEX_INIT_IMAGE}" -t "${codex_image}" "${build_context}"
+          docker build --build-arg BASE_IMAGE="${AGN_INIT_IMAGE}" -t "${agn_image}" "${build_context}"
+          docker build --build-arg BASE_IMAGE="${CLAUDE_INIT_IMAGE}" -t "${claude_image}" "${build_context}"
+          k3d_image_subcommand="import"
+          k3d image "${k3d_image_subcommand}" -c agyn-local "${codex_image}" "${agn_image}" "${claude_image}"
+          {
+          echo "CODEX_INIT_IMAGE=${codex_image}"
+          echo "AGYN_AGENT_INIT_IMAGE=${codex_image}"
+          echo "E2E_AGENT_INIT_IMAGE=${codex_image}"
+          echo "AGN_INIT_IMAGE=${agn_image}"
+          echo "AGN_EXPOSE_INIT_IMAGE=${agn_image}"
+          echo "CLAUDE_INIT_IMAGE=${claude_image}"
+          } >> "${GITHUB_ENV}"
+
 
       - name: Checkout authorization
         uses: actions/checkout@v4
@@ -1331,6 +1385,10 @@ jobs:
           echo "== workload pods =="
           kubectl get pods -n agyn-workloads -o wide || true
           kubectl describe pods -n agyn-workloads || true
+          echo "== workload logs =="
+          kubectl logs -n agyn-workloads --all-containers --tail=500 --prefix=true || true
+          echo "== workload previous logs =="
+          kubectl logs -n agyn-workloads --all-containers --previous --tail=500 --prefix=true || true
 
       - name: Restore authorization ArgoCD sync
         if: always()
