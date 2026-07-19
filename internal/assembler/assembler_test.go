@@ -486,6 +486,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		t.Fatalf("expected ziti sidecar not to pin runtime controller through host aliases")
 	}
 	assertEnv(t, zitiEnv, "ZITI_SIDECAR_SERVICE_POLL_RATE", zitiSidecarServicePollRate)
+	assertEnv(t, zitiEnv, "ZITI_TPROXY_DIAL_ADDR", "100.64.0.1")
 	if _, ok := zitiEnv[ZitiEnrollmentTokenEnvVar]; ok {
 		t.Fatalf("expected ziti sidecar not to receive %s", ZitiEnrollmentTokenEnvVar)
 	}
