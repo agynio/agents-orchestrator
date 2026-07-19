@@ -1031,7 +1031,8 @@ jobs:
           runners_alias_service_ip="$(kubectl get service runners -n agyn-workloads -o jsonpath='{.spec.clusterIP}')"
           if [ -z "${agents_alias_service_ip}" ] || [ -z "${runners_alias_service_ip}" ]; then
             echo "workload namespace service alias ClusterIP is empty" >&2
-            kubectl get service,endpoints,endpointslices -n agyn-workloads agents runners -o wide >&2 || true
+            kubectl get service -n agyn-workloads agents runners -o wide >&2 || true
+            kubectl get endpointslice -n agyn-workloads -l 'kubernetes.io/service-name in (agents,runners)' -o wide >&2 || true
             exit 1
           fi
 
@@ -1080,7 +1081,8 @@ jobs:
           kubectl wait deployment/ziti-workload-dns -n ziti --for=condition=Available --timeout=180s
           kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml
           kubectl get networkpolicy ziti-workload-dns -n ziti -o yaml
-          kubectl get service,endpoints,endpointslices -n agyn-workloads agents runners -o wide
+          kubectl get service -n agyn-workloads agents runners -o wide
+          kubectl get endpointslice -n agyn-workloads -l 'kubernetes.io/service-name in (agents,runners)' -o wide
           kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
 
       # Validation shim only: source-of-truth workload DNS belongs in bootstrap.
