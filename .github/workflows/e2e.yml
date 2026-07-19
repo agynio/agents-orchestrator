@@ -1356,8 +1356,19 @@ jobs:
       - name: Deploy orchestrator from source
         run: devspace run deploy
 
+      - name: Checkout e2e
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/e2e
+          ref: main
+          path: e2e
+
+      - name: Patch e2e for agent-instance workloads
+        run: node ../.github/scripts/patch-e2e-agent-instances.js
+        working-directory: e2e
+
       - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@main
+        uses: ./e2e/.github/actions/run-tests
         env:
           E2E_SUITES: go-core playwright-chat-app
         with:
@@ -1386,9 +1397,15 @@ jobs:
           kubectl get pods -n agyn-workloads -o wide || true
           kubectl describe pods -n agyn-workloads || true
           echo "== workload logs =="
-          kubectl logs -n agyn-workloads --all-containers --tail=500 --prefix=true || true
+          for pod in $(kubectl get pods -n agyn-workloads -o name 2>/dev/null || true); do
+            echo "== ${pod} current logs =="
+            kubectl logs -n agyn-workloads "${pod}" --all-containers --tail=500 --prefix=true || true
+          done
           echo "== workload previous logs =="
-          kubectl logs -n agyn-workloads --all-containers --previous --tail=500 --prefix=true || true
+          for pod in $(kubectl get pods -n agyn-workloads -o name 2>/dev/null || true); do
+            echo "== ${pod} previous logs =="
+            kubectl logs -n agyn-workloads "${pod}" --all-containers --previous --tail=500 --prefix=true || true
+          done
 
       - name: Restore authorization ArgoCD sync
         if: always()
