@@ -91,7 +91,7 @@ jobs:
             kubectl get secret authorization-openfga -n platform -o yaml >&2 || true
             kubectl get application authorization -n argocd -o yaml >&2 || true
             kubectl get deployment authorization -n platform -o yaml >&2 || true
-            kubectl get svc -n platform -o wide | grep -i openfga >&2 || true
+            kubectl get svc -A -o wide | grep -i openfga >&2 || true
             kubectl get pods -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization -o wide >&2 || true
             kubectl logs -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization --all-containers --tail=300 >&2 || true
             kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
@@ -108,20 +108,28 @@ jobs:
             echo "openfga_store_id Terraform output was empty" >&2
             exit 1
           fi
-          openfga_service="$(kubectl get svc -n platform -l app.kubernetes.io/name=openfga -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          openfga_namespace="openfga"
+          openfga_service="$(kubectl get svc -n "${openfga_namespace}" -l app.kubernetes.io/name=openfga -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          if [ -z "${openfga_service}" ] && kubectl get svc openfga -n "${openfga_namespace}" >/dev/null 2>&1; then
+            openfga_service="openfga"
+          fi
           if [ -z "${openfga_service}" ]; then
-            openfga_service="$(kubectl get svc -n platform -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | awk 'tolower($0) ~ /openfga/ { print; exit }')"
+            openfga_ref="$(kubectl get svc -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\n"}{end}' | awk 'tolower($2) ~ /openfga/ { print; exit }')"
+            if [ -n "${openfga_ref}" ]; then
+              openfga_namespace="$(printf '%s' "${openfga_ref}" | awk '{ print $1 }')"
+              openfga_service="$(printf '%s' "${openfga_ref}" | awk '{ print $2 }')"
+            fi
           fi
           if [ -z "${openfga_service}" ]; then
             echo "OpenFGA service not found" >&2
-            kubectl get svc -n platform -o wide >&2 || true
+            kubectl get svc -A -o wide >&2 || true
             exit 1
           fi
-          openfga_port="$(kubectl get svc "${openfga_service}" -n platform -o jsonpath='{.spec.ports[?(@.name=="http")].port}' 2>/dev/null || true)"
+          openfga_port="$(kubectl get svc "${openfga_service}" -n "${openfga_namespace}" -o jsonpath='{.spec.ports[?(@.name=="http")].port}' 2>/dev/null || true)"
           if [ -z "${openfga_port}" ]; then
-            openfga_port="$(kubectl get svc "${openfga_service}" -n platform -o jsonpath='{.spec.ports[0].port}')"
+            openfga_port="$(kubectl get svc "${openfga_service}" -n "${openfga_namespace}" -o jsonpath='{.spec.ports[0].port}')"
           fi
-          kubectl port-forward -n platform "svc/${openfga_service}" 18080:"${openfga_port}" >/tmp/openfga-port-forward.log 2>&1 &
+          kubectl port-forward -n "${openfga_namespace}" "svc/${openfga_service}" 18080:"${openfga_port}" >/tmp/openfga-port-forward.log 2>&1 &
           port_forward_pid="$!"
           cleanup() {
             kill "${port_forward_pid}" >/dev/null 2>&1 || true
