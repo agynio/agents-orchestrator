@@ -98,6 +98,12 @@ jobs:
           }
           trap dump_authorization_model_diagnostics ERR
           secret_name="authorization-openfga"
+          authorization_application="authorization"
+          if kubectl get application "${authorization_application}" -n argocd >/dev/null 2>&1; then
+            kubectl patch application "${authorization_application}" -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":null}}}'
+          fi
           platform_stack="${GITHUB_WORKSPACE}/bootstrap/stacks/platform"
           if [ ! -d "${platform_stack}" ]; then
             echo "bootstrap platform stack missing at ${platform_stack}" >&2
@@ -218,9 +224,8 @@ jobs:
             kubectl get deployment -n platform -o wide >&2 || true
             exit 1
           fi
-          authorization_container="$(kubectl get deployment "${authorization_deployment}" -n platform -o jsonpath='{.spec.template.spec.containers[0].name}')"
-          kubectl patch deployment "${authorization_deployment}" -n platform --type strategic -p "$(cat <<PATCH
-          {"spec":{"template":{"spec":{"containers":[{"name":"${authorization_container}","env":[{"name":"OPENFGA_STORE_ID","value":"${store_id}"},{"name":"OPENFGA_MODEL_ID","value":"${model_id}"}]}]}}}}
+          kubectl patch deployment "${authorization_deployment}" -n platform --type=json -p "$(cat <<PATCH
+          [{"op":"replace","path":"/spec/template/spec/containers/0/env","value":[{"name":"GRPC_ADDRESS","value":":50051"},{"name":"OPENFGA_API_URL","value":"http://${openfga_service}.${openfga_namespace}.svc.cluster.local:${openfga_port}"},{"name":"OPENFGA_STORE_ID","value":"${store_id}"},{"name":"OPENFGA_MODEL_ID","value":"${model_id}"}]}]
           PATCH
           )"
           kubectl rollout status "deployment/${authorization_deployment}" -n platform --timeout=240s
@@ -1326,6 +1331,15 @@ jobs:
           echo "== workload pods =="
           kubectl get pods -n agyn-workloads -o wide || true
           kubectl describe pods -n agyn-workloads || true
+
+      - name: Restore authorization ArgoCD sync
+        if: always()
+        run: |-
+          if kubectl get application authorization -n argocd >/dev/null 2>&1; then
+            kubectl patch application authorization -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
 
       - name: Restore agents ArgoCD sync
         if: ${{ always() && hashFiles('.e2e-deps/agents/devspace.yaml') != '' }}
