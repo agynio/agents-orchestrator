@@ -18,6 +18,10 @@ on:
         description: Agents ref to deploy from.
         required: false
         default: main
+      authorization_ref:
+        description: Authorization ref to deploy from.
+        required: false
+        default: main
       runners_ref:
         description: Runners ref to deploy from.
         required: false
@@ -37,6 +41,7 @@ env:
   BOOTSTRAP_REF: main
   K8S_RUNNER_REF: main
   AGENTS_REF: main
+  AUTHORIZATION_REF: main
   RUNNERS_REF: main
   IDENTITY_REF: main
   THREADS_REF: main
@@ -69,6 +74,138 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           version: 1.66.0
+
+      - name: Checkout authorization
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/authorization
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.authorization_ref || env.AUTHORIZATION_REF }}
+          path: .e2e-deps/authorization
+
+      - name: Apply authorization model from source
+        working-directory: .e2e-deps/authorization
+        run: |-
+          set -euo pipefail
+          dump_authorization_model_diagnostics() {
+            echo "== authorization model diagnostics ==" >&2
+            kubectl get secret authorization-openfga -n platform -o yaml >&2 || true
+            kubectl get svc -n platform -o wide | grep -i openfga >&2 || true
+            kubectl get pods -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization -o wide >&2 || true
+            kubectl logs -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization --all-containers --tail=300 >&2 || true
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_authorization_model_diagnostics ERR
+          secret_name="authorization-openfga"
+          store_id="$(kubectl get secret "${secret_name}" -n platform -o jsonpath='{.data.OPENFGA_STORE_ID}' | base64 -d)"
+          if [ -z "${store_id}" ]; then
+            echo "OPENFGA_STORE_ID missing from ${secret_name}" >&2
+            exit 1
+          fi
+          openfga_service="$(kubectl get svc -n platform -l app.kubernetes.io/name=openfga -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          if [ -z "${openfga_service}" ]; then
+            openfga_service="$(kubectl get svc -n platform -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | awk 'tolower($0) ~ /openfga/ { print; exit }')"
+          fi
+          if [ -z "${openfga_service}" ]; then
+            echo "OpenFGA service not found" >&2
+            kubectl get svc -n platform -o wide >&2 || true
+            exit 1
+          fi
+          openfga_port="$(kubectl get svc "${openfga_service}" -n platform -o jsonpath='{.spec.ports[?(@.name=="http")].port}' 2>/dev/null || true)"
+          if [ -z "${openfga_port}" ]; then
+            openfga_port="$(kubectl get svc "${openfga_service}" -n platform -o jsonpath='{.spec.ports[0].port}')"
+          fi
+          kubectl port-forward -n platform "svc/${openfga_service}" 18080:"${openfga_port}" >/tmp/openfga-port-forward.log 2>&1 &
+          port_forward_pid="$!"
+          cleanup() {
+            kill "${port_forward_pid}" >/dev/null 2>&1 || true
+            wait "${port_forward_pid}" >/dev/null 2>&1 || true
+          }
+          trap 'dump_authorization_model_diagnostics; cleanup' ERR
+          trap cleanup EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:18080/healthz" >/dev/null 2>&1 || curl -fsS "http://127.0.0.1:18080/stores" >/dev/null 2>&1; then
+              break
+            fi
+            if ! kill -0 "${port_forward_pid}" >/dev/null 2>&1; then
+              cat /tmp/openfga-port-forward.log >&2 || true
+              exit 1
+            fi
+            if [ "${i}" -eq 60 ]; then
+              cat /tmp/openfga-port-forward.log >&2 || true
+              exit 1
+            fi
+            sleep 1
+          done
+          apply_file="$(mktemp apply-authorization-model-XXXX.go)"
+          trap 'rm -f "${apply_file}"; cleanup' EXIT
+          cat >"${apply_file}" <<'GO'
+          package main
+
+          import (
+            "context"
+            "encoding/json"
+            "fmt"
+            "os"
+            "strings"
+            "time"
+
+            "github.com/agynio/authorization/internal/authz"
+            openfgaclient "github.com/openfga/go-sdk/client"
+            "github.com/openfga/language/pkg/go/transformer"
+          )
+
+          func main() {
+            apiURL := strings.TrimSpace(os.Getenv("OPENFGA_API_URL"))
+            storeID := strings.TrimSpace(os.Getenv("OPENFGA_STORE_ID"))
+            if apiURL == "" || storeID == "" {
+              panic("OPENFGA_API_URL and OPENFGA_STORE_ID are required")
+            }
+            ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+            defer cancel()
+            client, err := openfgaclient.NewSdkClient(&openfgaclient.ClientConfiguration{ApiUrl: apiURL})
+            if err != nil {
+              panic(err)
+            }
+            if err := client.SetStoreId(storeID); err != nil {
+              panic(err)
+            }
+            modelJSON, err := transformer.TransformDSLToJSON(authz.ModelDSL)
+            if err != nil {
+              panic(err)
+            }
+            var body openfgaclient.ClientWriteAuthorizationModelRequest
+            if err := json.Unmarshal([]byte(modelJSON), &body); err != nil {
+              panic(err)
+            }
+            written, err := client.WriteAuthorizationModel(ctx).Body(body).Execute()
+            if err != nil {
+              panic(err)
+            }
+            modelID := strings.TrimSpace(written.GetAuthorizationModelId())
+            if modelID == "" {
+              panic("authorization model id missing")
+            }
+            fmt.Println(modelID)
+          }
+          GO
+          model_id="$(OPENFGA_API_URL=http://127.0.0.1:18080 OPENFGA_STORE_ID="${store_id}" go run "${apply_file}")"
+          if [ -z "${model_id}" ]; then
+            echo "authorization model id missing" >&2
+            exit 1
+          fi
+          kubectl create secret generic "${secret_name}" -n platform \
+            --from-literal=OPENFGA_STORE_ID="${store_id}" \
+            --from-literal=OPENFGA_MODEL_ID="${model_id}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          authorization_deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization -o jsonpath='{.items[0].metadata.name}')"
+          if [ -z "${authorization_deployment}" ]; then
+            echo "authorization deployment not found" >&2
+            kubectl get deployment -n platform -o wide >&2 || true
+            exit 1
+          fi
+          kubectl rollout restart "deployment/${authorization_deployment}" -n platform
+          kubectl rollout status "deployment/${authorization_deployment}" -n platform --timeout=240s
+          echo "Applied authorization model ${model_id} to store ${store_id}."
 
       - name: Checkout agents
         uses: actions/checkout@v4
@@ -1149,7 +1286,7 @@ jobs:
         run: |-
           set +e
           echo "== runners DevSpace log =="
-          for app in runners agents-orchestrator k8s-runner agents identity threads; do
+          for app in runners agents-orchestrator k8s-runner agents authorization identity threads; do
             selector="app.kubernetes.io/name=${app},app.kubernetes.io/instance=${app}"
             echo "== ${app} deployment =="
             kubectl get deployment "${app}" -n platform -o yaml || kubectl get deployment "${app}-${app}" -n platform -o yaml || true
