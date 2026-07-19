@@ -982,6 +982,20 @@ jobs:
             echo "runners endpoints are empty" >&2
             exit 1
           fi
+          agents_endpoint_ip="$(printf '%s\n' "${agents_endpoint_ips}" | awk 'NF { print $1; exit }')"
+          runners_endpoint_ip="$(printf '%s\n' "${runners_endpoint_ips}" | awk 'NF { print $1; exit }')"
+          if [ -z "${agents_endpoint_ip}" ] || [ -z "${runners_endpoint_ip}" ]; then
+            echo "agents/runners direct endpoint selection failed" >&2
+            echo "agents endpoints: ${agents_endpoint_ips}" >&2
+            echo "runners endpoints: ${runners_endpoint_ips}" >&2
+            exit 1
+          fi
+          {
+            echo "AGYND_AGENTS_DIRECT_ADDRESS=${agents_endpoint_ip}:50051"
+            echo "AGYND_RUNNERS_DIRECT_ADDRESS=${runners_endpoint_ip}:50051"
+          } >> "${GITHUB_ENV}"
+          echo "Using agynd direct agents endpoint ${agents_endpoint_ip}:50051"
+          echo "Using agynd direct runners endpoint ${runners_endpoint_ip}:50051"
 
           apply_workload_service_alias() {
             service_name="$1"
@@ -1439,7 +1453,24 @@ jobs:
           kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 >&2 || true
           exit 1
       - name: Deploy orchestrator from source
-        run: devspace run deploy
+        run: |-
+          set -euo pipefail
+          service_endpoint_ip() {
+            kubectl get endpoints "$1" -n "$2" -o jsonpath='{range .subsets[*].addresses[*]}{.ip}{"\n"}{end}' | awk 'NF { print; exit }'
+          }
+          agents_endpoint_ip="$(service_endpoint_ip agents platform)"
+          runners_endpoint_ip="$(service_endpoint_ip runners platform)"
+          if [ -z "${agents_endpoint_ip}" ] || [ -z "${runners_endpoint_ip}" ]; then
+            echo "agents/runners direct endpoint selection failed before orchestrator deploy" >&2
+            kubectl get service,endpoints -n platform agents runners -o wide >&2 || true
+            kubectl get pods -n platform -l 'app.kubernetes.io/name in (agents,runners)' -o wide >&2 || true
+            exit 1
+          fi
+          export AGYND_AGENTS_DIRECT_ADDRESS="${agents_endpoint_ip}:50051"
+          export AGYND_RUNNERS_DIRECT_ADDRESS="${runners_endpoint_ip}:50051"
+          echo "Deploying orchestrator with agynd direct agents endpoint ${AGYND_AGENTS_DIRECT_ADDRESS}"
+          echo "Deploying orchestrator with agynd direct runners endpoint ${AGYND_RUNNERS_DIRECT_ADDRESS}"
+          devspace run deploy
 
       - name: Checkout e2e
         uses: actions/checkout@v4

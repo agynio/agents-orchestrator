@@ -322,28 +322,30 @@ exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svc
 )
 
 var reservedEnvNames = map[string]struct{}{
-	"AGENT_ID":                    {},
-	"AGENT_INSTANCE_ID":           {},
-	"AGENT_NAME":                  {},
-	"AGENT_ROLE":                  {},
-	"AGENT_MODEL":                 {},
-	"AGENT_CONFIG":                {},
-	"WORKLOAD_ID":                 {},
-	"GATEWAY_ADDRESS":             {},
-	"AGYN_GATEWAY_URL":            {},
-	"LLM_BASE_URL":                {},
-	"TRACING_ADDRESS":             {},
-	"OTEL_EXPORTER_OTLP_ENDPOINT": {},
-	"SSL_CERT_FILE":               {},
-	"REQUESTS_CA_BUNDLE":          {},
-	"NODE_EXTRA_CA_CERTS":         {},
-	"CURL_CA_BUNDLE":              {},
-	"SSL_CERT_DIR":                {},
-	"AGENT_MCP_SERVERS":           {},
-	"MCP_PORT":                    {},
-	ZitiEnrollmentTokenEnvVar:     {},
-	ZitiIdentityBasenameEnvVar:    {},
-	ZitiIdentityDirEnvVar:         {},
+	"AGENT_ID":                     {},
+	"AGENT_INSTANCE_ID":            {},
+	"AGENT_NAME":                   {},
+	"AGENT_ROLE":                   {},
+	"AGENT_MODEL":                  {},
+	"AGENT_CONFIG":                 {},
+	"WORKLOAD_ID":                  {},
+	"GATEWAY_ADDRESS":              {},
+	"AGYN_GATEWAY_URL":             {},
+	"LLM_BASE_URL":                 {},
+	"TRACING_ADDRESS":              {},
+	"OTEL_EXPORTER_OTLP_ENDPOINT":  {},
+	"AGYND_AGENTS_DIRECT_ADDRESS":  {},
+	"AGYND_RUNNERS_DIRECT_ADDRESS": {},
+	"SSL_CERT_FILE":                {},
+	"REQUESTS_CA_BUNDLE":           {},
+	"NODE_EXTRA_CA_CERTS":          {},
+	"CURL_CA_BUNDLE":               {},
+	"SSL_CERT_DIR":                 {},
+	"AGENT_MCP_SERVERS":            {},
+	"MCP_PORT":                     {},
+	ZitiEnrollmentTokenEnvVar:      {},
+	ZitiIdentityBasenameEnvVar:     {},
+	ZitiIdentityDirEnvVar:          {},
 }
 
 type Assembler struct {
@@ -1179,6 +1181,12 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstan
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
+	}
+	if a.cfg.AgyndAgentsDirectAddress != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "AGYND_AGENTS_DIRECT_ADDRESS", Value: a.cfg.AgyndAgentsDirectAddress})
+	}
+	if a.cfg.AgyndRunnersDirectAddress != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "AGYND_RUNNERS_DIRECT_ADDRESS", Value: a.cfg.AgyndRunnersDirectAddress})
 	}
 	if a.cfg.AgentTracingAddress != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})

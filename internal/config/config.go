@@ -37,6 +37,8 @@ type Config struct {
 	AgentGatewayAddress                 string
 	AgentTracingAddress                 string
 	AgentLLMBaseURL                     string
+	AgyndAgentsDirectAddress            string
+	AgyndRunnersDirectAddress           string
 	SandboxInitImage                    string
 	SandboxWorkspaceSizeGB              string
 	PollInterval                        time.Duration
@@ -123,6 +125,8 @@ func FromEnv() (Config, error) {
 			cfg.AgentLLMBaseURL = "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1"
 		}
 	}
+	cfg.AgyndAgentsDirectAddress = os.Getenv("AGYND_AGENTS_DIRECT_ADDRESS")
+	cfg.AgyndRunnersDirectAddress = os.Getenv("AGYND_RUNNERS_DIRECT_ADDRESS")
 	cfg.SandboxInitImage = os.Getenv("SANDBOX_INIT_IMAGE")
 	if cfg.SandboxInitImage == "" {
 		cfg.SandboxInitImage = "ghcr.io/agynio/agent-init-codex:latest"

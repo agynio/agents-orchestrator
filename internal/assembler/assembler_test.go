@@ -74,9 +74,11 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentTracingAddress: "tracing:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
+		AgentGatewayAddress:       "gateway:50051",
+		AgentTracingAddress:       "tracing:50051",
+		AgentLLMBaseURL:           "http://llm:8080/v1",
+		AgyndAgentsDirectAddress:  "10.42.0.10:50051",
+		AgyndRunnersDirectAddress: "10.42.0.11:50051",
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
@@ -175,6 +177,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
+	assertEnv(t, envs, "AGYND_AGENTS_DIRECT_ADDRESS", cfg.AgyndAgentsDirectAddress)
+	assertEnv(t, envs, "AGYND_RUNNERS_DIRECT_ADDRESS", cfg.AgyndRunnersDirectAddress)
 	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
 	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	assertEnv(t, envs, "WORKSPACE_DIR", "/override")

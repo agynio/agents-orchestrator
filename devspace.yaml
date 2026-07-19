@@ -103,6 +103,10 @@ functions:
                   value: "tracing.ziti:443"
                 - name: AGENT_LLM_BASE_URL
                   value: "http://llm-proxy.ziti/v1"
+                - name: AGYND_AGENTS_DIRECT_ADDRESS
+                  value: "__AGYND_AGENTS_DIRECT_ADDRESS__"
+                - name: AGYND_RUNNERS_DIRECT_ADDRESS
+                  value: "__AGYND_RUNNERS_DIRECT_ADDRESS__"
                 - name: GOCACHE
                   value: /tmp/go-build-cache
                 - name: GOMODCACHE
@@ -180,6 +184,8 @@ functions:
     patch="${patch/__ZITI_ENROLLMENT_CONTROLLER_PORT__/${ZITI_ENROLLMENT_CONTROLLER_PORT:-2496}}"
     patch="${patch/__ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST__/${ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST:-ziti-controller-client.ziti.svc.cluster.local}}"
     patch="${patch/__ZITI_RUNTIME_CONTROLLER_PORT__/${ZITI_RUNTIME_CONTROLLER_PORT:-2496}}"
+    patch="${patch/__AGYND_AGENTS_DIRECT_ADDRESS__/${AGYND_AGENTS_DIRECT_ADDRESS:-}}"
+    patch="${patch/__AGYND_RUNNERS_DIRECT_ADDRESS__/${AGYND_RUNNERS_DIRECT_ADDRESS:-}}"
     kubectl patch deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} --type strategic --patch "${patch}"
   wait_for_orchestrator: |-
     echo "Waiting for orchestrator deployment to roll out..."

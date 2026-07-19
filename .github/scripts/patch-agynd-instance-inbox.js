@@ -118,6 +118,9 @@ func dialKubernetesService(ctx context.Context, address string) (net.Conn, error
 	if net.ParseIP(host) != nil {
 		return dialer.DialContext(ctx, "tcp", address)
 	}
+	if directAddress, ok := directServiceAddress(host); ok {
+		return dialer.DialContext(ctx, "tcp", directAddress)
+	}
 	if envAddress, ok := serviceEnvAddress(host, port); ok {
 		return dialer.DialContext(ctx, "tcp", envAddress)
 	}
@@ -140,12 +143,21 @@ func dialKubernetesService(ctx context.Context, address string) (net.Conn, error
 	return nil, lastErr
 }
 
-func serviceEnvAddress(host string, port string) (string, bool) {
-	serviceName := host
-	if dot := strings.IndexByte(serviceName, '.'); dot >= 0 {
-		serviceName = serviceName[:dot]
+func directServiceAddress(host string) (string, bool) {
+	serviceName := serviceNameFromHost(host)
+	switch serviceName {
+	case "agents", "runners":
+		envName := "AGYND_" + strings.ToUpper(serviceName) + "_DIRECT_ADDRESS"
+		address := strings.TrimSpace(os.Getenv(envName))
+		return address, address != ""
+	default:
+		return "", false
 	}
-	if strings.TrimSpace(serviceName) == "" {
+}
+
+func serviceEnvAddress(host string, port string) (string, bool) {
+	serviceName := serviceNameFromHost(host)
+	if serviceName == "" {
 		return "", false
 	}
 	envPrefix := strings.ToUpper(strings.ReplaceAll(serviceName, "-", "_"))
@@ -158,6 +170,14 @@ func serviceEnvAddress(host string, port string) (string, bool) {
 		envPort = port
 	}
 	return net.JoinHostPort(envHost, envPort), true
+}
+
+func serviceNameFromHost(host string) string {
+	serviceName := host
+	if dot := strings.IndexByte(serviceName, '.'); dot >= 0 {
+		serviceName = serviceName[:dot]
+	}
+	return strings.TrimSpace(serviceName)
 }
 
 func kubernetesResolver() *net.Resolver {
