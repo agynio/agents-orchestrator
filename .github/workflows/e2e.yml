@@ -1000,24 +1000,29 @@ jobs:
                 targetPort: 50051
           EOF_ALIAS_SERVICE
             {
-              cat <<EOF_ALIAS_ENDPOINTS
-          apiVersion: v1
-          kind: Endpoints
+              cat <<EOF_ALIAS_SLICE
+          apiVersion: discovery.k8s.io/v1
+          kind: EndpointSlice
           metadata:
-            name: ${service_name}
+            name: ${service_name}-platform-source
             namespace: agyn-workloads
-          subsets:
-            - addresses:
-          EOF_ALIAS_ENDPOINTS
+            labels:
+              kubernetes.io/service-name: ${service_name}
+          addressType: IPv4
+          ports:
+            - name: grpc
+              protocol: TCP
+              port: 50051
+          endpoints:
+          EOF_ALIAS_SLICE
               for endpoint_ip in ${endpoint_ips}; do
-                echo "                - ip: ${endpoint_ip}"
+                cat <<EOF_ALIAS_SLICE
+            - addresses:
+                - ${endpoint_ip}
+              conditions:
+                ready: true
+          EOF_ALIAS_SLICE
               done
-              cat <<EOF_ALIAS_ENDPOINTS
-              ports:
-                - name: grpc
-                  protocol: TCP
-                  port: 50051
-          EOF_ALIAS_ENDPOINTS
             } | kubectl apply -f -
           }
           apply_workload_service_alias agents "${agents_endpoint_ips}"
@@ -1026,7 +1031,7 @@ jobs:
           runners_alias_service_ip="$(kubectl get service runners -n agyn-workloads -o jsonpath='{.spec.clusterIP}')"
           if [ -z "${agents_alias_service_ip}" ] || [ -z "${runners_alias_service_ip}" ]; then
             echo "workload namespace service alias ClusterIP is empty" >&2
-            kubectl get service,endpoints -n agyn-workloads agents runners -o wide >&2 || true
+            kubectl get service,endpoints,endpointslices -n agyn-workloads agents runners -o wide >&2 || true
             exit 1
           fi
 
@@ -1075,6 +1080,7 @@ jobs:
           kubectl wait deployment/ziti-workload-dns -n ziti --for=condition=Available --timeout=180s
           kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml
           kubectl get networkpolicy ziti-workload-dns -n ziti -o yaml
+          kubectl get service,endpoints,endpointslices -n agyn-workloads agents runners -o wide
           kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
 
       # Validation shim only: source-of-truth workload DNS belongs in bootstrap.
