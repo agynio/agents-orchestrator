@@ -89,6 +89,8 @@ jobs:
           dump_authorization_model_diagnostics() {
             echo "== authorization model diagnostics ==" >&2
             kubectl get secret authorization-openfga -n platform -o yaml >&2 || true
+            kubectl get application authorization -n argocd -o yaml >&2 || true
+            kubectl get deployment authorization -n platform -o yaml >&2 || true
             kubectl get svc -n platform -o wide | grep -i openfga >&2 || true
             kubectl get pods -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization -o wide >&2 || true
             kubectl logs -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization --all-containers --tail=300 >&2 || true
@@ -96,9 +98,14 @@ jobs:
           }
           trap dump_authorization_model_diagnostics ERR
           secret_name="authorization-openfga"
-          store_id="$(kubectl get secret "${secret_name}" -n platform -o jsonpath='{.data.OPENFGA_STORE_ID}' | base64 -d)"
+          platform_stack="${GITHUB_WORKSPACE}/bootstrap/stacks/platform"
+          if [ ! -d "${platform_stack}" ]; then
+            echo "bootstrap platform stack missing at ${platform_stack}" >&2
+            exit 1
+          fi
+          store_id="$(terraform -chdir="${platform_stack}" output -raw openfga_store_id)"
           if [ -z "${store_id}" ]; then
-            echo "OPENFGA_STORE_ID missing from ${secret_name}" >&2
+            echo "openfga_store_id Terraform output was empty" >&2
             exit 1
           fi
           openfga_service="$(kubectl get svc -n platform -l app.kubernetes.io/name=openfga -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
@@ -203,8 +210,17 @@ jobs:
             kubectl get deployment -n platform -o wide >&2 || true
             exit 1
           fi
-          kubectl rollout restart "deployment/${authorization_deployment}" -n platform
+          authorization_container="$(kubectl get deployment "${authorization_deployment}" -n platform -o jsonpath='{.spec.template.spec.containers[0].name}')"
+          kubectl patch deployment "${authorization_deployment}" -n platform --type strategic -p "$(cat <<PATCH
+          {"spec":{"template":{"spec":{"containers":[{"name":"${authorization_container}","env":[{"name":"OPENFGA_STORE_ID","value":"${store_id}"},{"name":"OPENFGA_MODEL_ID","value":"${model_id}"}]}]}}}}
+          PATCH
+          )"
           kubectl rollout status "deployment/${authorization_deployment}" -n platform --timeout=240s
+          current_model_id="$(kubectl get deployment "${authorization_deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[0].env[?(@.name=="OPENFGA_MODEL_ID")]}{.value}{end}')"
+          if [ "${current_model_id}" != "${model_id}" ]; then
+            echo "authorization deployment OPENFGA_MODEL_ID mismatch: expected ${model_id}, got ${current_model_id}" >&2
+            exit 1
+          fi
           echo "Applied authorization model ${model_id} to store ${store_id}."
 
       - name: Checkout agents
