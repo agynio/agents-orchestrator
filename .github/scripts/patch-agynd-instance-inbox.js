@@ -146,103 +146,238 @@ if (!consumerText.includes('func (c *Consumer) getUnackedMessages')) {
 fs.writeFileSync('internal/platform/agents.go', `package platform
 
 import (
-\t"context"
-\t"fmt"
+	"context"
+	"fmt"
+	"strings"
 
-\tagentsv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/agents/v1"
-\tgatewayv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/gateway/v1"
+	agentsv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/agents/v1"
+	"google.golang.org/grpc/metadata"
 )
 
 type Agents struct {
-\tclient gatewayv1.AgentsGatewayClient
+	client     agentsv1.AgentsServiceClient
+	identityID string
 }
 
-func NewAgents(client gatewayv1.AgentsGatewayClient) *Agents {
-\treturn &Agents{client: client}
+func NewAgents(client agentsv1.AgentsServiceClient, identityID string) *Agents {
+	identityID = strings.TrimSpace(identityID)
+	if identityID == "" {
+		panic("identity id is required")
+	}
+	return &Agents{client: client, identityID: identityID}
 }
 
 func (a *Agents) GetUnackedInboxItems(ctx context.Context, agentInstanceID string, pageSize int32, pageToken string) ([]Message, string, error) {
-\tif agentInstanceID == "" {
-\t\treturn nil, "", fmt.Errorf("agent instance id is required")
-\t}
-\tresp, err := a.client.GetUnackedInboxItems(ctx, &agentsv1.GetUnackedInboxItemsRequest{
-\t\tAgentInstanceId: agentInstanceID,
-\t\tPageSize:        pageSize,
-\t\tPageToken:       pageToken,
-\t})
-\tif err != nil {
-\t\treturn nil, "", fmt.Errorf("get unacked inbox items: %w", err)
-\t}
-\tmessages := make([]Message, 0, len(resp.GetItems()))
-\tfor _, item := range resp.GetItems() {
-\t\tparsed, err := inboxItemFromProto(item)
-\t\tif err != nil {
-\t\t\treturn nil, "", err
-\t\t}
-\t\tmessages = append(messages, parsed)
-\t}
-\treturn messages, resp.GetNextPageToken(), nil
+	if agentInstanceID == "" {
+		return nil, "", fmt.Errorf("agent instance id is required")
+	}
+	resp, err := a.client.GetUnackedInboxItems(a.authContext(ctx), &agentsv1.GetUnackedInboxItemsRequest{
+		AgentInstanceId: agentInstanceID,
+		PageSize:        pageSize,
+		PageToken:       pageToken,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("get unacked inbox items: %w", err)
+	}
+	messages := make([]Message, 0, len(resp.GetItems()))
+	for _, item := range resp.GetItems() {
+		parsed, err := inboxItemFromProto(item)
+		if err != nil {
+			return nil, "", err
+		}
+		messages = append(messages, parsed)
+	}
+	return messages, resp.GetNextPageToken(), nil
 }
 
 func (a *Agents) AckInboxItems(ctx context.Context, agentInstanceID string, itemIDs []string) error {
-\tif agentInstanceID == "" {
-\t\treturn fmt.Errorf("agent instance id is required")
-\t}
-\tif len(itemIDs) == 0 {
-\t\treturn fmt.Errorf("item ids are required")
-\t}
-\tfor _, id := range itemIDs {
-\t\tif id == "" {
-\t\t\treturn fmt.Errorf("item id is required")
-\t\t}
-\t}
-\t_, err := a.client.AckInboxItems(ctx, &agentsv1.AckInboxItemsRequest{
-\t\tAgentInstanceId: agentInstanceID,
-\t\tItemIds:         append([]string{}, itemIDs...),
-\t})
-\tif err != nil {
-\t\treturn fmt.Errorf("ack inbox items: %w", err)
-\t}
-\treturn nil
+	if agentInstanceID == "" {
+		return fmt.Errorf("agent instance id is required")
+	}
+	if len(itemIDs) == 0 {
+		return fmt.Errorf("item ids are required")
+	}
+	for _, id := range itemIDs {
+		if id == "" {
+			return fmt.Errorf("item id is required")
+		}
+	}
+	_, err := a.client.AckInboxItems(a.authContext(ctx), &agentsv1.AckInboxItemsRequest{
+		AgentInstanceId: agentInstanceID,
+		ItemIds:         append([]string{}, itemIDs...),
+	})
+	if err != nil {
+		return fmt.Errorf("ack inbox items: %w", err)
+	}
+	return nil
+}
+
+func (a *Agents) authContext(ctx context.Context) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, "x-identity-id", a.identityID)
 }
 
 func inboxItemFromProto(item *agentsv1.InboxItem) (Message, error) {
-\tif item == nil {
-\t\treturn Message{}, fmt.Errorf("inbox item is nil")
-\t}
-\tid := item.GetId()
-\tif id == "" {
-\t\treturn Message{}, fmt.Errorf("inbox item.id is required")
-\t}
-\tmessageID := item.GetMessageId()
-\tif messageID == "" {
-\t\tmessageID = id
-\t}
-\tthreadID := item.GetThreadId()
-\tif threadID == "" {
-\t\treturn Message{}, fmt.Errorf("inbox item.thread_id is required")
-\t}
-\tsenderID := item.GetSenderId()
-\tif senderID == "" {
-\t\treturn Message{}, fmt.Errorf("inbox item.sender_id is required")
-\t}
-\tcreatedAt := item.GetAcceptedAt()
-\tif createdAt == nil {
-\t\treturn Message{}, fmt.Errorf("inbox item.accepted_at is required")
-\t}
-\tfileIDs := append([]string{}, item.GetFileIds()...)
-\tif item.GetBody() == "" && len(fileIDs) == 0 {
-\t\treturn Message{}, fmt.Errorf("inbox item body or file ids are required")
-\t}
-\treturn Message{
-\t\tID:          messageID,
-\t\tInboxItemID: id,
-\t\tThreadID:    threadID,
-\t\tSenderID:    senderID,
-\t\tBody:        item.GetBody(),
-\t\tFileIDs:     fileIDs,
-\t\tCreatedAt:   createdAt.AsTime(),
-\t}, nil
+	if item == nil {
+		return Message{}, fmt.Errorf("inbox item is nil")
+	}
+	id := item.GetId()
+	if id == "" {
+		return Message{}, fmt.Errorf("inbox item.id is required")
+	}
+	messageID := item.GetMessageId()
+	if messageID == "" {
+		messageID = id
+	}
+	threadID := item.GetThreadId()
+	if threadID == "" {
+		return Message{}, fmt.Errorf("inbox item.thread_id is required")
+	}
+	senderID := item.GetSenderId()
+	if senderID == "" {
+		return Message{}, fmt.Errorf("inbox item.sender_id is required")
+	}
+	createdAt := item.GetAcceptedAt()
+	if createdAt == nil {
+		return Message{}, fmt.Errorf("inbox item.accepted_at is required")
+	}
+	fileIDs := append([]string{}, item.GetFileIds()...)
+	if item.GetBody() == "" && len(fileIDs) == 0 {
+		return Message{}, fmt.Errorf("inbox item body or file ids are required")
+	}
+	return Message{
+		ID:          messageID,
+		InboxItemID: id,
+		ThreadID:    threadID,
+		SenderID:    senderID,
+		Body:        item.GetBody(),
+		FileIDs:     fileIDs,
+		CreatedAt:   createdAt.AsTime(),
+	}, nil
+}
+`);
+
+
+fs.writeFileSync('internal/platform/runners.go', `package platform
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	gatewayv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/gateway/v1"
+	runnersv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/runners/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+)
+
+type Workload struct {
+	ID        string
+	AgentID   string
+	Status    runnersv1.WorkloadStatus
+	CreatedAt time.Time
+	RemovedAt *time.Time
+}
+
+type workloadTouchClient interface {
+	TouchWorkload(ctx context.Context, in *runnersv1.TouchWorkloadRequest, opts ...grpc.CallOption) (*runnersv1.TouchWorkloadResponse, error)
+}
+
+type Runners struct {
+	listClient  gatewayv1.RunnersGatewayClient
+	touchClient workloadTouchClient
+	identityID  string
+}
+
+func NewRunners(client gatewayv1.RunnersGatewayClient) *Runners {
+	return &Runners{listClient: client, touchClient: client}
+}
+
+func NewRunnersWithTouchClient(listClient gatewayv1.RunnersGatewayClient, touchClient workloadTouchClient, identityID string) *Runners {
+	identityID = strings.TrimSpace(identityID)
+	if identityID == "" {
+		panic("identity id is required")
+	}
+	return &Runners{listClient: listClient, touchClient: touchClient, identityID: identityID}
+}
+
+func (r *Runners) ListWorkloadsByThread(ctx context.Context, threadID string, pageSize int32, pageToken string) ([]Workload, string, error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return nil, "", fmt.Errorf("thread id is required")
+	}
+	resp, err := r.listClient.ListWorkloadsByThread(ctx, &runnersv1.ListWorkloadsByThreadRequest{
+		ThreadId:  threadID,
+		PageSize:  pageSize,
+		PageToken: pageToken,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("list workloads by thread: %w", err)
+	}
+	workloads := make([]Workload, 0, len(resp.GetWorkloads()))
+	for _, workload := range resp.GetWorkloads() {
+		converted, err := workloadFromProto(workload)
+		if err != nil {
+			return nil, "", err
+		}
+		workloads = append(workloads, converted)
+	}
+	return workloads, resp.GetNextPageToken(), nil
+}
+
+func (r *Runners) TouchWorkload(ctx context.Context, workloadID string) error {
+	workloadID = strings.TrimSpace(workloadID)
+	if workloadID == "" {
+		return fmt.Errorf("workload id is required")
+	}
+	if r.identityID != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-identity-id", r.identityID)
+	}
+	_, err := r.touchClient.TouchWorkload(ctx, &runnersv1.TouchWorkloadRequest{Id: workloadID})
+	if err != nil {
+		return fmt.Errorf("touch workload: %w", err)
+	}
+	return nil
+}
+
+func workloadFromProto(workload *runnersv1.Workload) (Workload, error) {
+	if workload == nil {
+		return Workload{}, fmt.Errorf("workload is required")
+	}
+	meta := workload.GetMeta()
+	if meta == nil {
+		return Workload{}, fmt.Errorf("workload meta is required")
+	}
+	workloadID := strings.TrimSpace(meta.GetId())
+	if workloadID == "" {
+		return Workload{}, fmt.Errorf("workload id is required")
+	}
+	agentID := strings.TrimSpace(workload.GetAgentId())
+	if agentID == "" {
+		return Workload{}, fmt.Errorf("workload agent id is required")
+	}
+	status := workload.GetStatus()
+	if status == runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED {
+		return Workload{}, fmt.Errorf("workload status is required")
+	}
+	createdAt := meta.GetCreatedAt()
+	if createdAt == nil {
+		return Workload{}, fmt.Errorf("workload created at is required")
+	}
+	createdAtTime := createdAt.AsTime()
+	var removedAt *time.Time
+	if workload.RemovedAt != nil {
+		removedTime := workload.GetRemovedAt().AsTime()
+		removedAt = &removedTime
+	}
+
+	return Workload{
+		ID:        workloadID,
+		AgentID:   agentID,
+		Status:    status,
+		CreatedAt: createdAtTime,
+		RemovedAt: removedAt,
+	}, nil
 }
 `);
 
@@ -304,6 +439,68 @@ replace(
 
 replace(
   'internal/daemon/daemon.go',
+  'runnersv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/runners/v1"',
+  '\tgatewayv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/gateway/v1"',
+  ['\tgatewayv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/gateway/v1"', '\trunnersv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/runners/v1"'].join('\n'),
+);
+replace(
+  'internal/daemon/daemon.go',
+  'type platformConns []platformConn',
+  ['type platformConn interface {', '\tClose() error', '}'].join('\n'),
+  [
+    'type platformConn interface {',
+    '\tClose() error',
+    '}',
+    '',
+    'type platformConns []platformConn',
+    '',
+    'func (conns platformConns) Close() error {',
+    '\tvar closeErr error',
+    '\tfor _, conn := range conns {',
+    '\t\tif err := conn.Close(); err != nil && closeErr == nil {',
+    '\t\t\tcloseErr = err',
+    '\t\t}',
+    '\t}',
+    '\treturn closeErr',
+    '}',
+  ].join('\n'),
+);
+replace(
+  'internal/daemon/daemon.go',
+  'agentsService := agentsv1.NewAgentsServiceClient',
+  [
+    '\trunnersGateway := gatewayv1.NewRunnersGatewayClient(gatewayConn)',
+    '',
+    '\tthreadsClient := platform.NewThreads(threadsGateway)',
+  ].join('\n'),
+  [
+    '\trunnersGateway := gatewayv1.NewRunnersGatewayClient(gatewayConn)',
+    '',
+    '\tagentsConn, err := platform.DialGateway("agents:50051")',
+    '\tif err != nil {',
+    '\t\t_ = gatewayConn.Close()',
+    '\t\treturn nil, config.Config{}, fmt.Errorf("dial agents service: %w", err)',
+    '\t}',
+    '\trunnersConn, err := platform.DialGateway("runners:50051")',
+    '\tif err != nil {',
+    '\t\t_ = gatewayConn.Close()',
+    '\t\t_ = agentsConn.Close()',
+    '\t\treturn nil, config.Config{}, fmt.Errorf("dial runners service: %w", err)',
+    '\t}',
+    '\tcloseConns := func() {',
+    '\t\t_ = gatewayConn.Close()',
+    '\t\t_ = agentsConn.Close()',
+    '\t\t_ = runnersConn.Close()',
+    '\t}',
+    '\tagentsService := agentsv1.NewAgentsServiceClient(agentsConn)',
+    '\trunnersService := runnersv1.NewRunnersServiceClient(runnersConn)',
+    '',
+    '\tthreadsClient := platform.NewThreads(threadsGateway)',
+  ].join('\n'),
+);
+
+replace(
+  'internal/daemon/daemon.go',
   '"github.com/google/uuid"',
   '\tcodex "github.com/agynio/codex-sdk-go"',
   ['\tcodex "github.com/agynio/codex-sdk-go"', '\t"github.com/google/uuid"'].join('\n'),
@@ -324,8 +521,20 @@ replace(
   'internal/daemon/daemon.go',
   'agentInboxClient := platform.NewAgents',
   ['\tthreadsClient := platform.NewThreads(threadsGateway)', '\tnotificationsClient := platform.NewNotifications(notificationsGateway)', '\trunnersClient := platform.NewRunners(runnersGateway)'].join('\n'),
-  ['\tthreadsClient := platform.NewThreads(threadsGateway)', '\tnotificationsClient := platform.NewNotifications(notificationsGateway)', '\tagentInboxClient := platform.NewAgents(agentsClient)', '\trunnersClient := platform.NewRunners(runnersGateway)'].join('\n'),
+  ['\tthreadsClient := platform.NewThreads(threadsGateway)', '\tnotificationsClient := platform.NewNotifications(notificationsGateway)', '\tagentInboxClient := platform.NewAgents(agentsService, cfg.AgentInstanceID.String())', '\trunnersClient := platform.NewRunnersWithTouchClient(runnersGateway, runnersService, cfg.AgentInstanceID.String())'].join('\n'),
 );
+const daemonPath = 'internal/daemon/daemon.go';
+let daemonText = fs.readFileSync(daemonPath, 'utf8');
+if (daemonText.includes('closeConns := func()')) {
+  daemonText = daemonText.replaceAll('\t\t_ = gatewayConn.Close()\n\t\treturn nil, config.Config{}, fmt.Errorf("get agent:', '\t\tcloseConns()\n\t\treturn nil, config.Config{}, fmt.Errorf("get agent:');
+  daemonText = daemonText.replaceAll('\t\t_ = gatewayConn.Close()\n\t\treturn nil, config.Config{}, fmt.Errorf("agent not found")', '\t\tcloseConns()\n\t\treturn nil, config.Config{}, fmt.Errorf("agent not found")');
+  daemonText = daemonText.replaceAll('\t\t_ = gatewayConn.Close()\n\t\treturn nil, config.Config{}, fmt.Errorf("list skills:', '\t\tcloseConns()\n\t\treturn nil, config.Config{}, fmt.Errorf("list skills:');
+  daemonText = daemonText.replaceAll('\t\t_ = gatewayConn.Close()\n\t\treturn nil, config.Config{}, fmt.Errorf("list MCPs:', '\t\tcloseConns()\n\t\treturn nil, config.Config{}, fmt.Errorf("list MCPs:');
+  daemonText = daemonText.replaceAll('\t\t_ = gatewayConn.Close()\n\t\treturn nil, config.Config{}, err', '\t\tcloseConns()\n\t\treturn nil, config.Config{}, err');
+  daemonText = daemonText.replace('\t\tgatewayConn:   gatewayConn,', '\t\tgatewayConn:   platformConns{gatewayConn, agentsConn, runnersConn},');
+  fs.writeFileSync(daemonPath, daemonText);
+}
+
 replace(
   'internal/daemon/daemon.go',
   'agentInbox:    agentInboxClient',
