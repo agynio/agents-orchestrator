@@ -1424,23 +1424,6 @@ jobs:
           } else if (!text.includes(resourcesReplacement)) {
             throw new Error('gateway DevSpace resources block not found');
           }
-          const stopOriginal = [
-            '        echo "Dev environment ready. Stopping dev session."',
-            '        stop_dev gateway',
-          ].join('\n');
-          const stopReplacement = [
-            '        if [ -n "${CI:-}" ]; then',
-            '          echo "Dev environment ready. Keeping gateway source deployment active in CI."',
-            '        else',
-            '          echo "Dev environment ready. Stopping dev session."',
-            '          stop_dev gateway',
-            '        fi',
-          ].join('\n');
-          if (text.includes(stopOriginal)) {
-            text = text.replace(stopOriginal, stopReplacement);
-          } else if (!text.includes(stopReplacement)) {
-            throw new Error('gateway DevSpace stop block not found');
-          }
           fs.writeFileSync(path, text);
           NODE
           devspace dev
