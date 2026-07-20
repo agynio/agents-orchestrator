@@ -1180,6 +1180,7 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstan
 		{Name: "AGENT_ROLE", Value: agent.GetRole()},
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
+		{Name: "AGYN_ORGANIZATION_ID", Value: agent.GetOrganizationId()},
 		{Name: "THREAD_ID", Value: threadID.String()},
 		{Name: "AGYN_IDENTITY_ID", Value: agentInstanceID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},

@@ -171,6 +171,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_ROLE", agent.GetRole())
 	assertEnv(t, envs, "AGENT_MODEL", agent.GetModel())
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
+	assertEnv(t, envs, "AGYN_ORGANIZATION_ID", agent.GetOrganizationId())
 	assertEnv(t, envs, "AGENT_INSTANCE_ID", threadID.String())
 	assertEnv(t, envs, "THREAD_ID", threadID.String())
 	assertEnv(t, envs, "AGYN_IDENTITY_ID", threadID.String())
