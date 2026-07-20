@@ -1611,13 +1611,86 @@ jobs:
           ref: main
           path: e2e
 
+      - name: Checkout api
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/api
+          ref: main
+          path: api
+
+      - name: Checkout OpenTelemetry proto
+        uses: actions/checkout@v4
+        with:
+          repository: open-telemetry/opentelemetry-proto
+          ref: v1.10.0
+          path: opentelemetry-proto
+
       - name: Patch e2e for agent-instance workloads
         working-directory: e2e
         run: |-
           set -euo pipefail
           node ../.github/scripts/patch-e2e-agent-instances.js
           cd suites/go-core
+
+          protoc_bin="${RUNNER_TEMP}/go-core-protoc-gen"
+          proto_input="${RUNNER_TEMP}/go-core-proto-input"
+          proto_template="${RUNNER_TEMP}/go-core-local-buf.gen.yaml"
+          mkdir -p "${protoc_bin}" "${proto_input}"
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.0
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.13.0
+
+          rm -rf "${proto_input}"
+          mkdir -p "${proto_input}"
+          cp -R "${GITHUB_WORKSPACE}/api/proto/agynio" "${proto_input}/agynio"
+          cp -R "${GITHUB_WORKSPACE}/opentelemetry-proto/opentelemetry" "${proto_input}/opentelemetry"
+          cat >"${proto_template}" <<'EOF'
+          version: v2
+          managed:
+            enabled: true
+            override:
+              - file_option: go_package_prefix
+                value: github.com/agynio/e2e/suites/go-core/.gen/go
+          plugins:
+            - local: protoc-gen-go
+              out: .gen/go
+              opt:
+                - paths=source_relative
+            - local: protoc-gen-connect-go
+              out: .gen/go
+              opt:
+                - paths=source_relative
+            - local: protoc-gen-go-grpc
+              out: .gen/go
+              opt:
+                - paths=source_relative
+                - require_unimplemented_servers=false
+          EOF
+          PATH="${protoc_bin}:${PATH}" buf generate "${proto_input}" \
+            --path "${proto_input}/agynio/api/agents/v1" \
+            --path "${proto_input}/agynio/api/egress/v1" \
+            --path "${proto_input}/agynio/api/authorization/v1" \
+            --path "${proto_input}/agynio/api/files/v1" \
+            --path "${proto_input}/agynio/api/gateway/v1/agents.proto" \
+            --path "${proto_input}/agynio/api/gateway/v1/llm.proto" \
+            --path "${proto_input}/agynio/api/gateway/v1/users.proto" \
+            --path "${proto_input}/agynio/api/identity/v1" \
+            --path "${proto_input}/agynio/api/llm/v1" \
+            --path "${proto_input}/agynio/api/metering/v1" \
+            --path "${proto_input}/agynio/api/organizations/v1" \
+            --path "${proto_input}/agynio/api/runner/v1" \
+            --path "${proto_input}/agynio/api/runners/v1" \
+            --path "${proto_input}/agynio/api/secrets/v1" \
+            --path "${proto_input}/agynio/api/threads/v1" \
+            --path "${proto_input}/agynio/api/tracing/v1" \
+            --path "${proto_input}/agynio/api/users/v1" \
+            --path "${proto_input}/agynio/api/ziti_management/v1" \
+            --path "${proto_input}/opentelemetry/proto/common/v1" \
+            --path "${proto_input}/opentelemetry/proto/resource/v1" \
+            --path "${proto_input}/opentelemetry/proto/trace/v1" \
+            --template "${proto_template}"
           gofmt -w tests/*.go
+          find .gen/go -type f -name '*.go' -print0 | xargs -0 gofmt -w
           CGO_ENABLED=0 go test -tags 'e2e svc_agents_orchestrator' ./tests -run TestNonExistent -count=1
 
       - name: Run E2E tests
