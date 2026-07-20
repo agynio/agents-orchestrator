@@ -352,6 +352,56 @@ replace(
   'if thread == nil || thread.GetId() == "" {',
 );
 
+
+const startRetryPath = 'suites/go-core/tests/workload_start_retry_policy_test.go';
+replace(
+  startRetryPath,
+  'start retry agent instance local',
+  [
+    '	if threadID == "" {',
+    '		t.Fatal("create thread: missing id")',
+    '	}',
+    '	t.Cleanup(func() { archiveThread(t, threadsCtx, threadsClient, threadID) })',
+  ].join('\n'),
+  [
+    '	if threadID == "" {',
+    '		t.Fatal("create thread: missing id")',
+    '	}',
+    '	agentParticipantID := agentParticipantIDForThread(t, threadID, agentID)',
+    '	t.Cleanup(func() { archiveThread(t, threadsCtx, threadsClient, threadID) })',
+  ].join('\n'),
+);
+replace(
+  startRetryPath,
+  'start retry labels use local',
+  'labelThreadID:  agentParticipantIDForThread(t, threadID, agentID),',
+  'labelThreadID:  agentParticipantID,',
+);
+replace(
+  startRetryPath,
+  'start retry failed workload owner',
+  'failedWorkloads, err := waitForFailedWorkloads(failureCtx, runnersClient, threadID, agentID, 2)',
+  'failedWorkloads, err := waitForFailedWorkloads(failureCtx, runnersClient, agentParticipantID, agentID, 2)',
+);
+replace(
+  startRetryPath,
+  'start retry failed latest validation',
+  'assertFailedWorkload(t, failedLatest, threadID, agentID)\n\tassertFailedWorkload(t, failedPrevious, threadID, agentID)',
+  'assertFailedWorkload(t, failedLatest, agentParticipantID, agentID)\n\tassertFailedWorkload(t, failedPrevious, agentParticipantID, agentID)',
+);
+replace(
+  startRetryPath,
+  'start retry all workload owner',
+  'allWorkloads, err := listWorkloadsByThread(ctx, runnersClient, threadID, agentID, nil)',
+  'allWorkloads, err := listWorkloadsByThread(ctx, runnersClient, agentParticipantID, agentID, nil)',
+);
+replace(
+  startRetryPath,
+  'start retry retry workload owner',
+  'retryWorkload, err := waitForRetryWorkload(fastRetryCtx, runnersClient, threadID, agentID, removedAt)',
+  'retryWorkload, err := waitForRetryWorkload(fastRetryCtx, runnersClient, agentParticipantID, agentID, removedAt)',
+);
+
 const actionPath = '.github/actions/run-tests/action.yml';
 replace(
   actionPath,
