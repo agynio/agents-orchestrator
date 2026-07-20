@@ -702,7 +702,6 @@ func zitiSidecarEnvVars(workloadDNSUpstream string) []*runnerv1.EnvVar {
 	envVars = append(envVars,
 		&runnerv1.EnvVar{Name: "WORKLOAD_DNS_UPSTREAM", Value: workloadDNSUpstream},
 		&runnerv1.EnvVar{Name: "ZITI_SIDECAR_SERVICE_POLL_RATE", Value: zitiSidecarServicePollRate},
-		&runnerv1.EnvVar{Name: "ZITI_TPROXY_DIAL_ADDR", Value: "100.64.0.1"},
 	)
 	return envVars
 }

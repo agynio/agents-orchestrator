@@ -38,6 +38,10 @@ on:
         description: agynd-cli ref to build workload daemon from.
         required: false
         default: main
+      gateway_ref:
+        description: Gateway ref to deploy from.
+        required: false
+        default: main
 
 # Init images are resolved to the newest published release by the run-tests
 # action. Pinning one here opts this workflow out of every fix shipped after it.
@@ -50,6 +54,7 @@ env:
   IDENTITY_REF: main
   THREADS_REF: main
   AGYND_CLI_REF: main
+  GATEWAY_REF: main
 
 permissions:
   contents: read
@@ -982,21 +987,6 @@ jobs:
             echo "runners endpoints are empty" >&2
             exit 1
           fi
-          agents_endpoint_ip="$(printf '%s\n' "${agents_endpoint_ips}" | awk 'NF { print $1; exit }')"
-          runners_endpoint_ip="$(printf '%s\n' "${runners_endpoint_ips}" | awk 'NF { print $1; exit }')"
-          if [ -z "${agents_endpoint_ip}" ] || [ -z "${runners_endpoint_ip}" ]; then
-            echo "agents/runners direct endpoint selection failed" >&2
-            echo "agents endpoints: ${agents_endpoint_ips}" >&2
-            echo "runners endpoints: ${runners_endpoint_ips}" >&2
-            exit 1
-          fi
-          {
-            echo "AGYND_AGENTS_DIRECT_ADDRESS=${agents_endpoint_ip}:50051"
-            echo "AGYND_RUNNERS_DIRECT_ADDRESS=${runners_endpoint_ip}:50051"
-          } >> "${GITHUB_ENV}"
-          echo "Using agynd direct agents endpoint ${agents_endpoint_ip}:50051"
-          echo "Using agynd direct runners endpoint ${runners_endpoint_ip}:50051"
-
           apply_workload_service_alias() {
             service_name="$1"
             endpoint_ips="$2"
@@ -1344,61 +1334,85 @@ jobs:
           kubectl logs pod/ziti-sidecar-dns-preflight -n agyn-workloads
           kubectl delete pod ziti-sidecar-dns-preflight -n agyn-workloads --wait=false
 
-      # Validation only: gateway Ziti binding is configured by bootstrap source of truth.
+      - name: Checkout gateway
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/gateway
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.gateway_ref || env.GATEWAY_REF }}
+          path: .e2e-deps/gateway
+
+      - name: Deploy gateway from source
+        working-directory: .e2e-deps/gateway
+        run: |-
+          set -euo pipefail
+          dump_gateway_source_diagnostics() {
+            selector="app.kubernetes.io/name=gateway,app.kubernetes.io/instance=gateway"
+            echo "== gateway source deployment diagnostics ==" >&2
+            kubectl get application gateway -n argocd -o yaml >&2 || true
+            kubectl get deployment gateway -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== gateway current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== gateway previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_gateway_source_diagnostics ERR
+          node "${GITHUB_WORKSPACE}/.github/scripts/patch-gateway-agent-instances.js"
+          buf generate buf.build/agynio/api
+          gofmt -w internal/gateway/agents.go internal/gateway/runners.go
+          CGO_ENABLED=0 go test ./cmd/gateway ./internal/identity
+          devspace dev
+
       - name: Verify gateway Ziti service binding
         run: |-
           set -euo pipefail
-          wait_argocd_app_converged() {
-            app="$1"
-            i=0
-            while [ "$i" -lt 240 ]; do
-              sync_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
-              health_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
-              if [ "$sync_status" = "Synced" ] && [ "$health_status" = "Healthy" ]; then
-                return 0
-              fi
-              i=$((i + 1))
-              sleep 1
-            done
-            echo "$app ArgoCD application did not converge to Synced/Healthy" >&2
-            kubectl get application "$app" -n argocd -o yaml >&2 || true
-            exit 1
-          }
-          wait_argocd_app_converged gateway
-          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=gateway -o jsonpath='{.items[0].metadata.name}')"
-          if [ -z "${deployment}" ]; then
-            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=gateway -o jsonpath='{.items[0].metadata.name}')"
-          fi
-          if [ -z "${deployment}" ]; then
-            echo "gateway deployment not found" >&2
+          selector="app.kubernetes.io/name=gateway,app.kubernetes.io/instance=gateway"
+          source_pod=""
+          elapsed=0
+          while [ "${elapsed}" -lt 180 ]; do
+            source_pod="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[?(@.spec.containers[0].image=="ghcr.io/agynio/devcontainer-go:1.1.0")]}{.metadata.name}{"\n"}{end}' \
+              | head -n 1)"
+            if [ -n "${source_pod}" ]; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          if [ -z "${source_pod}" ]; then
+            echo "gateway source pod not found" >&2
             kubectl get application gateway -n argocd -o yaml >&2 || true
-            kubectl get deployments -n platform -o wide >&2 || true
+            kubectl get deployment gateway -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
             exit 1
           fi
-          kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
-          ziti_enabled_values="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{"\n"}{end}')"
-          ziti_enabled="$(printf '%s\n' "${ziti_enabled_values}" | awk 'NF { value=$0 } END { print value }')"
+          ziti_enabled="$(kubectl get deployment gateway -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{end}')"
           if [ "${ziti_enabled}" != "true" ]; then
-            echo "gateway deployment is not source-of-truth configured with ZITI_ENABLED=true" >&2
-            kubectl get application gateway -n argocd -o yaml >&2 || true
-            kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+            echo "gateway source deployment is not configured with ZITI_ENABLED=true" >&2
+            kubectl get deployment gateway -n platform -o yaml >&2 || true
             exit 1
           fi
           attempts=0
           while [ "${attempts}" -lt 120 ]; do
-            if kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 2>/dev/null | grep -q 'gateway listening on ziti service gateway'; then
-              kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=200
+            if kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=500 2>/dev/null | grep -q 'gateway listening on ziti service gateway'; then
+              kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
               exit 0
             fi
             attempts=$((attempts + 1))
             sleep 1
           done
-          echo "gateway did not report Ziti service listener from the source-of-truth deployment" >&2
-          kubectl get application gateway -n argocd -o yaml >&2 || true
-          kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
-          kubectl get pods -n platform -l app.kubernetes.io/instance=gateway -o wide >&2 || true
-          kubectl get pods -n platform -l app.kubernetes.io/name=gateway -o wide >&2 || true
-          kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 >&2 || true
+          echo "gateway source pod did not report Ziti service listener" >&2
+          kubectl get deployment gateway -n platform -o yaml >&2 || true
+          kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+          kubectl describe pods -n platform -l "${selector}" >&2 || true
+          kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=500 >&2 || true
           exit 1
 
       # Validation only: llm-proxy Ziti binding is configured by bootstrap source of truth.
@@ -1458,24 +1472,7 @@ jobs:
           kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 >&2 || true
           exit 1
       - name: Deploy orchestrator from source
-        run: |-
-          set -euo pipefail
-          service_endpoint_ip() {
-            kubectl get endpoints "$1" -n "$2" -o jsonpath='{range .subsets[*].addresses[*]}{.ip}{"\n"}{end}' | awk 'NF { print; exit }'
-          }
-          agents_endpoint_ip="$(service_endpoint_ip agents platform)"
-          runners_endpoint_ip="$(service_endpoint_ip runners platform)"
-          if [ -z "${agents_endpoint_ip}" ] || [ -z "${runners_endpoint_ip}" ]; then
-            echo "agents/runners direct endpoint selection failed before orchestrator deploy" >&2
-            kubectl get service,endpoints -n platform agents runners -o wide >&2 || true
-            kubectl get pods -n platform -l 'app.kubernetes.io/name in (agents,runners)' -o wide >&2 || true
-            exit 1
-          fi
-          export AGYND_AGENTS_DIRECT_ADDRESS="${agents_endpoint_ip}:50051"
-          export AGYND_RUNNERS_DIRECT_ADDRESS="${runners_endpoint_ip}:50051"
-          echo "Deploying orchestrator with agynd direct agents endpoint ${AGYND_AGENTS_DIRECT_ADDRESS}"
-          echo "Deploying orchestrator with agynd direct runners endpoint ${AGYND_RUNNERS_DIRECT_ADDRESS}"
-          devspace run deploy
+        run: devspace run deploy
 
       - name: Checkout e2e
         uses: actions/checkout@v4

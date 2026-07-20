@@ -84,133 +84,12 @@ replace(
 fs.writeFileSync('internal/platform/grpc.go', `package platform
 
 import (
-	"context"
-	"fmt"
-	"net"
-	"os"
-	"strings"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 func DialGateway(address string) (*grpc.ClientConn, error) {
 	return grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-}
-
-func DialKubernetesService(address string) (*grpc.ClientConn, error) {
-	if strings.TrimSpace(address) == "" {
-		return nil, fmt.Errorf("address is required")
-	}
-	return grpc.NewClient(
-		"passthrough:///"+address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(dialKubernetesService),
-	)
-}
-
-func dialKubernetesService(ctx context.Context, address string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	dialer := &net.Dialer{}
-	if net.ParseIP(host) != nil {
-		return dialer.DialContext(ctx, "tcp", address)
-	}
-	if directAddress, ok := directServiceAddress(host); ok {
-		return dialer.DialContext(ctx, "tcp", directAddress)
-	}
-	if envAddress, ok := serviceEnvAddress(host, port); ok {
-		return dialer.DialContext(ctx, "tcp", envAddress)
-	}
-	resolver := kubernetesResolver()
-	ips, err := resolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("resolve %s: no addresses", host)
-	}
-	var lastErr error
-	for _, ip := range ips {
-		conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip.IP.String(), port))
-		if err == nil {
-			return conn, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
-}
-
-func directServiceAddress(host string) (string, bool) {
-	serviceName := serviceNameFromHost(host)
-	switch serviceName {
-	case "agents", "runners":
-		envName := "AGYND_" + strings.ToUpper(serviceName) + "_DIRECT_ADDRESS"
-		address := strings.TrimSpace(os.Getenv(envName))
-		return address, address != ""
-	default:
-		return "", false
-	}
-}
-
-func serviceEnvAddress(host string, port string) (string, bool) {
-	serviceName := serviceNameFromHost(host)
-	if serviceName == "" {
-		return "", false
-	}
-	envPrefix := strings.ToUpper(strings.ReplaceAll(serviceName, "-", "_"))
-	envHost := strings.TrimSpace(os.Getenv(envPrefix + "_SERVICE_HOST"))
-	if envHost == "" {
-		return "", false
-	}
-	envPort := strings.TrimSpace(os.Getenv(envPrefix + "_SERVICE_PORT"))
-	if envPort == "" {
-		envPort = port
-	}
-	return net.JoinHostPort(envHost, envPort), true
-}
-
-func serviceNameFromHost(host string) string {
-	serviceName := host
-	if dot := strings.IndexByte(serviceName, '.'); dot >= 0 {
-		serviceName = serviceName[:dot]
-	}
-	return strings.TrimSpace(serviceName)
-}
-
-func kubernetesResolver() *net.Resolver {
-	server := clusterDNSServer()
-	if server == "" {
-		return net.DefaultResolver
-	}
-	return &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network string, address string) (net.Conn, error) {
-			dialer := &net.Dialer{}
-			return dialer.DialContext(ctx, "udp", net.JoinHostPort(server, "53"))
-		},
-	}
-}
-
-func clusterDNSServer() string {
-	contents, err := os.ReadFile("/etc/resolv.conf")
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(contents), "\\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 || fields[0] != "nameserver" {
-			continue
-		}
-		ip := net.ParseIP(fields[1])
-		if ip == nil || ip.IsLoopback() {
-			continue
-		}
-		return ip.String()
-	}
-	return ""
 }
 `);
 
@@ -282,30 +161,24 @@ fs.writeFileSync('internal/platform/agents.go', `package platform
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	agentsv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/agents/v1"
-	"google.golang.org/grpc/metadata"
+	gatewayv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/gateway/v1"
 )
 
 type Agents struct {
-	client     agentsv1.AgentsServiceClient
-	identityID string
+	client gatewayv1.AgentsGatewayClient
 }
 
-func NewAgents(client agentsv1.AgentsServiceClient, identityID string) *Agents {
-	identityID = strings.TrimSpace(identityID)
-	if identityID == "" {
-		panic("identity id is required")
-	}
-	return &Agents{client: client, identityID: identityID}
+func NewAgents(client gatewayv1.AgentsGatewayClient) *Agents {
+	return &Agents{client: client}
 }
 
 func (a *Agents) GetUnackedInboxItems(ctx context.Context, agentInstanceID string, pageSize int32, pageToken string) ([]Message, string, error) {
 	if agentInstanceID == "" {
 		return nil, "", fmt.Errorf("agent instance id is required")
 	}
-	resp, err := a.client.GetUnackedInboxItems(a.authContext(ctx), &agentsv1.GetUnackedInboxItemsRequest{
+	resp, err := a.client.GetUnackedInboxItems(ctx, &agentsv1.GetUnackedInboxItemsRequest{
 		AgentInstanceId: agentInstanceID,
 		PageSize:        pageSize,
 		PageToken:       pageToken,
@@ -336,7 +209,7 @@ func (a *Agents) AckInboxItems(ctx context.Context, agentInstanceID string, item
 			return fmt.Errorf("item id is required")
 		}
 	}
-	_, err := a.client.AckInboxItems(a.authContext(ctx), &agentsv1.AckInboxItemsRequest{
+	_, err := a.client.AckInboxItems(ctx, &agentsv1.AckInboxItemsRequest{
 		AgentInstanceId: agentInstanceID,
 		ItemIds:         append([]string{}, itemIDs...),
 	})
@@ -344,10 +217,6 @@ func (a *Agents) AckInboxItems(ctx context.Context, agentInstanceID string, item
 		return fmt.Errorf("ack inbox items: %w", err)
 	}
 	return nil
-}
-
-func (a *Agents) authContext(ctx context.Context) context.Context {
-	return metadata.AppendToOutgoingContext(ctx, "x-identity-id", a.identityID)
 }
 
 func inboxItemFromProto(item *agentsv1.InboxItem) (Message, error) {
@@ -401,8 +270,6 @@ import (
 
 	gatewayv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/gateway/v1"
 	runnersv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/runners/v1"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 type Workload struct {
@@ -413,26 +280,12 @@ type Workload struct {
 	RemovedAt *time.Time
 }
 
-type workloadTouchClient interface {
-	TouchWorkload(ctx context.Context, in *runnersv1.TouchWorkloadRequest, opts ...grpc.CallOption) (*runnersv1.TouchWorkloadResponse, error)
-}
-
 type Runners struct {
-	listClient  gatewayv1.RunnersGatewayClient
-	touchClient workloadTouchClient
-	identityID  string
+	client gatewayv1.RunnersGatewayClient
 }
 
 func NewRunners(client gatewayv1.RunnersGatewayClient) *Runners {
-	return &Runners{listClient: client, touchClient: client}
-}
-
-func NewRunnersWithTouchClient(listClient gatewayv1.RunnersGatewayClient, touchClient workloadTouchClient, identityID string) *Runners {
-	identityID = strings.TrimSpace(identityID)
-	if identityID == "" {
-		panic("identity id is required")
-	}
-	return &Runners{listClient: listClient, touchClient: touchClient, identityID: identityID}
+	return &Runners{client: client}
 }
 
 func (r *Runners) ListWorkloadsByThread(ctx context.Context, threadID string, pageSize int32, pageToken string) ([]Workload, string, error) {
@@ -440,7 +293,7 @@ func (r *Runners) ListWorkloadsByThread(ctx context.Context, threadID string, pa
 	if threadID == "" {
 		return nil, "", fmt.Errorf("thread id is required")
 	}
-	resp, err := r.listClient.ListWorkloadsByThread(ctx, &runnersv1.ListWorkloadsByThreadRequest{
+	resp, err := r.client.ListWorkloadsByThread(ctx, &runnersv1.ListWorkloadsByThreadRequest{
 		ThreadId:  threadID,
 		PageSize:  pageSize,
 		PageToken: pageToken,
@@ -464,10 +317,7 @@ func (r *Runners) TouchWorkload(ctx context.Context, workloadID string) error {
 	if workloadID == "" {
 		return fmt.Errorf("workload id is required")
 	}
-	if r.identityID != "" {
-		ctx = metadata.AppendToOutgoingContext(ctx, "x-identity-id", r.identityID)
-	}
-	_, err := r.touchClient.TouchWorkload(ctx, &runnersv1.TouchWorkloadRequest{Id: workloadID})
+	_, err := r.client.TouchWorkload(ctx, &runnersv1.TouchWorkloadRequest{Id: workloadID})
 	if err != nil {
 		return fmt.Errorf("touch workload: %w", err)
 	}
@@ -571,67 +421,6 @@ replace(
   ].join('\n'),
 );
 
-replace(
-  'internal/daemon/daemon.go',
-  'runnersv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/runners/v1"',
-  '\tgatewayv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/gateway/v1"',
-  ['\tgatewayv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/gateway/v1"', '\trunnersv1 "github.com/agynio/agynd-cli/.gen/go/agynio/api/runners/v1"'].join('\n'),
-);
-replace(
-  'internal/daemon/daemon.go',
-  'type platformConns []platformConn',
-  ['type platformConn interface {', '\tClose() error', '}'].join('\n'),
-  [
-    'type platformConn interface {',
-    '\tClose() error',
-    '}',
-    '',
-    'type platformConns []platformConn',
-    '',
-    'func (conns platformConns) Close() error {',
-    '\tvar closeErr error',
-    '\tfor _, conn := range conns {',
-    '\t\tif err := conn.Close(); err != nil && closeErr == nil {',
-    '\t\t\tcloseErr = err',
-    '\t\t}',
-    '\t}',
-    '\treturn closeErr',
-    '}',
-  ].join('\n'),
-);
-replace(
-  'internal/daemon/daemon.go',
-  'agentsService := agentsv1.NewAgentsServiceClient',
-  [
-    '\trunnersGateway := gatewayv1.NewRunnersGatewayClient(gatewayConn)',
-    '',
-    '\tthreadsClient := platform.NewThreads(threadsGateway)',
-  ].join('\n'),
-  [
-    '\trunnersGateway := gatewayv1.NewRunnersGatewayClient(gatewayConn)',
-    '',
-    '\tagentsConn, err := platform.DialKubernetesService("agents.platform.svc.cluster.local:50051")',
-    '\tif err != nil {',
-    '\t\t_ = gatewayConn.Close()',
-    '\t\treturn nil, config.Config{}, fmt.Errorf("dial agents service agents.platform.svc.cluster.local:50051: %w", err)',
-    '\t}',
-    '\trunnersConn, err := platform.DialKubernetesService("runners.platform.svc.cluster.local:50051")',
-    '\tif err != nil {',
-    '\t\t_ = gatewayConn.Close()',
-    '\t\t_ = agentsConn.Close()',
-    '\t\treturn nil, config.Config{}, fmt.Errorf("dial runners service runners.platform.svc.cluster.local:50051: %w", err)',
-    '\t}',
-    '\tcloseConns := func() {',
-    '\t\t_ = gatewayConn.Close()',
-    '\t\t_ = agentsConn.Close()',
-    '\t\t_ = runnersConn.Close()',
-    '\t}',
-    '\tagentsService := agentsv1.NewAgentsServiceClient(agentsConn)',
-    '\trunnersService := runnersv1.NewRunnersServiceClient(runnersConn)',
-    '',
-    '\tthreadsClient := platform.NewThreads(threadsGateway)',
-  ].join('\n'),
-);
 
 replace(
   'internal/daemon/daemon.go',
@@ -655,7 +444,7 @@ replace(
   'internal/daemon/daemon.go',
   'agentInboxClient := platform.NewAgents',
   ['\tthreadsClient := platform.NewThreads(threadsGateway)', '\tnotificationsClient := platform.NewNotifications(notificationsGateway)', '\trunnersClient := platform.NewRunners(runnersGateway)'].join('\n'),
-  ['\tthreadsClient := platform.NewThreads(threadsGateway)', '\tnotificationsClient := platform.NewNotifications(notificationsGateway)', '\tagentInboxClient := platform.NewAgents(agentsService, cfg.AgentInstanceID.String())', '\trunnersClient := platform.NewRunnersWithTouchClient(runnersGateway, runnersService, cfg.AgentInstanceID.String())'].join('\n'),
+  ['\tthreadsClient := platform.NewThreads(threadsGateway)', '\tnotificationsClient := platform.NewNotifications(notificationsGateway)', '\tagentInboxClient := platform.NewAgents(agentsClient)', '\trunnersClient := platform.NewRunners(runnersGateway)'].join('\n'),
 );
 const daemonPath = 'internal/daemon/daemon.go';
 let daemonText = fs.readFileSync(daemonPath, 'utf8');
@@ -665,8 +454,7 @@ if (daemonText.includes('closeConns := func()')) {
   daemonText = daemonText.replaceAll('\t\t_ = gatewayConn.Close()\n\t\treturn nil, config.Config{}, fmt.Errorf("list skills:', '\t\tcloseConns()\n\t\treturn nil, config.Config{}, fmt.Errorf("list skills:');
   daemonText = daemonText.replaceAll('\t\t_ = gatewayConn.Close()\n\t\treturn nil, config.Config{}, fmt.Errorf("list MCPs:', '\t\tcloseConns()\n\t\treturn nil, config.Config{}, fmt.Errorf("list MCPs:');
   daemonText = daemonText.replaceAll('\t\t_ = gatewayConn.Close()\n\t\treturn nil, config.Config{}, err', '\t\tcloseConns()\n\t\treturn nil, config.Config{}, err');
-  daemonText = daemonText.replace('\t\tgatewayConn:   gatewayConn,', '\t\tgatewayConn:   platformConns{gatewayConn, agentsConn, runnersConn},');
-  fs.writeFileSync(daemonPath, daemonText);
+    fs.writeFileSync(daemonPath, daemonText);
 }
 
 replace(

@@ -189,7 +189,7 @@ func (r *Reconciler) createIdentity(ctx context.Context, target AgentInstanceTar
 		return nil, fmt.Errorf("list groups for agent %s instance %s: %w", target.AgentID.String(), target.AgentInstanceID.String(), err)
 	}
 	identityResp, err := r.zitiMgmt.CreateAgentIdentity(ctx, &zitimgmtv1.CreateAgentIdentityRequest{
-		AgentId:                  target.AgentID.String(),
+		AgentId:                  target.AgentInstanceID.String(),
 		WorkloadId:               workloadID.String(),
 		AdditionalRoleAttributes: roleAttributes,
 	})

@@ -53,8 +53,8 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 		createAgentIdentity: func(_ context.Context, req *zitimgmtv1.CreateAgentIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.CreateAgentIdentityResponse, error) {
 			calls = append(calls, "create")
 			assertStringSet(t, req.GetAdditionalRoleAttributes(), []string{groupRoleAttribute("group-a"), groupRoleAttribute("group-b")})
-			if req.GetAgentId() != agentID.String() {
-				return nil, errors.New("unexpected agent id")
+			if req.GetAgentId() != threadID.String() {
+				return nil, errors.New("unexpected agent instance id")
 			}
 			workloadID = req.GetWorkloadId()
 			if workloadID == "" {
