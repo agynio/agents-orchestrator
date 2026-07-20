@@ -1365,6 +1365,84 @@ jobs:
           buf generate buf.build/agynio/api
           gofmt -w internal/gateway/agents.go internal/gateway/runners.go
           CGO_ENABLED=0 go test ./cmd/gateway ./internal/identity
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const scaleDownMarker = 'Scaling gateway down before source patch...';
+          if (!text.includes(scaleDownMarker)) {
+            const marker = '      echo "Patching gateway deployment for DevSpace..."';
+            if (!text.includes(marker)) {
+              throw new Error('gateway DevSpace patch marker not found');
+            }
+            text = text.replace(marker, [
+              '      label_selector="app.kubernetes.io/name=gateway,app.kubernetes.io/instance=gateway"',
+              '      echo "' + scaleDownMarker + '"',
+              '      kubectl scale deployment/gateway -n ${GATEWAY_NAMESPACE} --replicas=0',
+              '      if [ -n "$(kubectl get pods -n ${GATEWAY_NAMESPACE} -l "${label_selector}" -o name)" ]; then',
+              '        kubectl wait --for=delete pod -n ${GATEWAY_NAMESPACE} -l "${label_selector}" --timeout=240s',
+              '      fi',
+              marker,
+            ].join('\n'));
+          }
+          const rolloutNeedle = [
+            '      )"',
+            '      if [ "$(get_flag "watch")" == "true" ]; then',
+          ].join('\n');
+          if (!text.includes('strategy":{"type":"Recreate","rollingUpdate":null}')) {
+            if (!text.includes(rolloutNeedle)) {
+              throw new Error('gateway DevSpace rollout marker not found');
+            }
+            text = text.replace(rolloutNeedle, [
+              '      )"',
+              "      kubectl patch deployment gateway -n ${GATEWAY_NAMESPACE} --type merge -p '{\"spec\":{\"strategy\":{\"type\":\"Recreate\",\"rollingUpdate\":null}}}'",
+              '      kubectl scale deployment/gateway -n ${GATEWAY_NAMESPACE} --replicas=1',
+              '      kubectl rollout status deployment/gateway -n ${GATEWAY_NAMESPACE} --timeout=240s',
+              '      if [ "$(get_flag "watch")" == "true" ]; then',
+            ].join('\n'));
+          }
+          const resourcesOriginal = [
+            '                resources:',
+            '                  requests:',
+            '                    cpu: 500m',
+            '                    memory: 1Gi',
+            '                  limits:',
+            '                    cpu: "2"',
+            '                    memory: 4Gi',
+          ].join('\n');
+          const resourcesReplacement = [
+            '                resources:',
+            '                  requests:',
+            '                    cpu: 100m',
+            '                    memory: 512Mi',
+            '                  limits:',
+            '                    cpu: "1"',
+            '                    memory: 2Gi',
+          ].join('\n');
+          if (text.includes(resourcesOriginal)) {
+            text = text.replace(resourcesOriginal, resourcesReplacement);
+          } else if (!text.includes(resourcesReplacement)) {
+            throw new Error('gateway DevSpace resources block not found');
+          }
+          const stopOriginal = [
+            '        echo "Dev environment ready. Stopping dev session."',
+            '        stop_dev gateway',
+          ].join('\n');
+          const stopReplacement = [
+            '        if [ -n "${CI:-}" ]; then',
+            '          echo "Dev environment ready. Keeping gateway source deployment active in CI."',
+            '        else',
+            '          echo "Dev environment ready. Stopping dev session."',
+            '          stop_dev gateway',
+            '        fi',
+          ].join('\n');
+          if (text.includes(stopOriginal)) {
+            text = text.replace(stopOriginal, stopReplacement);
+          } else if (!text.includes(stopReplacement)) {
+            throw new Error('gateway DevSpace stop block not found');
+          }
+          fs.writeFileSync(path, text);
+          NODE
           devspace dev
 
       - name: Verify gateway Ziti service binding
