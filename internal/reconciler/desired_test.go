@@ -16,10 +16,11 @@ import (
 
 type fakeAgentsClient struct {
 	testutil.FakeAgentsClient
-	listAgents    func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
-	listInstances func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
-	getAgent      func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
-	pauseInstance func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
+	listAgents           func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
+	listInstances        func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
+	getUnackedInboxItems func(context.Context, *agentsv1.GetUnackedInboxItemsRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error)
+	getAgent             func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
+	pauseInstance        func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
 }
 
 type fakeThreadsClient struct {
@@ -95,6 +96,13 @@ func (f *fakeAgentsClient) ListInstances(ctx context.Context, req *agentsv1.List
 	return f.FakeAgentsClient.ListInstances(ctx, req, opts...)
 }
 
+func (f *fakeAgentsClient) GetUnackedInboxItems(ctx context.Context, req *agentsv1.GetUnackedInboxItemsRequest, opts ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error) {
+	if f.getUnackedInboxItems != nil {
+		return f.getUnackedInboxItems(ctx, req, opts...)
+	}
+	return f.FakeAgentsClient.GetUnackedInboxItems(ctx, req, opts...)
+}
+
 func (f *fakeAgentsClient) GetAgent(ctx context.Context, req *agentsv1.GetAgentRequest, opts ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
 	if f.getAgent != nil {
 		return f.getAgent(ctx, req, opts...)
@@ -115,7 +123,9 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 	instanceID := uuid.New()
 	orgID := uuid.New()
 	updatedAt := time.Now().UTC()
+	threadID := uuid.New()
 	var listReq *agentsv1.ListInstancesRequest
+	var inboxReq *agentsv1.GetUnackedInboxItemsRequest
 	agents := &fakeAgentsClient{
 		listInstances: func(_ context.Context, req *agentsv1.ListInstancesRequest, _ ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
 			listReq = req
@@ -124,6 +134,10 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 				AgentId:        agentID.String(),
 				OrganizationId: orgID.String(),
 			}}}, nil
+		},
+		getUnackedInboxItems: func(_ context.Context, req *agentsv1.GetUnackedInboxItemsRequest, _ ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error) {
+			inboxReq = req
+			return &agentsv1.GetUnackedInboxItemsResponse{Items: []*agentsv1.InboxItem{{ThreadId: stringPtr(threadID.String())}}}, nil
 		},
 		getAgent: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
 			if req.GetId() != agentID.String() {
@@ -141,12 +155,15 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
 	}
-	expected := []AgentInstanceTarget{{AgentID: agentID, AgentInstanceID: instanceID, OrganizationID: orgID}}
+	expected := []AgentInstanceTarget{{AgentID: agentID, AgentInstanceID: instanceID, OrganizationID: orgID, ThreadID: threadID}}
 	if !reflect.DeepEqual(desired, expected) {
 		t.Fatalf("unexpected desired: %#v", desired)
 	}
 	if listReq == nil || listReq.GetHasUnacked() != true || !reflect.DeepEqual(listReq.GetStateIn(), []agentsv1.AgentInstanceState{agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_ACTIVE}) {
 		t.Fatalf("unexpected list instances request: %#v", listReq)
+	}
+	if inboxReq == nil || inboxReq.GetAgentInstanceId() != instanceID.String() || inboxReq.GetPageSize() != 1 {
+		t.Fatalf("unexpected get unacked inbox request: %#v", inboxReq)
 	}
 	if idleTimeouts[agentID] != time.Hour {
 		t.Fatalf("unexpected idle timeout: %v", idleTimeouts[agentID])

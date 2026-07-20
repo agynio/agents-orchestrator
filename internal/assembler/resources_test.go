@@ -83,7 +83,7 @@ func TestAssemblerAggregatesResourceRequests(t *testing.T) {
 	}
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
 
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}

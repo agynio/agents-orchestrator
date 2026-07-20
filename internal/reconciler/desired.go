@@ -16,6 +16,7 @@ type AgentInstanceTarget struct {
 	AgentInstanceID uuid.UUID
 	AgentID         uuid.UUID
 	OrganizationID  uuid.UUID
+	ThreadID        uuid.UUID
 }
 
 func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, map[uuid.UUID]time.Duration, map[uuid.UUID]time.Time, error) {
@@ -26,7 +27,11 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, m
 	unique := make(map[AgentInstanceTarget]struct{}, len(instances))
 	agentIDs := make(map[uuid.UUID]struct{})
 	for _, instance := range instances {
-		target, err := agentInstanceTarget(instance)
+		threadID, err := r.fetchFirstUnackedInboxThreadID(ctx, instance)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		target, err := agentInstanceTarget(instance, threadID)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -58,7 +63,7 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, m
 	return result, idleTimeouts, agentUpdatedAt, nil
 }
 
-func agentInstanceTarget(instance *agentsv1.AgentInstance) (AgentInstanceTarget, error) {
+func agentInstanceTarget(instance *agentsv1.AgentInstance, threadID uuid.UUID) (AgentInstanceTarget, error) {
 	if instance == nil {
 		return AgentInstanceTarget{}, fmt.Errorf("agent instance is nil")
 	}
@@ -82,7 +87,38 @@ func agentInstanceTarget(instance *agentsv1.AgentInstance) (AgentInstanceTarget,
 		AgentInstanceID: agentInstanceID,
 		AgentID:         agentID,
 		OrganizationID:  organizationID,
+		ThreadID:        threadID,
 	}, nil
+}
+
+func (r *Reconciler) fetchFirstUnackedInboxThreadID(ctx context.Context, instance *agentsv1.AgentInstance) (uuid.UUID, error) {
+	if instance == nil {
+		return uuid.Nil, fmt.Errorf("agent instance is nil")
+	}
+	meta := instance.GetMeta()
+	if meta == nil {
+		return uuid.Nil, fmt.Errorf("agent instance meta missing")
+	}
+	agentInstanceID := meta.GetId()
+	if _, err := uuidutil.ParseUUID(agentInstanceID, "agent_instance.meta.id"); err != nil {
+		return uuid.Nil, err
+	}
+	resp, err := r.agents.GetUnackedInboxItems(ctx, &agentsv1.GetUnackedInboxItemsRequest{
+		AgentInstanceId: agentInstanceID,
+		PageSize:        1,
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("get first unacked inbox item for agent instance %s: %w", agentInstanceID, err)
+	}
+	items := resp.GetItems()
+	if len(items) == 0 {
+		return uuid.Nil, fmt.Errorf("agent instance %s has_unacked but returned no inbox items", agentInstanceID)
+	}
+	threadID, err := uuidutil.ParseUUID(items[0].GetThreadId(), "inbox_item.thread_id")
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return threadID, nil
 }
 
 func agentIdleTimeout(agent *agentsv1.Agent, agentID uuid.UUID, fallback time.Duration) (time.Duration, error) {

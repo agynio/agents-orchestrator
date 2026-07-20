@@ -5,6 +5,7 @@ const (
 	LabelManagedBy      = "managed-by"
 	LabelAgentID        = "agent-id"
 	LabelInstanceID     = "agent-instance-id"
+	LabelThreadID       = "thread-id"
 	LabelSandboxID      = "sandbox-id"
 	LabelSandboxOwnerID = "sandbox-owner-id"
 	LabelEnvironmentID  = "environment-id"

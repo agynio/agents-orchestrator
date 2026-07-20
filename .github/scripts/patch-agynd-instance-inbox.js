@@ -466,6 +466,14 @@ replace(
 for (const path of ['internal/daemon/daemon.go', 'internal/daemon/agn.go', 'internal/daemon/claude.go']) {
   replace(
     path,
+    'agentInbox:   setup.agentInbox',
+    ['\t\tthreads:      setup.threads,', '\t\tagents:       setup.agents,', '\t\trunners:      setup.runners,'].join('\n'),
+    ['\t\tthreads:      setup.threads,', '\t\tagents:       setup.agents,', '\t\tagentInbox:   setup.agentInbox,', '\t\trunners:      setup.runners,'].join('\n'),
+  );
+}
+for (const path of ['internal/daemon/daemon.go', 'internal/daemon/agn.go', 'internal/daemon/claude.go']) {
+  replace(
+    path,
     'platform.NewInboxConsumer',
     ['\t\tsubscriber:   subscriber.New(setup.notifications, cfg.ThreadID),', '\t\tconsumer:     platform.NewConsumer(setup.threads, pageSize, pageTimeout),'].join('\n'),
     ['\t\tsubscriber:   subscriber.New(setup.notifications, cfg.ThreadID),', '\t\tconsumer:     platform.NewInboxConsumer(setup.agentInbox, pageSize, pageTimeout),'].join('\n'),

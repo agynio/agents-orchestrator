@@ -219,7 +219,7 @@ func (r *Reconciler) compensateIdentity(ctx context.Context, zitiIdentityID *str
 }
 
 func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarget) {
-	assembled, err := r.assembler.Assemble(ctx, target.AgentID, target.AgentInstanceID)
+	assembled, err := r.assembler.Assemble(ctx, target.AgentID, target.AgentInstanceID, target.ThreadID)
 	if err != nil {
 		log.Printf("reconciler: assemble workload for agent %s instance %s: %v", target.AgentID.String(), target.AgentInstanceID.String(), err)
 		return

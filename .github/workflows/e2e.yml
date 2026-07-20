@@ -1559,7 +1559,7 @@ jobs:
         run: |-
           set +e
           echo "== runners DevSpace log =="
-          for app in runners agents-orchestrator k8s-runner agents authorization identity threads; do
+          for app in runners agents-orchestrator k8s-runner agents authorization identity threads gateway llm-proxy; do
             selector="app.kubernetes.io/name=${app},app.kubernetes.io/instance=${app}"
             echo "== ${app} deployment =="
             kubectl get deployment "${app}" -n platform -o yaml || kubectl get deployment "${app}-${app}" -n platform -o yaml || true

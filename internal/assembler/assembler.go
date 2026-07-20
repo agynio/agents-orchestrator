@@ -331,6 +331,7 @@ var reservedEnvNames = map[string]struct{}{
 	"WORKLOAD_ID":                  {},
 	"GATEWAY_ADDRESS":              {},
 	"AGYN_GATEWAY_URL":             {},
+	"AGYN_IDENTITY_ID":             {},
 	"LLM_BASE_URL":                 {},
 	"TRACING_ADDRESS":              {},
 	"OTEL_EXPORTER_OTLP_ENDPOINT":  {},
@@ -399,7 +400,7 @@ func NewWithRunnersAndEgressCA(agents agentsClient, runners runnersClient, secre
 	return &Assembler{agents: agents, runners: runners, secrets: secrets, cfg: cfg, egressCACert: append([]byte(nil), egressCACert...)}
 }
 
-func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID uuid.UUID) (*AssembleResult, error) {
+func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, threadID uuid.UUID) (*AssembleResult, error) {
 	agent, err := a.fetchAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
@@ -462,7 +463,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID uuid.
 		}
 	}
 
-	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, agentInstanceID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
+	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, agentInstanceID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
 	if len(environmentEnvVars) > 0 {
 		// mergeEnvVars keeps the first occurrence of a name, so layering the
 		// environment's envs onto the agent's leaves the agent's own value in
@@ -634,6 +635,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID uuid.
 			LabelKeyPrefix + LabelManagedBy:  ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:    agentID.String(),
 			LabelKeyPrefix + LabelInstanceID: agentInstanceID.String(),
+			LabelKeyPrefix + LabelThreadID:   threadID.String(),
 		},
 	}
 	if a.cfg.ZitiEnabled {
@@ -1169,7 +1171,7 @@ func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runn
 	return result
 }
 
-func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstanceID uuid.UUID) []*runnerv1.EnvVar {
+func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstanceID, threadID uuid.UUID) []*runnerv1.EnvVar {
 	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_INSTANCE_ID", Value: agentInstanceID.String()},
@@ -1178,6 +1180,8 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstan
 		{Name: "AGENT_ROLE", Value: agent.GetRole()},
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
+		{Name: "THREAD_ID", Value: threadID.String()},
+		{Name: "AGYN_IDENTITY_ID", Value: agentInstanceID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
