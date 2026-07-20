@@ -38,6 +38,10 @@ on:
         description: agynd-cli ref to build workload daemon from.
         required: false
         default: main
+      expose_ref:
+        description: Expose ref to deploy from.
+        required: false
+        default: main
       gateway_ref:
         description: Gateway ref to deploy from.
         required: false
@@ -54,6 +58,7 @@ env:
   IDENTITY_REF: main
   THREADS_REF: main
   AGYND_CLI_REF: main
+  EXPOSE_REF: main
   GATEWAY_REF: main
 
 permissions:
@@ -812,6 +817,17 @@ jobs:
         working-directory: .e2e-deps/runners
         run: |-
           set -euo pipefail
+          node "${GITHUB_WORKSPACE}/.github/scripts/patch-runners-agent-instances.js"
+          buf generate buf.build/agynio/api \
+            --include-imports \
+            --path agynio/api/agents/v1 \
+            --path agynio/api/runners/v1 \
+            --path agynio/api/identity/v1 \
+            --path agynio/api/authorization/v1 \
+            --path agynio/api/ziti_management/v1 \
+            --path agynio/api/notifications/v1
+          gofmt -w internal/server/workloads.go internal/server/workloads_test.go internal/server/runners_test.go
+          CGO_ENABLED=0 go test ./internal/server -run 'TestCreateWorkload.*Authorization|TestCreateWorkloadMapsAgentInstanceIDToOwnerID' -count=1
           node <<'NODE'
           const fs = require('fs');
           const path = 'devspace.yaml';
@@ -861,6 +877,59 @@ jobs:
             exit 1
           fi
           kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
+
+      - name: Checkout expose
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/expose
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expose_ref || env.EXPOSE_REF }}
+          path: .e2e-deps/expose
+
+      - name: Deploy expose from source
+        working-directory: .e2e-deps/expose
+        run: |-
+          set -euo pipefail
+          dump_expose_source_diagnostics() {
+            selector="app.kubernetes.io/name=expose,app.kubernetes.io/instance=expose"
+            echo "== expose source deployment diagnostics ==" >&2
+            kubectl get application expose -n argocd -o yaml >&2 || true
+            kubectl get deployment expose -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== expose current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== expose previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_expose_source_diagnostics ERR
+          if kubectl get application expose -n argocd >/dev/null 2>&1; then
+            kubectl patch application expose -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":null}}}'
+          fi
+          node "${GITHUB_WORKSPACE}/.github/scripts/patch-expose-agent-instances.js"
+          buf generate buf.build/agynio/api \
+            --include-imports \
+            --path agynio/api/expose/v1 \
+            --path agynio/api/ziti_management/v1 \
+            --path agynio/api/runners/v1 \
+            --path agynio/api/runner/v1 \
+            --path agynio/api/notifications/v1 \
+            --path agynio/api/identity/v1 \
+            --path agynio/api/authorization/v1
+          gofmt -w internal/server/server.go internal/server/server_test.go
+          CGO_ENABLED=0 go test ./internal/server -run 'TestAddExposureAllowsAgentInstanceOwner|TestAddExposureHappyPath|TestListExposuresSuccess' -count=1
+          image="e2e/expose:agent-instances"
+          docker build -t "${image}" .
+          k3d_image_subcommand="import"
+          k3d image "${k3d_image_subcommand}" -c agyn-local "${image}"
+          kubectl patch deployment expose -n platform --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+          kubectl set image deployment/expose -n platform expose="${image}"
+          kubectl rollout status deployment/expose -n platform --timeout=240s
+          kubectl logs deployment/expose -n platform --all-containers --tail=200
 
       - name: Checkout k8s-runner
         uses: actions/checkout@v4
@@ -1559,7 +1628,7 @@ jobs:
         run: |-
           set +e
           echo "== runners DevSpace log =="
-          for app in runners agents-orchestrator k8s-runner agents authorization identity threads gateway llm-proxy; do
+          for app in runners agents-orchestrator k8s-runner agents authorization identity threads expose gateway llm-proxy; do
             selector="app.kubernetes.io/name=${app},app.kubernetes.io/instance=${app}"
             echo "== ${app} deployment =="
             kubectl get deployment "${app}" -n platform -o yaml || kubectl get deployment "${app}-${app}" -n platform -o yaml || true
@@ -1618,6 +1687,15 @@ jobs:
         run: |-
           if kubectl get application identity -n argocd >/dev/null 2>&1; then
             kubectl patch application identity -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
+
+      - name: Restore expose ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/expose/Dockerfile') != '' }}
+        run: |-
+          if kubectl get application expose -n argocd >/dev/null 2>&1; then
+            kubectl patch application expose -n argocd \
               --type merge \
               -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
           fi
