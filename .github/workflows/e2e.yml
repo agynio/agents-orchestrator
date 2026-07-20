@@ -1617,7 +1617,6 @@ jobs:
           set -euo pipefail
           node ../.github/scripts/patch-e2e-agent-instances.js
           cd suites/go-core
-          buf generate
           gofmt -w tests/*.go
           CGO_ENABLED=0 go test -tags 'e2e svc_agents_orchestrator' ./tests -run TestNonExistent -count=1
 
