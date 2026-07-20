@@ -103,7 +103,11 @@ func (r *Reconciler) fetchFirstUnackedInboxThreadID(ctx context.Context, instanc
 	if _, err := uuidutil.ParseUUID(agentInstanceID, "agent_instance.meta.id"); err != nil {
 		return uuid.Nil, err
 	}
-	resp, err := r.agents.GetUnackedInboxItems(ctx, &agentsv1.GetUnackedInboxItemsRequest{
+	inboxCtx, err := runnerIdentityContext(ctx, agentInstanceID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	resp, err := r.agents.GetUnackedInboxItems(inboxCtx, &agentsv1.GetUnackedInboxItemsRequest{
 		AgentInstanceId: agentInstanceID,
 		PageSize:        1,
 	})

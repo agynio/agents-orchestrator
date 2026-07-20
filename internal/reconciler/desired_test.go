@@ -11,6 +11,7 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -135,8 +136,13 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 				OrganizationId: orgID.String(),
 			}}}, nil
 		},
-		getUnackedInboxItems: func(_ context.Context, req *agentsv1.GetUnackedInboxItemsRequest, _ ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error) {
+		getUnackedInboxItems: func(ctx context.Context, req *agentsv1.GetUnackedInboxItemsRequest, _ ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error) {
 			inboxReq = req
+			metadataValues, _ := metadata.FromOutgoingContext(ctx)
+			identityValues := metadataValues.Get(identityMetadataKey)
+			if len(identityValues) != 1 || identityValues[0] != instanceID.String() {
+				t.Fatalf("unexpected identity metadata: %v", identityValues)
+			}
 			return &agentsv1.GetUnackedInboxItemsResponse{Items: []*agentsv1.InboxItem{{ThreadId: stringPtr(threadID.String())}}}, nil
 		},
 		getAgent: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
