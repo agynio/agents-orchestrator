@@ -1612,13 +1612,20 @@ jobs:
           path: e2e
 
       - name: Patch e2e for agent-instance workloads
-        run: node ../.github/scripts/patch-e2e-agent-instances.js
         working-directory: e2e
+        run: |-
+          set -euo pipefail
+          node ../.github/scripts/patch-e2e-agent-instances.js
+          cd suites/go-core
+          buf generate
+          gofmt -w tests/*.go
+          CGO_ENABLED=0 go test -tags 'e2e svc_agents_orchestrator' ./tests -run TestNonExistent -count=1
 
       - name: Run E2E tests
         uses: ./e2e/.github/actions/run-tests
         env:
           E2E_SUITES: go-core playwright-chat-app
+          E2E_SKIP_BUF_GENERATE: "true"
         with:
           service: agents_orchestrator
           include_smoke: "false"

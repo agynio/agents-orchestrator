@@ -402,6 +402,13 @@ replace(
   'retryWorkload, err := waitForRetryWorkload(fastRetryCtx, runnersClient, agentParticipantID, agentID, removedAt)',
 );
 
+
+replace(
+  'suites/go-core/suite.yaml',
+  'optional go-core buf generate',
+  '  buf generate\n\n  tag_args="e2e"',
+  '  if [ "${E2E_SKIP_BUF_GENERATE:-}" != "true" ]; then\n    buf generate\n  fi\n\n  tag_args="e2e"',
+);
 const actionPath = '.github/actions/run-tests/action.yml';
 replace(
   actionPath,
