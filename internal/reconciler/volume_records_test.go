@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
@@ -10,6 +11,8 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestBuildVolumeRecordsUsesStablePersistentKey(t *testing.T) {
@@ -40,6 +43,123 @@ func TestBuildVolumeRecordsUsesStablePersistentKey(t *testing.T) {
 	}
 	if info.Spec.Labels[assembler.LabelVolumeKey] != expectedKey {
 		t.Fatalf("expected volume label %q, got %q", expectedKey, info.Spec.Labels[assembler.LabelVolumeKey])
+	}
+}
+
+func TestCreateVolumeRecordsReusesExistingActiveRecord(t *testing.T) {
+	ctx := context.Background()
+	recordID := uuid.NewString()
+	threadID := uuid.New()
+	agentID := uuid.New()
+	runnerID := "runner-1"
+	organizationID := uuid.NewString()
+	volumeID := uuid.NewString()
+	var updateCount int
+	runners := &fakeRunnersClient{
+		createVolume: func(context.Context, *runnersv1.CreateVolumeRequest, ...grpc.CallOption) (*runnersv1.CreateVolumeResponse, error) {
+			return nil, status.Error(codes.AlreadyExists, "volume exists")
+		},
+		getVolume: func(_ context.Context, req *runnersv1.GetVolumeRequest, _ ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
+			if req.GetId() != recordID {
+				return nil, errNotImplemented
+			}
+			return &runnersv1.GetVolumeResponse{Volume: &runnersv1.Volume{
+				Meta:           &runnersv1.EntityMeta{Id: recordID},
+				ThreadId:       threadID.String(),
+				AgentId:        agentID.String(),
+				RunnerId:       runnerID,
+				VolumeId:       volumeID,
+				OrganizationId: organizationID,
+				Status:         runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+				OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
+				OwnerId:        threadID.String(),
+			}}, nil
+		},
+		updateVolume: func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateCount++
+			return &runnersv1.UpdateVolumeResponse{}, nil
+		},
+	}
+	reconciler := &Reconciler{runners: runners}
+
+	created, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, runnerID, AgentThread{AgentID: agentID, ThreadID: threadID}, organizationID)
+	if err != nil {
+		t.Fatalf("create volume records: %v", err)
+	}
+	if len(created) != 0 {
+		t.Fatalf("expected no newly created records, got %d", len(created))
+	}
+	if updateCount != 0 {
+		t.Fatalf("expected no volume updates, got %d", updateCount)
+	}
+}
+
+func TestCreateVolumeRecordsDoesNotReactivateFailedRecord(t *testing.T) {
+	ctx := context.Background()
+	recordID := uuid.NewString()
+	threadID := uuid.New()
+	agentID := uuid.New()
+	runnerID := "runner-1"
+	organizationID := uuid.NewString()
+	volumeID := uuid.NewString()
+	var updateCount int
+	runners := &fakeRunnersClient{
+		createVolume: func(context.Context, *runnersv1.CreateVolumeRequest, ...grpc.CallOption) (*runnersv1.CreateVolumeResponse, error) {
+			return nil, status.Error(codes.AlreadyExists, "volume exists")
+		},
+		getVolume: func(context.Context, *runnersv1.GetVolumeRequest, ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
+			return &runnersv1.GetVolumeResponse{Volume: &runnersv1.Volume{
+				Meta:           &runnersv1.EntityMeta{Id: recordID},
+				ThreadId:       threadID.String(),
+				AgentId:        agentID.String(),
+				RunnerId:       runnerID,
+				VolumeId:       volumeID,
+				OrganizationId: organizationID,
+				Status:         runnersv1.VolumeStatus_VOLUME_STATUS_FAILED,
+				OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
+				OwnerId:        threadID.String(),
+			}}, nil
+		},
+		updateVolume: func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateCount++
+			return &runnersv1.UpdateVolumeResponse{}, nil
+		},
+	}
+	reconciler := &Reconciler{runners: runners}
+
+	_, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, runnerID, AgentThread{AgentID: agentID, ThreadID: threadID}, organizationID)
+	if err == nil {
+		t.Fatal("expected terminal existing record to fail")
+	}
+	if updateCount != 0 {
+		t.Fatalf("expected no failed record reactivation, got %d updates", updateCount)
+	}
+}
+
+func TestCreateVolumeRecordsDoesNotFailRecordOnCreateError(t *testing.T) {
+	ctx := context.Background()
+	recordID := uuid.NewString()
+	threadID := uuid.New()
+	agentID := uuid.New()
+	volumeID := uuid.NewString()
+	var updateCount int
+	runners := &fakeRunnersClient{
+		createVolume: func(context.Context, *runnersv1.CreateVolumeRequest, ...grpc.CallOption) (*runnersv1.CreateVolumeResponse, error) {
+			return nil, errors.New("runtime unavailable")
+		},
+		updateVolume: func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateCount++
+			return &runnersv1.UpdateVolumeResponse{}, nil
+		},
+	}
+	reconciler := &Reconciler{runners: runners}
+
+	_, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, "runner-1", AgentThread{AgentID: agentID, ThreadID: threadID}, uuid.NewString())
+	if err == nil {
+		t.Fatal("expected create error")
+	}
+	if updateCount != 0 {
+		t.Fatalf("expected no volume failure updates, got %d", updateCount)
 	}
 }
 

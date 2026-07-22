@@ -13,7 +13,6 @@ import (
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -227,15 +226,6 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func stablePersistentVolumeKey(volume *runnersv1.Volume) string {
-	threadID := volume.GetThreadId()
-	volumeID := volume.GetVolumeId()
-	if threadID == "" || volumeID == "" {
-		return ""
-	}
-	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%s:%s", threadID, volumeID))).String()
 }
 
 func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Volume, map[string]map[string]struct{}, error) {
