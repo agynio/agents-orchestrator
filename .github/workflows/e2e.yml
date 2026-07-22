@@ -131,14 +131,15 @@ jobs:
           chmod +x "${build_context}/agn-wrapper"
           cat >"${build_context}/agyn-wrapper" <<'EOF'
           #!/usr/bin/env sh
-          bin_dir="$(dirname "$0")"
-          if [ -x "${bin_dir}/agn" ]; then
-            exec "${bin_dir}/agn" "$@"
-          fi
-          if [ -x "${bin_dir}/../agn" ]; then
-            exec "${bin_dir}/../agn" "$@"
-          fi
-          exec agn "$@"
+          set -eu
+          stderr_file="$(mktemp)"
+          set +e
+          "$(dirname "$0")/agyn.real" "$@" 2>"${stderr_file}"
+          status="$?"
+          set -e
+          awk 'BEGIN { skip = 0 } /^thread_id:/ { skip = 1; next } { print } END { if (skip == 0 && NR == 0) exit 1 }' "${stderr_file}" >&2 || true
+          rm -f "${stderr_file}"
+          exit "${status}"
           EOF
           chmod +x "${build_context}/agyn-wrapper"
           cat >"${build_context}/Dockerfile" <<'EOF'
@@ -161,7 +162,7 @@ jobs:
               && for agyn_path in "$(command -v agyn 2>/dev/null || true)" /tools/cli/agyn /tools/agyn /agyn-bin/cli/agyn /agyn-bin/agyn; do \
                 if [ -n "${agyn_path}" ] && { [ -e "${agyn_path}" ] || [ -L "${agyn_path}" ]; }; then \
                   agyn_dir="$(dirname "${agyn_path}")"; \
-                  rm -f "${agyn_path}"; \
+                  mv "${agyn_path}" "${agyn_dir}/agyn.real"; \
                   cp /tmp/agyn-agyn-wrapper "${agyn_dir}/agyn"; \
                   chmod +x "${agyn_dir}/agyn"; \
                   agyn_installed="true"; \
