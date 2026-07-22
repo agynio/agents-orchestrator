@@ -121,7 +121,7 @@ jobs:
           set -eu
           stderr_file="$(mktemp)"
           set +e
-          /agyn-bin/cli/agn.real "$@" 2>"${stderr_file}"
+          "$(dirname "$0")/agn.real" "$@" 2>"${stderr_file}"
           status="$?"
           set -e
           awk 'BEGIN { skip = 0 } /^thread_id:/ { skip = 1; next } { print } END { if (skip == 0 && NR == 0) exit 1 }' "${stderr_file}" >&2 || true
@@ -131,7 +131,14 @@ jobs:
           chmod +x "${build_context}/agn-wrapper"
           cat >"${build_context}/agyn-wrapper" <<'EOF'
           #!/usr/bin/env sh
-          exec /agyn-bin/cli/agn "$@"
+          bin_dir="$(dirname "$0")"
+          if [ -x "${bin_dir}/agn" ]; then
+            exec "${bin_dir}/agn" "$@"
+          fi
+          if [ -x "${bin_dir}/../agn" ]; then
+            exec "${bin_dir}/../agn" "$@"
+          fi
+          exec agn "$@"
           EOF
           chmod +x "${build_context}/agyn-wrapper"
           cat >"${build_context}/Dockerfile" <<'EOF'
@@ -140,9 +147,31 @@ jobs:
           COPY agynd /tools/agynd
           COPY agn-wrapper /tmp/agyn-agn-wrapper
           COPY agyn-wrapper /tmp/agyn-agyn-wrapper
-          RUN if [ -x /agyn-bin/cli/agn ]; then mv /agyn-bin/cli/agn /agyn-bin/cli/agn.real && cp /tmp/agyn-agn-wrapper /agyn-bin/cli/agn && chmod +x /agyn-bin/cli/agn; fi \
-              && if [ -e /agyn-bin/cli/agyn ] || [ -L /agyn-bin/cli/agyn ]; then rm -f /agyn-bin/cli/agyn; fi \
-              && cp /tmp/agyn-agyn-wrapper /agyn-bin/cli/agyn && chmod +x /agyn-bin/cli/agyn
+          RUN agn_dir="" \
+              && for agn_path in "$(command -v agn 2>/dev/null || true)" /tools/agn /tools/cli/agn /agyn-bin/agn /agyn-bin/cli/agn; do \
+                if [ -n "${agn_path}" ] && [ -x "${agn_path}" ]; then \
+                  agn_dir="$(dirname "${agn_path}")"; \
+                  mv "${agn_path}" "${agn_dir}/agn.real"; \
+                  cp /tmp/agyn-agn-wrapper "${agn_dir}/agn"; \
+                  chmod +x "${agn_dir}/agn"; \
+                  break; \
+                fi; \
+              done \
+              && agyn_installed="" \
+              && for agyn_path in "$(command -v agyn 2>/dev/null || true)" /tools/cli/agyn /tools/agyn /agyn-bin/cli/agyn /agyn-bin/agyn; do \
+                if [ -n "${agyn_path}" ] && { [ -e "${agyn_path}" ] || [ -L "${agyn_path}" ]; }; then \
+                  agyn_dir="$(dirname "${agyn_path}")"; \
+                  rm -f "${agyn_path}"; \
+                  cp /tmp/agyn-agyn-wrapper "${agyn_dir}/agyn"; \
+                  chmod +x "${agyn_dir}/agyn"; \
+                  agyn_installed="true"; \
+                  break; \
+                fi; \
+              done \
+              && if [ -z "${agyn_installed}" ] && [ -n "${agn_dir}" ]; then \
+                cp /tmp/agyn-agyn-wrapper "${agn_dir}/agyn"; \
+                chmod +x "${agn_dir}/agyn"; \
+              fi
           EOF
           codex_image="e2e/agent-init-codex:instance-inbox"
           agn_image="e2e/agent-init-agn:instance-inbox"
