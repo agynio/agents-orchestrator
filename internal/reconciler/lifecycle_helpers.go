@@ -140,36 +140,8 @@ func (r *Reconciler) prepareExistingVolumeRecord(ctx context.Context, req *runne
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
 		runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
 		return nil
-	case runnersv1.VolumeStatus_VOLUME_STATUS_FAILED,
-		runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
-		runnersv1.VolumeStatus_VOLUME_STATUS_DELETED:
-		status := runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING
-		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{Id: req.GetId(), Status: &status})
-		return err
 	default:
 		return ErrInvalidVolumeRecord
-	}
-}
-
-func (r *Reconciler) markVolumeRecordsFailed(ctx context.Context, records []volumeRecord) {
-	if len(records) == 0 {
-		return
-	}
-	status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-	removedAt := timestamppb.New(time.Now().UTC())
-	for _, record := range records {
-		if record.id == "" {
-			log.Printf("reconciler: volume record missing id")
-			continue
-		}
-		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
-			Id:        record.id,
-			Status:    &status,
-			RemovedAt: removedAt,
-		})
-		if err != nil {
-			log.Printf("reconciler: update volume %s to failed: %v", record.id, err)
-		}
 	}
 }
 

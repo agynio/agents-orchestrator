@@ -293,16 +293,14 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 			return
 		}
 	}
-	createdVolumes, err := r.createVolumeRecords(runnerCtx, volumeRecords, runnerID, target, assembled.OrganizationID)
+	_, err = r.createVolumeRecords(runnerCtx, volumeRecords, runnerID, target, assembled.OrganizationID)
 	if err != nil {
 		log.Printf("reconciler: create volume records for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "volume record failure")
 		return
 	}
 	if err := r.createWorkloadRecord(runnerCtx, workloadIDValue, runnerID, target, assembled.OrganizationID, zitiIdentityID, assembled.AllocatedCPUMillicores, assembled.AllocatedRAMBytes); err != nil {
 		log.Printf("reconciler: create workload record %s for agent %s thread %s: %v", workloadIDValue, target.AgentID.String(), target.ThreadID.String(), err)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "workload record failure")
 		return
 	}
@@ -310,7 +308,6 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 	if err != nil {
 		log.Printf("reconciler: start workload for agent %s thread %s: %v", target.AgentID.String(), target.ThreadID.String(), err)
 		r.markWorkloadFailed(runnerCtx, workloadIDValue, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, err.Error(), nil)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "start failure")
 		return
 	}
@@ -326,14 +323,12 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 			}
 		}
 		r.markWorkloadFailed(runnerCtx, workloadIDValue, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, failureMessage, containers)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "workload failure")
 		return
 	}
 	if rawInstanceID == "" {
 		log.Printf("reconciler: workload started without id for agent %s thread %s", target.AgentID.String(), target.ThreadID.String())
 		r.markWorkloadFailed(runnerCtx, workloadIDValue, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "missing workload id", containers)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "missing workload id")
 		return
 	}
@@ -344,7 +339,6 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 			log.Printf("reconciler: stop workload %s after id mismatch: %v", instanceID, err)
 		}
 		r.markWorkloadFailed(runnerCtx, workloadIDValue, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "workload id mismatch", containers)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "workload id mismatch")
 		return
 	}

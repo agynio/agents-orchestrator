@@ -30,11 +30,6 @@ type volumeTTLInfo struct {
 	ttl        *time.Duration
 }
 
-type keyedRunnerVolume struct {
-	key  string
-	item *runnerv1.VolumeListItem
-}
-
 func runnerIdentityForVolumes(runnerID string, runnerOrganizationID string, orgIdentities map[string]string, volumes map[string]*runnersv1.Volume) (string, error) {
 	orgID := strings.TrimSpace(runnerOrganizationID)
 	if orgID != "" {
@@ -164,15 +159,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
-				for volumeID, volume := range trackedVolumes {
-					volumeCtx, err := runnerIdentityContext(ctx, volume.GetAgentId())
-					if err != nil {
-						return err
-					}
-					if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
-						log.Printf("reconciler: warn: handle missing volume %s after runner dial failure: %v", volumeID, err)
-					}
-				}
+				log.Printf("reconciler: warn: runner %s unavailable during volume reconciliation", runnerID)
 				continue
 			}
 			log.Printf("reconciler: warn: dial runner %s for volume reconciliation: %v", runnerID, err)
@@ -181,27 +168,17 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		resp, err := runnerClient.ListVolumes(runnerCtx, &runnerv1.ListVolumesRequest{})
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
-				for volumeID, volume := range trackedVolumes {
-					volumeCtx, err := runnerIdentityContext(ctx, volume.GetAgentId())
-					if err != nil {
-						return err
-					}
-					if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
-						log.Printf("reconciler: warn: handle missing volume %s after runner list failure: %v", volumeID, err)
-					}
-				}
+				log.Printf("reconciler: warn: runner %s unavailable while listing volumes", runnerID)
 				continue
 			}
 			log.Printf("reconciler: warn: list volumes for runner %s: %v", runnerID, err)
 			continue
 		}
 		runnerVolumes := make(map[string]*runnerv1.VolumeListItem)
-		runnerVolumesByInstance := make(map[string]keyedRunnerVolume)
 		for _, item := range resp.GetVolumes() {
 			if item == nil {
 				continue
 			}
-			instanceID := item.GetInstanceId()
 			volumeKey := item.GetVolumeKey()
 			if volumeKey == "" {
 				log.Printf("reconciler: warn: runner %s volume missing volume_key", runnerID)
@@ -212,9 +189,6 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 				continue
 			}
 			runnerVolumes[volumeKey] = item
-			if instanceID != "" {
-				runnerVolumesByInstance[instanceID] = keyedRunnerVolume{key: volumeKey, item: item}
-			}
 		}
 		for volumeID := range ignoredVolumeKeysByRunner[runnerID] {
 			delete(runnerVolumes, volumeID)
@@ -226,16 +200,6 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 				return err
 			}
 			item, ok := runnerVolumes[volumeID]
-			if !ok {
-				if expectedInstanceID := persistentVolumeInstanceID(volume); expectedInstanceID != "" {
-					matched := runnerVolumesByInstance[expectedInstanceID]
-					if matched.item != nil {
-						item = matched.item
-						ok = true
-						delete(runnerVolumes, matched.key)
-					}
-				}
-			}
 			if !ok {
 				if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s: %v", volumeID, err)
@@ -251,11 +215,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			}
 		}
 
-		for volumeKey, item := range runnerVolumes {
-			if persistentVolumeKeyCouldBeCurrent(volumeKey, trackedVolumes) {
-				log.Printf("reconciler: warn: runner %s skips ambiguous orphan volume %s", runnerID, volumeKey)
-				continue
-			}
+		for _, item := range runnerVolumes {
 			instanceID := item.GetInstanceId()
 			if instanceID == "" {
 				log.Printf("reconciler: warn: runner %s orphan volume missing instance id", runnerID)
@@ -267,24 +227,6 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func persistentVolumeInstanceID(volume *runnersv1.Volume) string {
-	threadID := volume.GetThreadId()
-	volumeID := volume.GetVolumeId()
-	if len(threadID) < 12 || len(volumeID) < 12 {
-		return ""
-	}
-	return fmt.Sprintf("pv-%s-%s", threadID[:12], volumeID[:12])
-}
-
-func persistentVolumeKeyCouldBeCurrent(volumeKey string, trackedVolumes map[string]*runnersv1.Volume) bool {
-	for _, volume := range trackedVolumes {
-		if stablePersistentVolumeKey(volume) == volumeKey {
-			return true
-		}
-	}
-	return false
 }
 
 func stablePersistentVolumeKey(volume *runnersv1.Volume) string {
@@ -370,12 +312,7 @@ func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runn
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING:
 		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
-		status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
-			Id:     volumeID,
-			Status: &status,
-		})
-		return err
+		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
 		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{

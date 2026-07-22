@@ -2,7 +2,6 @@ package reconciler
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
@@ -44,7 +43,7 @@ func TestBuildVolumeRecordsUsesStablePersistentKey(t *testing.T) {
 	}
 }
 
-func TestPrepareExistingVolumeRecordReactivatesFailedRetry(t *testing.T) {
+func TestPrepareExistingVolumeRecordRejectsFailedRecord(t *testing.T) {
 	ctx := context.Background()
 	recordID := uuid.NewString()
 	threadID := uuid.NewString()
@@ -52,7 +51,6 @@ func TestPrepareExistingVolumeRecordReactivatesFailedRetry(t *testing.T) {
 	runnerID := "runner-1"
 	organizationID := uuid.NewString()
 	volumeID := uuid.NewString()
-	var updateReq *runnersv1.UpdateVolumeRequest
 	runners := &fakeRunnersClient{
 		getVolume: func(_ context.Context, req *runnersv1.GetVolumeRequest, _ ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
 			if req.GetId() != recordID {
@@ -70,10 +68,6 @@ func TestPrepareExistingVolumeRecordReactivatesFailedRetry(t *testing.T) {
 				OwnerId:        threadID,
 			}}, nil
 		},
-		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			updateReq = req
-			return &runnersv1.UpdateVolumeResponse{}, nil
-		},
 	}
 	reconciler := &Reconciler{runners: runners}
 	req := &runnersv1.CreateVolumeRequest{
@@ -87,17 +81,8 @@ func TestPrepareExistingVolumeRecordReactivatesFailedRetry(t *testing.T) {
 		OwnerId:        threadID,
 	}
 
-	if err := reconciler.prepareExistingVolumeRecord(ctx, req); err != nil {
-		t.Fatalf("prepare existing volume record: %v", err)
-	}
-	if updateReq == nil {
-		t.Fatal("expected failed record to be updated")
-	}
-	if updateReq.GetId() != recordID {
-		t.Fatalf("unexpected update id: %q", updateReq.GetId())
-	}
-	if updateReq.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING {
-		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	if err := reconciler.prepareExistingVolumeRecord(ctx, req); err == nil {
+		t.Fatal("expected failed existing record to remain terminal")
 	}
 }
 
@@ -118,9 +103,6 @@ func TestPrepareExistingVolumeRecordRejectsConflictingRecord(t *testing.T) {
 				OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
 				OwnerId:        threadID,
 			}}, nil
-		},
-		updateVolume: func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			return nil, errors.New("conflicting record must not be updated")
 		},
 	}
 	reconciler := &Reconciler{runners: runners}

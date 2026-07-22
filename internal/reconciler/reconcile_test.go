@@ -1023,14 +1023,14 @@ func TestReconcileVolumesActivatesProvisioning(t *testing.T) {
 	}
 }
 
-func TestReconcileVolumesMarksMissingRunnerOnNoTerminatorsListError(t *testing.T) {
+func TestReconcileVolumesLeavesPersistentVolumeOnNoTerminatorsListError(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
 	volumeKey := "volume-1"
 	threadID := uuid.New().String()
 	volumeID := uuid.New().String()
 
-	var updateReq *runnersv1.UpdateVolumeRequest
+	var updateCount int
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
@@ -1040,8 +1040,8 @@ func TestReconcileVolumesMarksMissingRunnerOnNoTerminatorsListError(t *testing.T
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
 			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
 		},
-		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			updateReq = req
+		updateVolume: func(_ context.Context, _ *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateCount++
 			return &runnersv1.UpdateVolumeResponse{}, nil
 		},
 	}
@@ -1070,25 +1070,19 @@ func TestReconcileVolumesMarksMissingRunnerOnNoTerminatorsListError(t *testing.T
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
 		t.Fatalf("reconcile volumes: %v", err)
 	}
-	if updateReq == nil {
-		t.Fatal("expected update volume")
-	}
-	if updateReq.GetId() != volumeKey {
-		t.Fatalf("unexpected volume id: %v", updateReq.GetId())
-	}
-	if updateReq.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_FAILED {
-		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	if updateCount != 0 {
+		t.Fatalf("expected no volume updates, got %d", updateCount)
 	}
 }
 
-func TestReconcileVolumesDegradesOnMissingPVC(t *testing.T) {
+func TestReconcileVolumesLeavesPersistentVolumeOnMissingPVC(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
 	volumeKey := "volume-1"
 	threadID := uuid.New().String()
 	volumeID := uuid.New().String()
 
-	var updateReq *runnersv1.UpdateVolumeRequest
+	var updateCount int
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
@@ -1098,8 +1092,8 @@ func TestReconcileVolumesDegradesOnMissingPVC(t *testing.T) {
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
 			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
 		},
-		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			updateReq = req
+		updateVolume: func(_ context.Context, _ *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateCount++
 			return &runnersv1.UpdateVolumeResponse{}, nil
 		},
 	}
@@ -1143,11 +1137,8 @@ func TestReconcileVolumesDegradesOnMissingPVC(t *testing.T) {
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
 		t.Fatalf("reconcile volumes: %v", err)
 	}
-	if updateReq == nil {
-		t.Fatal("expected update volume")
-	}
-	if updateReq.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_FAILED {
-		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+	if updateCount != 0 {
+		t.Fatalf("expected no volume updates, got %d", updateCount)
 	}
 	if degradeCalls != 1 {
 		t.Fatalf("expected 1 degrade call, got %d", degradeCalls)
@@ -1176,7 +1167,7 @@ func TestReconcileVolumesDegradesUnenrolledRunner(t *testing.T) {
 		},
 		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
 			updateCount++
-			if req.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_FAILED {
+			if req.GetStatus() == runnersv1.VolumeStatus_VOLUME_STATUS_FAILED {
 				return nil, errors.New("unexpected volume status")
 			}
 			return &runnersv1.UpdateVolumeResponse{}, nil
@@ -1214,8 +1205,8 @@ func TestReconcileVolumesDegradesUnenrolledRunner(t *testing.T) {
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
 		t.Fatalf("reconcile volumes: %v", err)
 	}
-	if updateCount != 1 {
-		t.Fatalf("expected 1 volume update, got %d", updateCount)
+	if updateCount != 0 {
+		t.Fatalf("expected no volume updates, got %d", updateCount)
 	}
 	if degradeCalls != 1 {
 		t.Fatalf("expected 1 degrade call, got %d", degradeCalls)
@@ -1369,69 +1360,6 @@ func TestReconcileVolumesKeepsReusedPersistentVolume(t *testing.T) {
 	}
 	if updateReq.GetInstanceId() != instanceID {
 		t.Fatalf("unexpected instance id: %q", updateReq.GetInstanceId())
-	}
-}
-
-func TestReconcileVolumesSkipsAmbiguousStalePersistentOrphan(t *testing.T) {
-	ctx := context.Background()
-	runnerID := "runner-1"
-	threadID := uuid.New().String()
-	volumeID := uuid.New().String()
-	currentVolumeKey := uuid.NewSHA1(uuid.NameSpaceOID, []byte(threadID+":"+volumeID)).String()
-	staleVolumeKey := uuid.New().String()
-	instanceID := "pv-" + threadID[:12] + "-" + volumeID[:12]
-
-	var updateCount int
-	var removeCount int
-	runners := &fakeRunnersClient{
-		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
-			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
-				{Meta: &runnersv1.EntityMeta{Id: currentVolumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: threadID, VolumeId: volumeID},
-			}}, nil
-		},
-		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
-			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
-		},
-		updateVolume: func(_ context.Context, _ *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			updateCount++
-			return &runnersv1.UpdateVolumeResponse{}, nil
-		},
-	}
-	runner := &fakeRunnerClient{
-		listVolumes: func(_ context.Context, _ *runnerv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnerv1.ListVolumesResponse, error) {
-			return &runnerv1.ListVolumesResponse{Volumes: []*runnerv1.VolumeListItem{
-				{VolumeKey: staleVolumeKey, InstanceId: instanceID},
-			}}, nil
-		},
-		removeVolume: func(_ context.Context, req *runnerv1.RemoveVolumeRequest, _ ...grpc.CallOption) (*runnerv1.RemoveVolumeResponse, error) {
-			removeCount++
-			if req.GetVolumeName() == instanceID {
-				return nil, errors.New("ambiguous stale persistent volume must not be removed")
-			}
-			return &runnerv1.RemoveVolumeResponse{}, nil
-		},
-	}
-	runnerDialer := &fakeRunnerDialer{dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
-		if id != runnerID {
-			return nil, errors.New("unexpected runner id")
-		}
-		return runner, nil
-	}}
-	reconciler := newTestReconciler(Config{
-		RunnerDialer: runnerDialer,
-		Runners:      runners,
-		Agents:       &testutil.FakeAgentsClient{},
-		Assembler:    newTestAssembler(uuid.New(), false),
-	})
-
-	if err := reconciler.reconcileVolumes(ctx); err != nil {
-		t.Fatalf("reconcile volumes: %v", err)
-	}
-	if updateCount != 1 {
-		t.Fatalf("expected current volume update, got %d", updateCount)
-	}
-	if removeCount != 0 {
-		t.Fatalf("expected no remove calls, got %d", removeCount)
 	}
 }
 
