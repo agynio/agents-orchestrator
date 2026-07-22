@@ -402,6 +402,20 @@ replace(
   'retryWorkload, err := waitForRetryWorkload(fastRetryCtx, runnersClient, agentParticipantID, agentID, removedAt)',
 );
 
+replace(
+  startRetryPath,
+  'start retry agn testllm endpoint',
+  'createWorkflowGatewayModel(t, setup, testLLMEndpointCodex, llmv1.Protocol_PROTOCOL_RESPONSES, "simple-hello")',
+  'createWorkflowGatewayModel(t, setup, testLLMEndpointAgn, llmv1.Protocol_PROTOCOL_RESPONSES, "simple-hello")',
+);
+
+replace(
+  startRetryPath,
+  'start retry agn init image',
+  'validInitImage := codexInitImage',
+  'validInitImage := agnInitImage',
+);
+
 
 replace(
   'suites/go-core/suite.yaml',

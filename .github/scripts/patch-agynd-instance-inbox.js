@@ -463,6 +463,33 @@ replace(
   ['\t\tnotifications: notificationsClient,', '\t\tagents:        agentsClient,', '\t\trunners:       runnersClient,'].join('\n'),
   ['\t\tnotifications: notificationsClient,', '\t\tagents:        agentsClient,', '\t\tagentInbox:    agentInboxClient,', '\t\trunners:       runnersClient,'].join('\n'),
 );
+replace(
+  'internal/daemon/daemon.go',
+  'codex mcp ready before client',
+  [
+    '	if err := runInitScripts(ctx, setup.agents, cfg.AgentID.String(), cfg.WorkDir); err != nil {',
+    '		tracingProxy.Close()',
+    '		_ = setup.gatewayConn.Close()',
+    '		return nil, err',
+    '	}',
+    '	codexHomeValue := codexHomeEnv()',
+  ].join('\n'),
+  [
+    '	if err := runInitScripts(ctx, setup.agents, cfg.AgentID.String(), cfg.WorkDir); err != nil {',
+    '		tracingProxy.Close()',
+    '		_ = setup.gatewayConn.Close()',
+    '		return nil, err',
+    '	}',
+    '',
+    '	if err := waitForMCPServers(ctx, cfg.MCPServers, mcpReadyTimeout); err != nil {',
+    '		tracingProxy.Close()',
+    '		_ = setup.gatewayConn.Close()',
+    '		return nil, err',
+    '	}',
+    '	codexHomeValue := codexHomeEnv()',
+  ].join('\n'),
+);
+
 for (const path of ['internal/daemon/daemon.go', 'internal/daemon/agn.go', 'internal/daemon/claude.go']) {
   replace(
     path,
