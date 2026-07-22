@@ -119,26 +119,21 @@ jobs:
           cat >"${build_context}/agn-wrapper" <<'EOF'
           #!/usr/bin/env sh
           set -eu
-          stderr_file="$(mktemp)"
-          set +e
-          "$(dirname "$0")/agn.real" "$@" 2>"${stderr_file}"
-          status="$?"
-          set -e
-          awk 'BEGIN { skip = 0 } /^thread_id:/ { skip = 1; next } { print } END { if (skip == 0 && NR == 0) exit 1 }' "${stderr_file}" >&2 || true
-          rm -f "${stderr_file}"
-          exit "${status}"
+          exec "$(dirname "$0")/agn.real" "$@"
           EOF
           chmod +x "${build_context}/agn-wrapper"
           cat >"${build_context}/agyn-wrapper" <<'EOF'
           #!/usr/bin/env sh
           set -eu
+          stdout_file="$(mktemp)"
           stderr_file="$(mktemp)"
           set +e
-          "$(dirname "$0")/agyn.real" "$@" 2>"${stderr_file}"
+          "$(dirname "$0")/agyn.real" "$@" >"${stdout_file}" 2>"${stderr_file}"
           status="$?"
           set -e
-          awk 'BEGIN { skip = 0 } /^thread_id:/ { skip = 1; next } { print } END { if (skip == 0 && NR == 0) exit 1 }' "${stderr_file}" >&2 || true
-          rm -f "${stderr_file}"
+          cat "${stdout_file}"
+          awk '!/^thread_id:/' "${stderr_file}" >&2
+          rm -f "${stdout_file}" "${stderr_file}"
           exit "${status}"
           EOF
           chmod +x "${build_context}/agyn-wrapper"
