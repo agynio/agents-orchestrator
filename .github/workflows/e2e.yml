@@ -1611,6 +1611,28 @@ jobs:
           ref: main
           path: e2e
 
+      - name: Patch E2E default model endpoint
+        run: |-
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'e2e/.github/actions/run-tests/action.yml';
+          let text = fs.readFileSync(path, 'utf8');
+          const endpointOriginal = '"endpoint":"https://llm.e2e.agyn.dev/${now}"';
+          const endpointReplacement = '"endpoint":"https://testllm.dev/v1/org/agynio/suite/codex/responses"';
+          const modelOriginal = '"remoteName":"gpt-4o-mini"';
+          const modelReplacement = '"remoteName":"simple-hello"';
+          if (!text.includes(endpointOriginal)) {
+            throw new Error('default E2E LLM provider endpoint block not found');
+          }
+          if (!text.includes(modelOriginal)) {
+            throw new Error('default E2E model remoteName block not found');
+          }
+          text = text.replace(endpointOriginal, endpointReplacement);
+          text = text.replace(modelOriginal, modelReplacement);
+          fs.writeFileSync(path, text);
+          NODE
+
       - name: Checkout api
         uses: actions/checkout@v4
         with:
