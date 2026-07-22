@@ -1730,6 +1730,16 @@ jobs:
           find .gen/go -type f -name '*.go' -print0 | xargs -0 gofmt -w
           CGO_ENABLED=0 go test -tags 'e2e svc_agents_orchestrator' ./tests -run TestNonExistent -count=1
 
+      - name: Run focused go-core acceptance tests
+        uses: ./e2e/.github/actions/run-tests
+        env:
+          E2E_SUITES: go-core
+          E2E_GO_TEST_RUN: "TestAgentAgynCLIWaitToAnotherAgent|TestMCPToolsE2E|TestWorkloadStartRetryPolicyFastRetry"
+          E2E_SKIP_BUF_GENERATE: "true"
+        with:
+          service: agents_orchestrator
+          include_smoke: "false"
+
       - name: Run E2E tests
         uses: ./e2e/.github/actions/run-tests
         env:

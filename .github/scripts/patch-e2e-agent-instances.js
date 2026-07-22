@@ -403,21 +403,6 @@ replace(
 );
 
 replace(
-  startRetryPath,
-  'start retry agn testllm endpoint',
-  'createWorkflowGatewayModel(t, setup, testLLMEndpointCodex, llmv1.Protocol_PROTOCOL_RESPONSES, "simple-hello")',
-  'createWorkflowGatewayModel(t, setup, testLLMEndpointAgn, llmv1.Protocol_PROTOCOL_RESPONSES, "simple-hello")',
-);
-
-replace(
-  startRetryPath,
-  'start retry agn init image',
-  'validInitImage := codexInitImage',
-  'validInitImage := agnInitImage',
-);
-
-
-replace(
   'suites/go-core/suite.yaml',
   'optional go-core buf generate',
   '  buf generate\n\n  tag_args="e2e"',

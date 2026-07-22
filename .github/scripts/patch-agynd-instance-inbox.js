@@ -490,6 +490,71 @@ replace(
   ].join('\n'),
 );
 
+replace(
+  'internal/daemon/daemon.go',
+  'reset codex thread after retryable stream failure',
+  [
+    '\t\t\t\tif isRetryableCodexErrorNotification(result.Err) {',
+    '\t\t\t\t\tlog.Printf("codex turn transient failure: turn_id=%s message_id=%s cause=%s; retrying sync", turnID, message.ID, result.Err)',
+    '\t\t\t\t\treturn operationError(',
+    '\t\t\t\t\t\topCodexTurnResult,',
+    '\t\t\t\t\t\t0,',
+    '\t\t\t\t\t\tfmt.Errorf("codex turn %s transient failure for message %s: %w", turnID, message.ID, result.Err),',
+    '\t\t\t\t\t)',
+    '\t\t\t\t}',
+  ].join('\n'),
+  [
+    '\t\t\t\tif isRetryableCodexErrorNotification(result.Err) {',
+    '\t\t\t\t\tif resetErr := d.replaceCodexThread(ctx, threadID); resetErr != nil {',
+    '\t\t\t\t\t\treturn operationError(',
+    '\t\t\t\t\t\t\topCodexTurnResult,',
+    '\t\t\t\t\t\t\t0,',
+    '\t\t\t\t\t\t\tfmt.Errorf("codex turn %s transient failure for message %s: %w; reset codex thread: %w", turnID, message.ID, result.Err, resetErr),',
+    '\t\t\t\t\t\t)',
+    '\t\t\t\t\t}',
+    '\t\t\t\t\tlog.Printf("codex turn transient failure: turn_id=%s message_id=%s cause=%s; reset thread mapping and retrying sync", turnID, message.ID, result.Err)',
+    '\t\t\t\t\treturn operationError(',
+    '\t\t\t\t\t\topCodexTurnResult,',
+    '\t\t\t\t\t\t0,',
+    '\t\t\t\t\t\tfmt.Errorf("codex turn %s transient failure for message %s: %w", turnID, message.ID, result.Err),',
+    '\t\t\t\t\t)',
+    '\t\t\t\t}',
+  ].join('\n'),
+);
+
+replace(
+  'internal/daemon/daemon.go',
+  'replace codex thread helper',
+  [
+    'func waitForZitiLLMService(ctx context.Context, llmBaseURL string, timeout time.Duration) error {',
+  ].join('\n'),
+  [
+    'func (d *Daemon) replaceCodexThread(ctx context.Context, platformThreadID string) error {',
+    '\tif d.mappingStore == nil {',
+    '\t\treturn fmt.Errorf("codex mapping store is not configured")',
+    '\t}',
+    '\tcodexThreadID, err := d.startCodexThread(ctx)',
+    '\tif err != nil {',
+    '\t\treturn err',
+    '\t}',
+    '\tnow := time.Now().UnixMilli()',
+    '\trecord := codexbridge.ThreadMappingRecord{',
+    '\t\tPlatformThreadID: platformThreadID,',
+    '\t\tCodexThreadID:    codexThreadID,',
+    '\t\tCreatedAtUnixMs:  now,',
+    '\t\tLastUsedAtUnixMs: now,',
+    '\t}',
+    '\td.mapping.SetRecord(record)',
+    '\tif err := d.mappingStore.Save(record); err != nil {',
+    '\t\treturn fmt.Errorf("save replacement codex thread mapping for platform thread %s: %w", platformThreadID, err)',
+    '\t}',
+    '\treturn nil',
+    '}',
+    '',
+    'func waitForZitiLLMService(ctx context.Context, llmBaseURL string, timeout time.Duration) error {',
+  ].join('\n'),
+);
+
 for (const path of ['internal/daemon/daemon.go', 'internal/daemon/agn.go', 'internal/daemon/claude.go']) {
   replace(
     path,
