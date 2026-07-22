@@ -34,7 +34,7 @@ func (r *Reconciler) pinnedRunnerForThread(ctx context.Context, threadID string)
 			if meta == nil || meta.GetId() == "" {
 				return "", fmt.Errorf("volume meta missing")
 			}
-			if !isPinnedVolumeStatus(volume.GetStatus()) {
+			if !isThreadPinnedVolume(volume) {
 				continue
 			}
 			volumeRunnerID := volume.GetRunnerId()
@@ -55,6 +55,19 @@ func (r *Reconciler) pinnedRunnerForThread(ctx context.Context, threadID string)
 		}
 	}
 	return runnerID, nil
+}
+
+func isThreadPinnedVolume(volume *runnersv1.Volume) bool {
+	if isPinnedVolumeStatus(volume.GetStatus()) {
+		return true
+	}
+	switch volume.GetStatus() {
+	case runnersv1.VolumeStatus_VOLUME_STATUS_FAILED,
+		runnersv1.VolumeStatus_VOLUME_STATUS_DELETED:
+		return volume.GetMeta().GetId() == stablePersistentVolumeKey(volume)
+	default:
+		return false
+	}
 }
 
 func isPinnedVolumeStatus(status runnersv1.VolumeStatus) bool {
