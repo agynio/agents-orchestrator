@@ -108,11 +108,47 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 			if status.Code(err) != codes.AlreadyExists {
 				return created, err
 			}
+			if err := r.prepareExistingVolumeRecord(ctx, req); err != nil {
+				return created, err
+			}
 			continue
 		}
 		created = append(created, record)
 	}
 	return created, nil
+}
+
+func (r *Reconciler) prepareExistingVolumeRecord(ctx context.Context, req *runnersv1.CreateVolumeRequest) error {
+	resp, err := r.runners.GetVolume(runnersContext(ctx), &runnersv1.GetVolumeRequest{Id: req.GetId()})
+	if err != nil {
+		return err
+	}
+	volume := resp.GetVolume()
+	if volume == nil {
+		return ErrInvalidVolumeRecord
+	}
+	if volume.GetThreadId() != req.GetThreadId() ||
+		volume.GetAgentId() != req.GetAgentId() ||
+		volume.GetRunnerId() != req.GetRunnerId() ||
+		volume.GetVolumeId() != req.GetVolumeId() ||
+		volume.GetOrganizationId() != req.GetOrganizationId() ||
+		volume.GetOwnerKind() != req.GetOwnerKind() ||
+		volume.GetOwnerId() != req.GetOwnerId() {
+		return ErrInvalidVolumeRecord
+	}
+	switch volume.GetStatus() {
+	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
+		runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
+		return nil
+	case runnersv1.VolumeStatus_VOLUME_STATUS_FAILED,
+		runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
+		runnersv1.VolumeStatus_VOLUME_STATUS_DELETED:
+		status := runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING
+		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{Id: req.GetId(), Status: &status})
+		return err
+	default:
+		return ErrInvalidVolumeRecord
+	}
 }
 
 func (r *Reconciler) markVolumeRecordsFailed(ctx context.Context, records []volumeRecord) {
