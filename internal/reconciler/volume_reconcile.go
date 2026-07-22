@@ -13,6 +13,7 @@ import (
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -27,6 +28,11 @@ type threadActivity struct {
 type volumeTTLInfo struct {
 	persistent bool
 	ttl        *time.Duration
+}
+
+type keyedRunnerVolume struct {
+	key  string
+	item *runnerv1.VolumeListItem
 }
 
 func runnerIdentityForVolumes(runnerID string, runnerOrganizationID string, orgIdentities map[string]string, volumes map[string]*runnersv1.Volume) (string, error) {
@@ -190,10 +196,12 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			continue
 		}
 		runnerVolumes := make(map[string]*runnerv1.VolumeListItem)
+		runnerVolumesByInstance := make(map[string]keyedRunnerVolume)
 		for _, item := range resp.GetVolumes() {
 			if item == nil {
 				continue
 			}
+			instanceID := item.GetInstanceId()
 			volumeKey := item.GetVolumeKey()
 			if volumeKey == "" {
 				log.Printf("reconciler: warn: runner %s volume missing volume_key", runnerID)
@@ -204,6 +212,9 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 				continue
 			}
 			runnerVolumes[volumeKey] = item
+			if instanceID != "" {
+				runnerVolumesByInstance[instanceID] = keyedRunnerVolume{key: volumeKey, item: item}
+			}
 		}
 		for volumeID := range ignoredVolumeKeysByRunner[runnerID] {
 			delete(runnerVolumes, volumeID)
@@ -215,6 +226,16 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 				return err
 			}
 			item, ok := runnerVolumes[volumeID]
+			if !ok {
+				if expectedInstanceID := persistentVolumeInstanceID(volume); expectedInstanceID != "" {
+					matched := runnerVolumesByInstance[expectedInstanceID]
+					if matched.item != nil {
+						item = matched.item
+						ok = true
+						delete(runnerVolumes, matched.key)
+					}
+				}
+			}
 			if !ok {
 				if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s: %v", volumeID, err)
@@ -230,7 +251,11 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			}
 		}
 
-		for _, item := range runnerVolumes {
+		for volumeKey, item := range runnerVolumes {
+			if persistentVolumeKeyCouldBeCurrent(volumeKey, trackedVolumes) {
+				log.Printf("reconciler: warn: runner %s skips ambiguous orphan volume %s", runnerID, volumeKey)
+				continue
+			}
 			instanceID := item.GetInstanceId()
 			if instanceID == "" {
 				log.Printf("reconciler: warn: runner %s orphan volume missing instance id", runnerID)
@@ -242,6 +267,33 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func persistentVolumeInstanceID(volume *runnersv1.Volume) string {
+	threadID := volume.GetThreadId()
+	volumeID := volume.GetVolumeId()
+	if len(threadID) < 12 || len(volumeID) < 12 {
+		return ""
+	}
+	return fmt.Sprintf("pv-%s-%s", threadID[:12], volumeID[:12])
+}
+
+func persistentVolumeKeyCouldBeCurrent(volumeKey string, trackedVolumes map[string]*runnersv1.Volume) bool {
+	for _, volume := range trackedVolumes {
+		if stablePersistentVolumeKey(volume) == volumeKey {
+			return true
+		}
+	}
+	return false
+}
+
+func stablePersistentVolumeKey(volume *runnersv1.Volume) string {
+	threadID := volume.GetThreadId()
+	volumeID := volume.GetVolumeId()
+	if threadID == "" || volumeID == "" {
+		return ""
+	}
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%s:%s", threadID, volumeID))).String()
 }
 
 func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Volume, map[string]map[string]struct{}, error) {

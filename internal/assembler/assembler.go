@@ -364,8 +364,13 @@ type AssembleResult struct {
 
 type PersistentVolumeInfo struct {
 	ID     uuid.UUID
+	Thread uuid.UUID
 	Volume *agentsv1.Volume
 	Spec   *runnerv1.VolumeSpec
+}
+
+func (i PersistentVolumeInfo) Key() string {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%s:%s", i.Thread.String(), i.ID.String()))).String()
 }
 
 func New(agents agentsClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
@@ -1187,7 +1192,7 @@ func (v *volumeResolver) PersistentVolumes() ([]PersistentVolumeInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		volumes = append(volumes, PersistentVolumeInfo{ID: parsedID, Volume: volume, Spec: spec})
+		volumes = append(volumes, PersistentVolumeInfo{ID: parsedID, Thread: v.threadID, Volume: volume, Spec: spec})
 	}
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].ID.String() < volumes[j].ID.String() })
 	return volumes, nil

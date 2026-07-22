@@ -6,6 +6,8 @@ import (
 	"time"
 
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -103,7 +105,10 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 			AgentClassId:   stringPtr(target.AgentID.String()),
 		}
 		if _, err := r.runners.CreateVolume(runnersContext(ctx), req); err != nil {
-			return created, err
+			if status.Code(err) != codes.AlreadyExists {
+				return created, err
+			}
+			continue
 		}
 		created = append(created, record)
 	}
