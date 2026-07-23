@@ -1624,38 +1624,75 @@ jobs:
           const fs = require('fs');
           const path = 'devspace.yaml';
           let text = fs.readFileSync(path, 'utf8');
-          const scaleDownMarker = 'Scaling llm-proxy down before source patch...';
-          if (!text.includes(scaleDownMarker)) {
+
+          const resolveBlockMarker = 'Resolving llm-proxy deployment before source patch...';
+          if (!text.includes(resolveBlockMarker)) {
             const marker = '    echo "Patching llm-proxy deployment for DevSpace..."';
             if (!text.includes(marker)) {
               throw new Error('llm-proxy DevSpace patch marker not found');
             }
             text = text.replace(marker, [
+              '    echo "' + resolveBlockMarker + '"',
+              '    llm_proxy_namespace="${LLM_PROXY_NAMESPACE:-platform}"',
+              '    llm_proxy_deployment="$(kubectl get deployment -n "${llm_proxy_namespace}" -l app.kubernetes.io/instance=llm-proxy -o jsonpath=\'{.items[0].metadata.name}\' 2>/dev/null || true)"',
+              '    if [ -z "${llm_proxy_deployment}" ]; then',
+              '      llm_proxy_deployment="$(kubectl get deployment -n "${llm_proxy_namespace}" -l app.kubernetes.io/name=llm-proxy -o jsonpath=\'{.items[0].metadata.name}\' 2>/dev/null || true)"',
+              '    fi',
+              '    if [ -z "${llm_proxy_deployment}" ]; then',
+              '      llm_proxy_ref="$(kubectl get deployment -A -l app.kubernetes.io/instance=llm-proxy -o jsonpath=\'{range .items[0]}{.metadata.namespace}{"\\t"}{.metadata.name}{end}\' 2>/dev/null || true)"',
+              '      if [ -z "${llm_proxy_ref}" ]; then',
+              '        llm_proxy_ref="$(kubectl get deployment -A -l app.kubernetes.io/name=llm-proxy -o jsonpath=\'{range .items[0]}{.metadata.namespace}{"\\t"}{.metadata.name}{end}\' 2>/dev/null || true)"',
+              '      fi',
+              '      if [ -n "${llm_proxy_ref}" ]; then',
+              '        llm_proxy_namespace="$(printf \'%s\' "${llm_proxy_ref}" | awk \'{ print $1 }\')"',
+              '        llm_proxy_deployment="$(printf \'%s\' "${llm_proxy_ref}" | awk \'{ print $2 }\')"',
+              '      fi',
+              '    fi',
+              '    if [ -z "${llm_proxy_deployment}" ]; then',
+              '      echo "llm-proxy deployment not found in namespace ${llm_proxy_namespace}" >&2',
+              '      kubectl get deployments -A -o wide >&2 || true',
+              '      exit 1',
+              '    fi',
               '    label_selector="app.kubernetes.io/name=llm-proxy,app.kubernetes.io/instance=llm-proxy"',
-              '    echo "' + scaleDownMarker + '"',
-              '    kubectl scale deployment/llm-proxy-llm-proxy -n ${LLM_PROXY_NAMESPACE} --replicas=0',
-              '    if [ -n "$(kubectl get pods -n ${LLM_PROXY_NAMESPACE} -l "${label_selector}" -o name)" ]; then',
-              '      kubectl wait --for=delete pod -n ${LLM_PROXY_NAMESPACE} -l "${label_selector}" --timeout=240s',
+              '    echo "Scaling ${llm_proxy_namespace}/${llm_proxy_deployment} down before source patch..."',
+              '    kubectl scale "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --replicas=0',
+              '    if [ -n "$(kubectl get pods -n "${llm_proxy_namespace}" -l "${label_selector}" -o name)" ]; then',
+              '      kubectl wait --for=delete pod -n "${llm_proxy_namespace}" -l "${label_selector}" --timeout=240s',
               '    fi',
               marker,
             ].join('\n'));
           }
+
+          const strategicOriginal = 'kubectl patch deployment llm-proxy-llm-proxy -n ${LLM_PROXY_NAMESPACE} --type strategic --patch';
+          const strategicReplacement = 'kubectl patch "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --type strategic --patch';
+          if (text.includes(strategicOriginal)) {
+            text = text.replace(strategicOriginal, strategicReplacement);
+          } else if (!text.includes(strategicReplacement)) {
+            throw new Error('llm-proxy strategic patch target not found');
+          }
+
           const rolloutNeedle = [
             '    )"',
             '  patch_agents_orchestrator: |-',
           ].join('\n');
-          if (!text.includes('strategy":{"type":"Recreate","rollingUpdate":null}')) {
+          const rolloutMarker = 'rollout status "deployment/${llm_proxy_deployment}"';
+          if (!text.includes(rolloutMarker)) {
             if (!text.includes(rolloutNeedle)) {
               throw new Error('llm-proxy DevSpace rollout marker not found');
             }
             text = text.replace(rolloutNeedle, [
               '    )"',
-              `    kubectl patch deployment llm-proxy-llm-proxy -n \${LLM_PROXY_NAMESPACE} --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'`,
-              '    kubectl scale deployment/llm-proxy-llm-proxy -n ${LLM_PROXY_NAMESPACE} --replicas=1',
-              '    kubectl rollout status deployment/llm-proxy-llm-proxy -n ${LLM_PROXY_NAMESPACE} --timeout=240s',
+              '    recreate_patch="$(cat <<\'EOF\'',
+              '    {"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}',
+              '    EOF',
+              '    )"',
+              '    kubectl patch "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --type merge -p "${recreate_patch}"',
+              '    kubectl scale "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --replicas=1',
+              '    kubectl rollout status "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --timeout=240s',
               '  patch_agents_orchestrator: |-',
             ].join('\n'));
           }
+
           const resourcesOriginal = [
             '              resources:',
             '                requests:',
