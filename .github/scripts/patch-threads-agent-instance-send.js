@@ -62,6 +62,40 @@ replaceOnce(
 
 replaceOnce(
   'internal/server/server.go',
+  'threads agent instance identity helper',
+  [
+    'func isAgentIdentity(ctx context.Context) bool {',
+    '	md, ok := metadata.FromIncomingContext(ctx)',
+    '	if !ok {',
+    '		return false',
+    '	}',
+    '	identityType := metadataValue(md, identityTypeMetadataKey)',
+    '	return strings.EqualFold(identityType, agentIdentityType) || strings.EqualFold(identityType, agentInstanceIdentityType)',
+    '}',
+  ].join('\n'),
+  [
+    'func isAgentInstanceIdentity(ctx context.Context) bool {',
+    '	md, ok := metadata.FromIncomingContext(ctx)',
+    '	if !ok {',
+    '		return false',
+    '	}',
+    '	identityType := metadataValue(md, identityTypeMetadataKey)',
+    '	return strings.EqualFold(identityType, agentInstanceIdentityType)',
+    '}',
+    '',
+    'func isAgentIdentity(ctx context.Context) bool {',
+    '	md, ok := metadata.FromIncomingContext(ctx)',
+    '	if !ok {',
+    '		return false',
+    '	}',
+    '	identityType := metadataValue(md, identityTypeMetadataKey)',
+    '	return strings.EqualFold(identityType, agentIdentityType) || strings.EqualFold(identityType, agentInstanceIdentityType)',
+    '}',
+  ].join('\n'),
+);
+
+replaceOnce(
+  'internal/server/server.go',
   'threads agent participant helper',
   [
     'func (s *Server) deliveryRecipients(ctx context.Context, participants []store.Participant, senderID uuid.UUID) ([]uuid.UUID, []uuid.UUID, error) {',
@@ -138,7 +172,7 @@ replaceOnce(
     '	for i, participant := range participants {',
     '		storedID := participant.ID',
     '		agentClassID := uuid.Nil',
-    '		preserveInitiator := hasInitiator && participant.ID == initiatorID && typesByID[participant.ID] == identityv1.IdentityType_IDENTITY_TYPE_AGENT_INSTANCE',
+    '		preserveInitiator := hasInitiator && participant.ID == initiatorID && isAgentInstanceIdentity(ctx)',
     '		if !preserveInitiator {',
     '			var err error',
     '			storedID, agentClassID, err = s.finalParticipantID(ctx, participant.ID, typesByID[participant.ID])',
@@ -212,7 +246,7 @@ if (!testText.includes('func TestCreateThreadPreservesAgentInstanceInitiatorPart
     '\t\t\tfor i, id := range req.GetIdentityIds() {',
     '\t\t\t\tidentityType := identityv1.IdentityType_IDENTITY_TYPE_USER',
     '\t\t\t\tif id == agentInstanceID.String() {',
-    '\t\t\t\t\tidentityType = identityv1.IdentityType_IDENTITY_TYPE_AGENT_INSTANCE',
+    '\t\t\t\t\tidentityType = identityv1.IdentityType_IDENTITY_TYPE_AGENT',
     '\t\t\t\t}',
     '\t\t\t\tentries[i] = &identityv1.IdentityTypeEntry{IdentityId: id, IdentityType: identityType}',
     '\t\t\t}',
