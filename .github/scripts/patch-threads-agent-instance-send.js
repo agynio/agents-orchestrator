@@ -185,6 +185,65 @@ replaceOnce(
 );
 
 replaceOnce(
+  'internal/server/server.go',
+  'threads agent instance notification recipient',
+  [
+    '		case identityv1.IdentityType_IDENTITY_TYPE_AGENT_INSTANCE:',
+    '			agentInstanceRecipients = append(agentInstanceRecipients, recipientID)',
+  ].join('\n'),
+  [
+    '		case identityv1.IdentityType_IDENTITY_TYPE_AGENT_INSTANCE:',
+    '			messageRecipients = append(messageRecipients, recipientID)',
+    '			agentInstanceRecipients = append(agentInstanceRecipients, recipientID)',
+  ].join('\n'),
+);
+
+replaceOnce(
+  'internal/server/server_test.go',
+  'threads agent instance notification recipient expectation',
+  [
+    '			if !reflect.DeepEqual(messageRecipientIDs, []uuid.UUID{userRecipientID}) {',
+    '				t.Fatalf("expected user/app message recipients only, got %v", messageRecipientIDs)',
+    '			}',
+    '			if !reflect.DeepEqual(agentInstanceRecipientIDs, []uuid.UUID{agentInstanceID}) {',
+  ].join('\n'),
+  [
+    '			if !reflect.DeepEqual(messageRecipientIDs, []uuid.UUID{userRecipientID, agentInstanceID}) {',
+    '				t.Fatalf("expected user/app and agent instance notification recipients, got %v", messageRecipientIDs)',
+    '			}',
+    '			if !reflect.DeepEqual(agentInstanceRecipientIDs, []uuid.UUID{agentInstanceID}) {',
+  ].join('\n'),
+);
+
+replaceOnce(
+  'internal/server/server_test.go',
+  'threads agent instance publish recipient expectation',
+  [
+    '	notifierStub := &stubNotifier{t: t, publishFn: func(ctx context.Context, threadArg, messageArg uuid.UUID, recipients []uuid.UUID) error {',
+    '		if !reflect.DeepEqual(recipients, []uuid.UUID{userRecipientID}) {',
+    '			t.Fatalf("expected user notification recipients only, got %v", recipients)',
+    '		}',
+    '		return nil',
+    '	}}',
+  ].join('\n'),
+  [
+    '	notifierStub := &stubNotifier{t: t, publishFn: func(ctx context.Context, threadArg, messageArg uuid.UUID, recipients []uuid.UUID) error {',
+    '		if !reflect.DeepEqual(recipients, []uuid.UUID{userRecipientID, agentInstanceID}) {',
+    '			t.Fatalf("expected user and agent instance notification recipients, got %v", recipients)',
+    '		}',
+    '		return nil',
+    '	}}',
+  ].join('\n'),
+);
+
+replaceOnce(
+  'internal/server/server_test.go',
+  'threads agent instance fanout test name',
+  'func TestSendMessageFansOutAgentInstancesOnly(t *testing.T) {',
+  'func TestSendMessageNotifiesAndFansOutAgentInstances(t *testing.T) {',
+);
+
+replaceOnce(
   'internal/server/server_test.go',
   'threads send denied get thread expectation',
   [
