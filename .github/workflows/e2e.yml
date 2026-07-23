@@ -1524,22 +1524,22 @@ jobs:
             ].join('\n'));
           }
           const resourcesOriginal = [
-            '                resources:',
-            '                  requests:',
-            '                    cpu: 500m',
-            '                    memory: 1Gi',
-            '                  limits:',
-            '                    cpu: "2"',
-            '                    memory: 4Gi',
+            '              resources:',
+            '                requests:',
+            '                  cpu: 500m',
+            '                  memory: 1Gi',
+            '                limits:',
+            '                  cpu: "2"',
+            '                  memory: 4Gi',
           ].join('\n');
           const resourcesReplacement = [
-            '                resources:',
-            '                  requests:',
-            '                    cpu: 100m',
-            '                    memory: 512Mi',
-            '                  limits:',
-            '                    cpu: "1"',
-            '                    memory: 2Gi',
+            '              resources:',
+            '                requests:',
+            '                  cpu: 100m',
+            '                  memory: 512Mi',
+            '                limits:',
+            '                  cpu: "1"',
+            '                  memory: 2Gi',
           ].join('\n');
           if (text.includes(resourcesOriginal)) {
             text = text.replace(resourcesOriginal, resourcesReplacement);
@@ -1650,29 +1650,29 @@ jobs:
             }
             text = text.replace(rolloutNeedle, [
               '    )"',
-              "    kubectl patch deployment llm-proxy-llm-proxy -n ${LLM_PROXY_NAMESPACE} --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'",
+              `    kubectl patch deployment llm-proxy-llm-proxy -n \${LLM_PROXY_NAMESPACE} --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'`,
               '    kubectl scale deployment/llm-proxy-llm-proxy -n ${LLM_PROXY_NAMESPACE} --replicas=1',
               '    kubectl rollout status deployment/llm-proxy-llm-proxy -n ${LLM_PROXY_NAMESPACE} --timeout=240s',
               '  patch_agents_orchestrator: |-',
             ].join('\n'));
           }
           const resourcesOriginal = [
-            '                resources:',
-            '                  requests:',
-            '                    cpu: 500m',
-            '                    memory: 1Gi',
-            '                  limits:',
-            '                    cpu: "2"',
-            '                    memory: 4Gi',
+            '              resources:',
+            '                requests:',
+            '                  cpu: 500m',
+            '                  memory: 1Gi',
+            '                limits:',
+            '                  cpu: "2"',
+            '                  memory: 4Gi',
           ].join('\n');
           const resourcesReplacement = [
-            '                resources:',
-            '                  requests:',
-            '                    cpu: 100m',
-            '                    memory: 512Mi',
-            '                  limits:',
-            '                    cpu: "1"',
-            '                    memory: 2Gi',
+            '              resources:',
+            '                requests:',
+            '                  cpu: 100m',
+            '                  memory: 512Mi',
+            '                limits:',
+            '                  cpu: "1"',
+            '                  memory: 2Gi',
           ].join('\n');
           if (text.includes(resourcesOriginal)) {
             text = text.replace(resourcesOriginal, resourcesReplacement);
