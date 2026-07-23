@@ -1532,7 +1532,7 @@ jobs:
           trap dump_gateway_source_diagnostics ERR
           node "${GITHUB_WORKSPACE}/.github/scripts/patch-gateway-agent-instances.js"
           buf generate buf.build/agynio/api
-          gofmt -w internal/identity/identity.go internal/identity/identity_test.go internal/zitimgmtclient/client.go internal/zitimgmtclient/client_test.go internal/gateway/agents.go internal/gateway/runners.go
+          gofmt -w internal/identity/identity.go internal/identity/identity_test.go internal/zitimgmtclient/client.go internal/zitimgmtclient/client_test.go internal/gateway/agents.go internal/gateway/runners.go internal/gateway/threads.go
           CGO_ENABLED=0 go test ./cmd/gateway ./internal/identity ./internal/zitimgmtclient
           node <<'NODE'
           const fs = require('fs');
