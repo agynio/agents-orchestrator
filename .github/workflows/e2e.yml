@@ -130,6 +130,9 @@ jobs:
           cat >"${build_context}/agyn-wrapper" <<'EOF'
           #!/usr/bin/env sh
           set -eu
+          if [ -z "${AGYN_IDENTITY_ID:-}" ] && [ -n "${AGENT_INSTANCE_ID:-}" ]; then
+            export AGYN_IDENTITY_ID="${AGENT_INSTANCE_ID}"
+          fi
           stdout_file="$(mktemp)"
           stderr_file="$(mktemp)"
           set +e
@@ -1485,8 +1488,8 @@ jobs:
           trap dump_gateway_source_diagnostics ERR
           node "${GITHUB_WORKSPACE}/.github/scripts/patch-gateway-agent-instances.js"
           buf generate buf.build/agynio/api
-          gofmt -w internal/gateway/agents.go internal/gateway/runners.go
-          CGO_ENABLED=0 go test ./cmd/gateway ./internal/identity
+          gofmt -w internal/identity/identity.go internal/identity/identity_test.go internal/zitimgmtclient/client.go internal/gateway/agents.go internal/gateway/runners.go
+          CGO_ENABLED=0 go test ./cmd/gateway ./internal/identity ./internal/zitimgmtclient
           node <<'NODE'
           const fs = require('fs');
           const path = 'devspace.yaml';

@@ -490,6 +490,34 @@ replace(
   ].join('\n'),
 );
 
+
+const codexDaemonReadyPath = 'internal/daemon/daemon.go';
+let codexDaemonReadyText = fs.readFileSync(codexDaemonReadyPath, 'utf8');
+const codexDaemonReadyOriginal = [
+  '\t\tcodex:        codexClient,',
+  '\t\tmapping:      threadsMapping,',
+  '\t\tmappingStore: mappingStore,',
+  '\t\ttracker:      tracker,',
+  '\t\tagent:        setup.agent,',
+  '\t\ttracingProxy: tracingProxy,',
+].join('\n');
+const codexDaemonReadyReplacement = [
+  '\t\tcodex:        codexClient,',
+  '\t\tmapping:      threadsMapping,',
+  '\t\tmappingStore: mappingStore,',
+  '\t\ttracker:      tracker,',
+  '\t\tagent:        setup.agent,',
+  '\t\ttracingProxy: tracingProxy,',
+  '\t\tmcpReady:     true,',
+].join('\n');
+if (!codexDaemonReadyText.includes(codexDaemonReadyReplacement)) {
+  if (!codexDaemonReadyText.includes(codexDaemonReadyOriginal)) {
+    throw new Error('internal/daemon/daemon.go: codex daemon ready block not found');
+  }
+  codexDaemonReadyText = codexDaemonReadyText.replace(codexDaemonReadyOriginal, codexDaemonReadyReplacement);
+  fs.writeFileSync(codexDaemonReadyPath, codexDaemonReadyText);
+}
+
 replace(
   'internal/daemon/daemon.go',
   'reset codex thread after retryable stream failure',

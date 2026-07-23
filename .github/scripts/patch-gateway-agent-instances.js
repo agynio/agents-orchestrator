@@ -13,6 +13,129 @@ function replaceOnce(path, label, original, replacement) {
 }
 
 replaceOnce(
+  'internal/identity/identity.go',
+  'gateway agent instance identity type constant',
+  [
+    '\tIdentityTypeUser   IdentityType = "user"',
+    '\tIdentityTypeAgent  IdentityType = "agent"',
+    '\tIdentityTypeApp    IdentityType = "app"',
+    '\tIdentityTypeRunner IdentityType = "runner"',
+  ].join('\n'),
+  [
+    '\tIdentityTypeUser          IdentityType = "user"',
+    '\tIdentityTypeAgent         IdentityType = "agent"',
+    '\tIdentityTypeAgentInstance IdentityType = "agent_instance"',
+    '\tIdentityTypeApp           IdentityType = "app"',
+    '\tIdentityTypeRunner        IdentityType = "runner"',
+  ].join('\n'),
+);
+
+replaceOnce(
+  'internal/identity/identity.go',
+  'gateway agent instance identity type parser',
+  [
+    '\tcase string(IdentityTypeAgent):',
+    '\t\treturn IdentityTypeAgent, nil',
+    '\tcase string(IdentityTypeApp):',
+  ].join('\n'),
+  [
+    '\tcase string(IdentityTypeAgent):',
+    '\t\treturn IdentityTypeAgent, nil',
+    '\tcase string(IdentityTypeAgentInstance):',
+    '\t\treturn IdentityTypeAgentInstance, nil',
+    '\tcase string(IdentityTypeApp):',
+  ].join('\n'),
+);
+
+replaceOnce(
+  'internal/zitimgmtclient/client.go',
+  'gateway ziti managed agent instance identity mapping',
+  [
+    '\tworkloadID := strings.TrimSpace(response.GetWorkloadId())',
+    '\tif identityType == identity.IdentityTypeAgent && workloadID == "" {',
+    '\t\treturn identity.ResolvedIdentity{}, fmt.Errorf("workload id missing")',
+    '\t}',
+    '',
+    '\treturn identity.ResolvedIdentity{',
+    '\t\tIdentityID:   identityID,',
+    '\t\tIdentityType: identityType,',
+    '\t\tWorkloadID:   workloadID,',
+    '\t}, nil',
+  ].join('\n'),
+  [
+    '\tworkloadID := strings.TrimSpace(response.GetWorkloadId())',
+    '\tif identityType == identity.IdentityTypeAgent || identityType == identity.IdentityTypeAgentInstance {',
+    '\t\tif workloadID == "" {',
+    '\t\t\treturn identity.ResolvedIdentity{}, fmt.Errorf("workload id missing")',
+    '\t\t}',
+    '\t}',
+    '\tif identityType == identity.IdentityTypeAgent && workloadID != "" {',
+    '\t\tidentityType = identity.IdentityTypeAgentInstance',
+    '\t}',
+    '',
+    '\treturn identity.ResolvedIdentity{',
+    '\t\tIdentityID:   identityID,',
+    '\t\tIdentityType: identityType,',
+    '\t\tWorkloadID:   workloadID,',
+    '\t}, nil',
+  ].join('\n'),
+);
+
+replaceOnce(
+  'internal/zitimgmtclient/client.go',
+  'gateway ziti agent instance identity type enum',
+  [
+    '\tcase identityv1.IdentityType_IDENTITY_TYPE_AGENT:',
+    '\t\treturn identity.IdentityTypeAgent, nil',
+    '\tcase identityv1.IdentityType_IDENTITY_TYPE_RUNNER:',
+  ].join('\n'),
+  [
+    '\tcase identityv1.IdentityType_IDENTITY_TYPE_AGENT:',
+    '\t\treturn identity.IdentityTypeAgent, nil',
+    '\tcase identityv1.IdentityType_IDENTITY_TYPE_AGENT_INSTANCE:',
+    '\t\treturn identity.IdentityTypeAgentInstance, nil',
+    '\tcase identityv1.IdentityType_IDENTITY_TYPE_RUNNER:',
+  ].join('\n'),
+);
+
+replaceOnce(
+  'internal/identity/identity_test.go',
+  'gateway agent instance identity type test',
+  [
+    'func TestParseIdentityTypeApp(t *testing.T) {',
+    '\tidentityType, err := ParseIdentityType("app")',
+    '\tif err != nil {',
+    '\t\tt.Fatalf("unexpected error: %v", err)',
+    '\t}',
+    '\tif identityType != IdentityTypeApp {',
+    '\t\tt.Fatalf("unexpected identity type: %s", identityType)',
+    '\t}',
+    '}',
+  ].join('\n'),
+  [
+    'func TestParseIdentityTypeApp(t *testing.T) {',
+    '\tidentityType, err := ParseIdentityType("app")',
+    '\tif err != nil {',
+    '\t\tt.Fatalf("unexpected error: %v", err)',
+    '\t}',
+    '\tif identityType != IdentityTypeApp {',
+    '\t\tt.Fatalf("unexpected identity type: %s", identityType)',
+    '\t}',
+    '}',
+    '',
+    'func TestParseIdentityTypeAgentInstance(t *testing.T) {',
+    '\tidentityType, err := ParseIdentityType("agent_instance")',
+    '\tif err != nil {',
+    '\t\tt.Fatalf("unexpected error: %v", err)',
+    '\t}',
+    '\tif identityType != IdentityTypeAgentInstance {',
+    '\t\tt.Fatalf("unexpected identity type: %s", identityType)',
+    '\t}',
+    '}',
+  ].join('\n'),
+);
+
+replaceOnce(
   'cmd/gateway/main.go',
   'gateway ziti listen options',
   [
