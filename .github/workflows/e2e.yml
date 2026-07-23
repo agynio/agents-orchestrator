@@ -365,7 +365,50 @@ jobs:
 
       - name: Deploy agents from source
         working-directory: .e2e-deps/agents
-        run: devspace dev
+        run: |-
+          set -euo pipefail
+          node <<'PATCH_AGENTS'
+          const fs = require('fs');
+          const path = 'internal/server/instances.go';
+          let text = fs.readFileSync(path, 'utf8');
+          const importOriginal = [
+            '\t"regexp"',
+            '',
+            '\tagentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"',
+          ].join('\n');
+          const importReplacement = [
+            '\t"regexp"',
+            '',
+            '\tagentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"',
+            '\t"google.golang.org/grpc/metadata"',
+          ].join('\n');
+          if (text.includes(importOriginal)) {
+            text = text.replace(importOriginal, importReplacement);
+          } else if (!text.includes('"google.golang.org/grpc/metadata"')) {
+            throw new Error('agents instances.go import block not found');
+          }
+          const nicknameOriginal = [
+            'func (s *Server) setAgentInstanceNickname(ctx context.Context, instance store.AgentInstance) error {',
+            '\tidentityCtx, err := identityOutgoingContext(ctx)',
+            '\tif err != nil {',
+            '\t\treturn err',
+            '\t}',
+            '\t_, err = s.identity.SetNickname(identityCtx, &identityv1.SetNicknameRequest{',
+          ].join('\n');
+          const nicknameReplacement = [
+            'func (s *Server) setAgentInstanceNickname(ctx context.Context, instance store.AgentInstance) error {',
+            '\tidentityCtx := metadata.AppendToOutgoingContext(ctx, "x-identity-id", instance.Meta.ID.String())',
+            '\t_, err := s.identity.SetNickname(identityCtx, &identityv1.SetNicknameRequest{',
+          ].join('\n');
+          if (text.includes(nicknameOriginal)) {
+            text = text.replace(nicknameOriginal, nicknameReplacement);
+          } else if (!text.includes('metadata.AppendToOutgoingContext(ctx, "x-identity-id", instance.Meta.ID.String())')) {
+            throw new Error('agents setAgentInstanceNickname block not found');
+          }
+          fs.writeFileSync(path, text);
+          PATCH_AGENTS
+          gofmt -w internal/server/instances.go
+          devspace dev
 
       - name: Checkout identity
         uses: actions/checkout@v4
