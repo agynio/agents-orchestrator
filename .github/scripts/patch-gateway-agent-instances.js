@@ -70,6 +70,7 @@ replaceOnce(
     '\t\t}',
     '\t}',
     '\tif identityType == identity.IdentityTypeAgent && workloadID != "" {',
+    '\t\tidentityID = workloadID',
     '\t\tidentityType = identity.IdentityTypeAgentInstance',
     '\t}',
     '',
