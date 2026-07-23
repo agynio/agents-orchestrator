@@ -1598,6 +1598,13 @@ jobs:
           kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=500 >&2 || true
           exit 1
 
+      - name: Checkout api
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/api
+          ref: main
+          path: api
+
       - name: Checkout llm-proxy
         uses: actions/checkout@v4
         with:
@@ -1610,20 +1617,49 @@ jobs:
         run: |-
           set -euo pipefail
           node "${GITHUB_WORKSPACE}/.github/scripts/patch-llm-proxy-agyn-wait-diagnostics.js"
-          buf generate buf.build/agynio/api \
-            --path agynio/api/llm/v1 \
-            --path agynio/api/users/v1 \
-            --path agynio/api/organizations/v1 \
-            --path agynio/api/authorization/v1 \
-            --path agynio/api/metering/v1 \
-            --path agynio/api/ziti_management/v1 \
-            --path agynio/api/identity/v1
+          protoc_bin="${RUNNER_TEMP}/llm-proxy-protoc-gen"
+          proto_input="${GITHUB_WORKSPACE}/api/proto"
+          proto_template="${RUNNER_TEMP}/llm-proxy-local-buf.gen.yaml"
+          mkdir -p "${protoc_bin}"
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.0
+          cat >"${proto_template}" <<'EOF'
+          version: v2
+          managed:
+            enabled: true
+            override:
+              - file_option: go_package_prefix
+                value: github.com/agynio/llm-proxy/.gen/go
+          plugins:
+            - local: protoc-gen-go
+              out: .gen/go
+              opt:
+                - paths=source_relative
+            - local: protoc-gen-go-grpc
+              out: .gen/go
+              opt:
+                - paths=source_relative
+                - require_unimplemented_servers=false
+          EOF
+          PATH="${protoc_bin}:${PATH}" buf generate "${proto_input}" \
+            --path "${proto_input}/agynio/api/llm/v1" \
+            --path "${proto_input}/agynio/api/users/v1" \
+            --path "${proto_input}/agynio/api/organizations/v1" \
+            --path "${proto_input}/agynio/api/authorization/v1" \
+            --path "${proto_input}/agynio/api/metering/v1" \
+            --path "${proto_input}/agynio/api/ziti_management/v1" \
+            --path "${proto_input}/agynio/api/identity/v1" \
+            --template "${proto_template}"
           gofmt -w internal/proxy/handler.go
           CGO_ENABLED=0 go test ./cmd/llm-proxy ./internal/proxy
           node <<'NODE'
           const fs = require('fs');
           const path = 'devspace.yaml';
           let text = fs.readFileSync(path, 'utf8');
+          text = text
+            .split('\n')
+            .filter((line) => line.trim() !== '- /.gen/')
+            .join('\n');
 
           const resolveBlockMarker = 'Resolving llm-proxy deployment before source patch...';
           if (!text.includes(resolveBlockMarker)) {
@@ -1714,16 +1750,12 @@ jobs:
             '                      [ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for ${source_file}" >&2; find /opt/app/data -maxdepth 3 -type f | sort >&2 || true; exit 1; }',
             '                    done',
             '                  done',
-            '                  echo "llm-proxy source files synced; generating api..."',
-            '                  buf generate buf.build/agynio/api \\',
-            '                    --path agynio/api/llm/v1 \\',
-            '                    --path agynio/api/users/v1 \\',
-            '                    --path agynio/api/organizations/v1 \\',
-            '                    --path agynio/api/authorization/v1 \\',
-            '                    --path agynio/api/metering/v1 \\',
-            '                    --path agynio/api/ziti_management/v1 \\',
-            '                    --path agynio/api/identity/v1',
-            '                  echo "llm-proxy api generated; starting source server..."',
+            '                  while [ ! -f /opt/app/data/.gen/go/agynio/api/llm/v1/llm.pb.go ]; do',
+            '                    sleep 1',
+            '                    elapsed=$(( $(date +%s) - start ))',
+            '                    [ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for generated api" >&2; find /opt/app/data/.gen -maxdepth 5 -type f | sort >&2 || true; exit 1; }',
+            '                  done',
+            '                  echo "llm-proxy generated api synced; starting source server..."',
             '                  exec go run ./cmd/llm-proxy',
           ].join('\n');
           if (text.includes(commandOriginal)) {
@@ -1870,13 +1902,6 @@ jobs:
           text = text.replace(modelOriginal, modelReplacement);
           fs.writeFileSync(path, text);
           NODE
-
-      - name: Checkout api
-        uses: actions/checkout@v4
-        with:
-          repository: agynio/api
-          ref: main
-          path: api
 
       - name: Checkout OpenTelemetry proto
         uses: actions/checkout@v4
