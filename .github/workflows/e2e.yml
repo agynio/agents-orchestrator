@@ -1671,6 +1671,67 @@ jobs:
             throw new Error('llm-proxy strategic patch target not found');
           }
 
+          const probeMarker = '              livenessProbe: null';
+          if (!text.includes(probeMarker)) {
+            const workingDir = '              workingDir: /opt/app/data';
+            if (!text.includes(workingDir)) {
+              throw new Error('llm-proxy DevSpace workingDir not found');
+            }
+            text = text.replace(workingDir, [
+              '              readinessProbe: null',
+              '              livenessProbe: null',
+              '              startupProbe: null',
+              workingDir,
+            ].join('\n'));
+          }
+
+          const commandOriginal = [
+            '                  set -eu',
+            '                  elapsed=0',
+            '                  while [ ! -f /opt/app/data/go.mod ]; do',
+            '                    sleep 1; elapsed=$((elapsed + 1))',
+            '                    [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }',
+            '                  done',
+            '                  buf generate buf.build/agynio/api \\',
+            '                    --path agynio/api/llm/v1 \\',
+            '                    --path agynio/api/users/v1 \\',
+            '                    --path agynio/api/organizations/v1 \\',
+            '                    --path agynio/api/authorization/v1 \\',
+            '                    --path agynio/api/metering/v1 \\',
+            '                    --path agynio/api/ziti_management/v1 \\',
+            '                    --path agynio/api/identity/v1',
+            '                  exec go run ./cmd/llm-proxy',
+          ].join('\n');
+          const commandReplacement = [
+            '                  set -eu',
+            '                  echo "llm-proxy source container waiting for DevSpace sync..."',
+            '                  start=$(date +%s)',
+            '                  required_files="go.mod go.sum buf.gen.yaml buf.yaml cmd/llm-proxy/main.go internal/config/config.go internal/proxy/handler.go"',
+            '                  for source_file in ${required_files}; do',
+            '                    while [ ! -f "/opt/app/data/${source_file}" ]; do',
+            '                      sleep 1',
+            '                      elapsed=$(( $(date +%s) - start ))',
+            '                      [ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for ${source_file}" >&2; find /opt/app/data -maxdepth 3 -type f | sort >&2 || true; exit 1; }',
+            '                    done',
+            '                  done',
+            '                  echo "llm-proxy source files synced; generating api..."',
+            '                  buf generate buf.build/agynio/api \\',
+            '                    --path agynio/api/llm/v1 \\',
+            '                    --path agynio/api/users/v1 \\',
+            '                    --path agynio/api/organizations/v1 \\',
+            '                    --path agynio/api/authorization/v1 \\',
+            '                    --path agynio/api/metering/v1 \\',
+            '                    --path agynio/api/ziti_management/v1 \\',
+            '                    --path agynio/api/identity/v1',
+            '                  echo "llm-proxy api generated; starting source server..."',
+            '                  exec go run ./cmd/llm-proxy',
+          ].join('\n');
+          if (text.includes(commandOriginal)) {
+            text = text.replace(commandOriginal, commandReplacement);
+          } else if (!text.includes(commandReplacement)) {
+            throw new Error('llm-proxy DevSpace startup command not found');
+          }
+
           const rolloutNeedle = [
             '    )"',
             '  patch_agents_orchestrator: |-',
