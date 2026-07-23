@@ -162,11 +162,11 @@ functions:
                 # near 100Mi. Keeping them low lets several services run from
                 # source on one node; the limits still allow a full build.
                 requests:
-                  cpu: 100m
+                  cpu: 10m
                   memory: 256Mi
                 limits:
-                  cpu: "2"
-                  memory: 4Gi
+                  cpu: "1"
+                  memory: 2Gi
               securityContext:
                 runAsNonRoot: true
                 runAsUser: 1000
