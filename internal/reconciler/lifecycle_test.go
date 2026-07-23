@@ -1653,6 +1653,7 @@ type fakeRunnersClient struct {
 	updateWorkloadStatus  func(context.Context, *runnersv1.UpdateWorkloadStatusRequest, ...grpc.CallOption) (*runnersv1.UpdateWorkloadStatusResponse, error)
 	updateVolume          func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error)
 	batchUpdateVolume     func(context.Context, *runnersv1.BatchUpdateVolumeSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateVolumeSampledAtResponse, error)
+	getVolume             func(context.Context, *runnersv1.GetVolumeRequest, ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error)
 	streamWorkloadLogs    func(context.Context, *runnerv1.StreamWorkloadLogsRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[runnerv1.StreamWorkloadLogsResponse], error)
 }
 
@@ -1736,7 +1737,10 @@ func (f *fakeRunnersClient) GetWorkload(context.Context, *runnersv1.GetWorkloadR
 	return nil, errNotImplemented
 }
 
-func (f *fakeRunnersClient) GetVolume(context.Context, *runnersv1.GetVolumeRequest, ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
+func (f *fakeRunnersClient) GetVolume(ctx context.Context, req *runnersv1.GetVolumeRequest, opts ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
+	if f.getVolume != nil {
+		return f.getVolume(ctx, req, opts...)
+	}
 	return nil, errNotImplemented
 }
 

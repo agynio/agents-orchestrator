@@ -6,6 +6,8 @@ import (
 	"time"
 
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -103,32 +105,43 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 			AgentClassId:   stringPtr(target.AgentID.String()),
 		}
 		if _, err := r.runners.CreateVolume(runnersContext(ctx), req); err != nil {
-			return created, err
+			if status.Code(err) != codes.AlreadyExists {
+				return created, err
+			}
+			if err := r.prepareExistingVolumeRecord(ctx, req); err != nil {
+				return created, err
+			}
+			continue
 		}
 		created = append(created, record)
 	}
 	return created, nil
 }
 
-func (r *Reconciler) markVolumeRecordsFailed(ctx context.Context, records []volumeRecord) {
-	if len(records) == 0 {
-		return
+func (r *Reconciler) prepareExistingVolumeRecord(ctx context.Context, req *runnersv1.CreateVolumeRequest) error {
+	resp, err := r.runners.GetVolume(runnersContext(ctx), &runnersv1.GetVolumeRequest{Id: req.GetId()})
+	if err != nil {
+		return err
 	}
-	status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-	removedAt := timestamppb.New(time.Now().UTC())
-	for _, record := range records {
-		if record.id == "" {
-			log.Printf("reconciler: volume record missing id")
-			continue
-		}
-		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
-			Id:        record.id,
-			Status:    &status,
-			RemovedAt: removedAt,
-		})
-		if err != nil {
-			log.Printf("reconciler: update volume %s to failed: %v", record.id, err)
-		}
+	volume := resp.GetVolume()
+	if volume == nil {
+		return ErrInvalidVolumeRecord
+	}
+	if volume.GetThreadId() != req.GetThreadId() ||
+		volume.GetAgentId() != req.GetAgentId() ||
+		volume.GetRunnerId() != req.GetRunnerId() ||
+		volume.GetVolumeId() != req.GetVolumeId() ||
+		volume.GetOrganizationId() != req.GetOrganizationId() ||
+		volume.GetOwnerKind() != req.GetOwnerKind() ||
+		volume.GetOwnerId() != req.GetOwnerId() {
+		return ErrInvalidVolumeRecord
+	}
+	switch volume.GetStatus() {
+	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
+		runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
+		return nil
+	default:
+		return ErrInvalidVolumeRecord
 	}
 }
 

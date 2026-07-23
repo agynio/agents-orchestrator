@@ -7,7 +7,6 @@ import (
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
-	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -33,7 +32,7 @@ func buildVolumeRecords(volumes []assembler.PersistentVolumeInfo) ([]volumeRecor
 		if err != nil {
 			return nil, fmt.Errorf("volume %s: %w", info.ID.String(), err)
 		}
-		recordID := uuid.NewString()
+		recordID := info.Key()
 		if info.Spec.Labels == nil {
 			info.Spec.Labels = map[string]string{}
 		}

@@ -158,15 +158,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
-				for volumeID, volume := range trackedVolumes {
-					volumeCtx, err := runnerIdentityContext(ctx, volume.GetAgentId())
-					if err != nil {
-						return err
-					}
-					if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
-						log.Printf("reconciler: warn: handle missing volume %s after runner dial failure: %v", volumeID, err)
-					}
-				}
+				log.Printf("reconciler: warn: runner %s unavailable during volume reconciliation", runnerID)
 				continue
 			}
 			log.Printf("reconciler: warn: dial runner %s for volume reconciliation: %v", runnerID, err)
@@ -175,15 +167,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		resp, err := runnerClient.ListVolumes(runnerCtx, &runnerv1.ListVolumesRequest{})
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
-				for volumeID, volume := range trackedVolumes {
-					volumeCtx, err := runnerIdentityContext(ctx, volume.GetAgentId())
-					if err != nil {
-						return err
-					}
-					if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
-						log.Printf("reconciler: warn: handle missing volume %s after runner list failure: %v", volumeID, err)
-					}
-				}
+				log.Printf("reconciler: warn: runner %s unavailable while listing volumes", runnerID)
 				continue
 			}
 			log.Printf("reconciler: warn: list volumes for runner %s: %v", runnerID, err)
@@ -318,12 +302,7 @@ func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runn
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING:
 		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
-		status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
-			Id:     volumeID,
-			Status: &status,
-		})
-		return err
+		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
 		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
