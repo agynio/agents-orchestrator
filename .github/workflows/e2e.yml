@@ -130,7 +130,7 @@ jobs:
           cat >"${build_context}/agyn-wrapper" <<'EOF'
           #!/usr/bin/env sh
           set -eu
-          if [ -z "${AGYN_IDENTITY_ID:-}" ] && [ -n "${AGENT_INSTANCE_ID:-}" ]; then
+          if [ -n "${AGENT_INSTANCE_ID:-}" ]; then
             export AGYN_IDENTITY_ID="${AGENT_INSTANCE_ID}"
           fi
           stdout_file="$(mktemp)"
