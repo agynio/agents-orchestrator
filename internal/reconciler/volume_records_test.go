@@ -16,13 +16,13 @@ import (
 )
 
 func TestBuildVolumeRecordsUsesStablePersistentKey(t *testing.T) {
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	volumeID := uuid.New()
 	info := assembler.PersistentVolumeInfo{
-		ID:     volumeID,
-		Thread: threadID,
-		Volume: &agentsv1.Volume{Size: "1Gi"},
-		Spec:   &runnerv1.VolumeSpec{},
+		ID:              volumeID,
+		AgentInstanceID: agentInstanceID,
+		Volume:          &agentsv1.Volume{Size: "1Gi"},
+		Spec:            &runnerv1.VolumeSpec{},
 	}
 
 	first, err := buildVolumeRecords([]assembler.PersistentVolumeInfo{info})
@@ -34,7 +34,7 @@ func TestBuildVolumeRecordsUsesStablePersistentKey(t *testing.T) {
 		t.Fatalf("build volume records again: %v", err)
 	}
 
-	expectedKey := uuid.NewSHA1(uuid.NameSpaceOID, []byte(threadID.String()+":"+volumeID.String())).String()
+	expectedKey := uuid.NewSHA1(uuid.NameSpaceOID, []byte(agentInstanceID.String()+":"+volumeID.String())).String()
 	if len(first) != 1 || first[0].id != expectedKey {
 		t.Fatalf("expected first key %q, got %v", expectedKey, first)
 	}
@@ -49,7 +49,7 @@ func TestBuildVolumeRecordsUsesStablePersistentKey(t *testing.T) {
 func TestCreateVolumeRecordsReusesExistingActiveRecord(t *testing.T) {
 	ctx := context.Background()
 	recordID := uuid.NewString()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	agentID := uuid.New()
 	runnerID := "runner-1"
 	organizationID := uuid.NewString()
@@ -65,14 +65,14 @@ func TestCreateVolumeRecordsReusesExistingActiveRecord(t *testing.T) {
 			}
 			return &runnersv1.GetVolumeResponse{Volume: &runnersv1.Volume{
 				Meta:           &runnersv1.EntityMeta{Id: recordID},
-				ThreadId:       threadID.String(),
+				ThreadId:       agentInstanceID.String(),
 				AgentId:        agentID.String(),
 				RunnerId:       runnerID,
 				VolumeId:       volumeID,
 				OrganizationId: organizationID,
 				Status:         runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
 				OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
-				OwnerId:        threadID.String(),
+				OwnerId:        agentInstanceID.String(),
 			}}, nil
 		},
 		updateVolume: func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
@@ -82,7 +82,7 @@ func TestCreateVolumeRecordsReusesExistingActiveRecord(t *testing.T) {
 	}
 	reconciler := &Reconciler{runners: runners}
 
-	created, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, runnerID, AgentThread{AgentID: agentID, ThreadID: threadID}, organizationID)
+	created, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, runnerID, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID, ThreadID: agentInstanceID}, organizationID)
 	if err != nil {
 		t.Fatalf("create volume records: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestCreateVolumeRecordsReusesExistingActiveRecord(t *testing.T) {
 func TestCreateVolumeRecordsUsesSingleProvisioningRecordAcrossReruns(t *testing.T) {
 	ctx := context.Background()
 	recordID := uuid.NewString()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	agentID := uuid.New()
 	runnerID := "runner-1"
 	organizationID := uuid.NewString()
@@ -137,7 +137,7 @@ func TestCreateVolumeRecordsUsesSingleProvisioningRecordAcrossReruns(t *testing.
 		},
 	}
 	reconciler := &Reconciler{runners: runners}
-	target := AgentThread{AgentID: agentID, ThreadID: threadID}
+	target := AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID, ThreadID: agentInstanceID}
 	records := []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}
 
 	firstCreated, err := reconciler.createVolumeRecords(ctx, records, runnerID, target, organizationID)
@@ -169,7 +169,7 @@ func TestCreateVolumeRecordsUsesSingleProvisioningRecordAcrossReruns(t *testing.
 func TestCreateVolumeRecordsDoesNotReactivateFailedRecord(t *testing.T) {
 	ctx := context.Background()
 	recordID := uuid.NewString()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	agentID := uuid.New()
 	runnerID := "runner-1"
 	organizationID := uuid.NewString()
@@ -182,14 +182,14 @@ func TestCreateVolumeRecordsDoesNotReactivateFailedRecord(t *testing.T) {
 		getVolume: func(context.Context, *runnersv1.GetVolumeRequest, ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
 			return &runnersv1.GetVolumeResponse{Volume: &runnersv1.Volume{
 				Meta:           &runnersv1.EntityMeta{Id: recordID},
-				ThreadId:       threadID.String(),
+				ThreadId:       agentInstanceID.String(),
 				AgentId:        agentID.String(),
 				RunnerId:       runnerID,
 				VolumeId:       volumeID,
 				OrganizationId: organizationID,
 				Status:         runnersv1.VolumeStatus_VOLUME_STATUS_FAILED,
 				OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
-				OwnerId:        threadID.String(),
+				OwnerId:        agentInstanceID.String(),
 			}}, nil
 		},
 		updateVolume: func(context.Context, *runnersv1.UpdateVolumeRequest, ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
@@ -199,7 +199,7 @@ func TestCreateVolumeRecordsDoesNotReactivateFailedRecord(t *testing.T) {
 	}
 	reconciler := &Reconciler{runners: runners}
 
-	_, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, runnerID, AgentThread{AgentID: agentID, ThreadID: threadID}, organizationID)
+	_, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, runnerID, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID, ThreadID: agentInstanceID}, organizationID)
 	if err == nil {
 		t.Fatal("expected terminal existing record to fail")
 	}
@@ -211,7 +211,7 @@ func TestCreateVolumeRecordsDoesNotReactivateFailedRecord(t *testing.T) {
 func TestCreateVolumeRecordsDoesNotFailRecordOnCreateError(t *testing.T) {
 	ctx := context.Background()
 	recordID := uuid.NewString()
-	threadID := uuid.New()
+	agentInstanceID := uuid.New()
 	agentID := uuid.New()
 	volumeID := uuid.NewString()
 	var updateCount int
@@ -226,7 +226,7 @@ func TestCreateVolumeRecordsDoesNotFailRecordOnCreateError(t *testing.T) {
 	}
 	reconciler := &Reconciler{runners: runners}
 
-	_, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, "runner-1", AgentThread{AgentID: agentID, ThreadID: threadID}, uuid.NewString())
+	_, err := reconciler.createVolumeRecords(ctx, []volumeRecord{{id: recordID, volumeID: volumeID, sizeGB: "1"}}, "runner-1", AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID, ThreadID: agentInstanceID}, uuid.NewString())
 	if err == nil {
 		t.Fatal("expected create error")
 	}
@@ -238,7 +238,7 @@ func TestCreateVolumeRecordsDoesNotFailRecordOnCreateError(t *testing.T) {
 func TestPrepareExistingVolumeRecordRejectsFailedRecord(t *testing.T) {
 	ctx := context.Background()
 	recordID := uuid.NewString()
-	threadID := uuid.NewString()
+	agentInstanceID := uuid.NewString()
 	agentID := uuid.NewString()
 	runnerID := "runner-1"
 	organizationID := uuid.NewString()
@@ -250,27 +250,27 @@ func TestPrepareExistingVolumeRecordRejectsFailedRecord(t *testing.T) {
 			}
 			return &runnersv1.GetVolumeResponse{Volume: &runnersv1.Volume{
 				Meta:           &runnersv1.EntityMeta{Id: recordID},
-				ThreadId:       threadID,
+				ThreadId:       agentInstanceID,
 				AgentId:        agentID,
 				RunnerId:       runnerID,
 				VolumeId:       volumeID,
 				OrganizationId: organizationID,
 				Status:         runnersv1.VolumeStatus_VOLUME_STATUS_FAILED,
 				OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
-				OwnerId:        threadID,
+				OwnerId:        agentInstanceID,
 			}}, nil
 		},
 	}
 	reconciler := &Reconciler{runners: runners}
 	req := &runnersv1.CreateVolumeRequest{
 		Id:             recordID,
-		ThreadId:       threadID,
+		ThreadId:       agentInstanceID,
 		AgentId:        agentID,
 		RunnerId:       runnerID,
 		VolumeId:       volumeID,
 		OrganizationId: organizationID,
 		OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
-		OwnerId:        threadID,
+		OwnerId:        agentInstanceID,
 	}
 
 	if err := reconciler.prepareExistingVolumeRecord(ctx, req); err == nil {
@@ -281,7 +281,7 @@ func TestPrepareExistingVolumeRecordRejectsFailedRecord(t *testing.T) {
 func TestPrepareExistingVolumeRecordRejectsConflictingRecord(t *testing.T) {
 	ctx := context.Background()
 	recordID := uuid.NewString()
-	threadID := uuid.NewString()
+	agentInstanceID := uuid.NewString()
 	runners := &fakeRunnersClient{
 		getVolume: func(context.Context, *runnersv1.GetVolumeRequest, ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
 			return &runnersv1.GetVolumeResponse{Volume: &runnersv1.Volume{
@@ -293,20 +293,20 @@ func TestPrepareExistingVolumeRecordRejectsConflictingRecord(t *testing.T) {
 				OrganizationId: uuid.NewString(),
 				Status:         runnersv1.VolumeStatus_VOLUME_STATUS_FAILED,
 				OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
-				OwnerId:        threadID,
+				OwnerId:        agentInstanceID,
 			}}, nil
 		},
 	}
 	reconciler := &Reconciler{runners: runners}
 	req := &runnersv1.CreateVolumeRequest{
 		Id:             recordID,
-		ThreadId:       threadID,
+		ThreadId:       agentInstanceID,
 		AgentId:        uuid.NewString(),
 		RunnerId:       "runner-1",
 		VolumeId:       uuid.NewString(),
 		OrganizationId: uuid.NewString(),
 		OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
-		OwnerId:        threadID,
+		OwnerId:        agentInstanceID,
 	}
 
 	if err := reconciler.prepareExistingVolumeRecord(ctx, req); err == nil {

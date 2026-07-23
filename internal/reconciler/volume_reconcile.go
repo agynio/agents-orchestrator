@@ -336,12 +336,7 @@ func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runn
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING:
 		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
-		status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
-			Id:     volumeID,
-			Status: &status,
-		})
-		return err
+		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
 		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{

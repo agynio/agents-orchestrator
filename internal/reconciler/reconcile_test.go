@@ -1306,16 +1306,16 @@ func TestReconcileVolumesTTLExpires(t *testing.T) {
 func TestReconcileVolumesKeepsReusedPersistentVolume(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
-	threadID := uuid.New().String()
+	agentInstanceID := uuid.New().String()
 	volumeID := uuid.New().String()
-	volumeKey := uuid.NewSHA1(uuid.NameSpaceOID, []byte(threadID+":"+volumeID)).String()
-	instanceID := "pv-" + threadID[:12] + "-" + volumeID[:12]
+	volumeKey := uuid.NewSHA1(uuid.NameSpaceOID, []byte(agentInstanceID+":"+volumeID)).String()
+	instanceID := "pv-" + agentInstanceID[:12] + "-" + volumeID[:12]
 
 	var updateReq *runnersv1.UpdateVolumeRequest
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
-				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: threadID, VolumeId: volumeID},
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(agentInstanceID), OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: agentInstanceID, VolumeId: volumeID},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {

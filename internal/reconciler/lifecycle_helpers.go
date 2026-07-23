@@ -54,6 +54,27 @@ func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, 
 	}
 }
 
+func (r *Reconciler) markVolumeRecordsFailed(ctx context.Context, records []volumeRecord) {
+	if len(records) == 0 {
+		return
+	}
+	status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
+	removedAt := timestamppb.New(time.Now().UTC())
+	for _, record := range records {
+		if record.id == "" {
+			continue
+		}
+		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
+			Id:        record.id,
+			Status:    &status,
+			RemovedAt: removedAt,
+		})
+		if err != nil {
+			log.Printf("reconciler: update volume %s to failed: %v", record.id, err)
+		}
+	}
+}
+
 func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runnerID string, target AgentInstanceTarget, assembled *assembler.AssembleResult, zitiIdentityID *string) error {
 	status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING
 	zitiIdentityValue := ""
