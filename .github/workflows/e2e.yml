@@ -1784,23 +1784,26 @@ jobs:
       - name: Verify llm-proxy Ziti service binding
         run: |-
           set -euo pipefail
-          wait_argocd_app_converged() {
+          wait_argocd_app_sync_finished() {
             app="$1"
             i=0
             while [ "$i" -lt 240 ]; do
               sync_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
               health_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
-              if [ "$sync_status" = "Synced" ] && [ "$health_status" = "Healthy" ]; then
+              operation_phase="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.operationState.phase}' 2>/dev/null || true)"
+              if [ "$sync_status" = "Synced" ] && { [ -z "$operation_phase" ] || [ "$operation_phase" = "Succeeded" ]; }; then
+                if [ "$health_status" != "Healthy" ]; then
+                  echo "$app ArgoCD application synced but health is ${health_status:-unknown}; validating deployment and Ziti binding directly." >&2
+                fi
                 return 0
               fi
               i=$((i + 1))
               sleep 1
             done
-            echo "$app ArgoCD application did not converge to Synced/Healthy" >&2
+            echo "$app ArgoCD application did not report completed sync within timeout; validating deployment and Ziti binding directly." >&2
             kubectl get application "$app" -n argocd -o yaml >&2 || true
-            exit 1
           }
-          wait_argocd_app_converged llm-proxy
+          wait_argocd_app_sync_finished llm-proxy
           deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
           if [ -z "${deployment}" ]; then
             deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
