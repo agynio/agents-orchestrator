@@ -70,7 +70,6 @@ replaceOnce(
     '\t\t}',
     '\t}',
     '\tif identityType == identity.IdentityTypeAgent && workloadID != "" {',
-    '\t\tidentityID = workloadID',
     '\t\tidentityType = identity.IdentityTypeAgentInstance',
     '\t}',
     '',
@@ -135,6 +134,78 @@ replaceOnce(
     '}',
   ].join('\n'),
 );
+
+const zitiClientTestPath = 'internal/zitimgmtclient/client_test.go';
+if (!fs.existsSync(zitiClientTestPath)) {
+  fs.writeFileSync(zitiClientTestPath, `package zitimgmtclient
+
+import (
+	"context"
+	"net"
+	"testing"
+
+	"github.com/agynio/gateway/internal/identity"
+	identityv1 "github.com/agynio/gateway/gen/agynio/api/identity/v1"
+	zitimgmtv1 "github.com/agynio/gateway/gen/agynio/api/ziti_management/v1"
+	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
+)
+
+func TestResolveIdentityMapsAgentWorkloadToAgentInstanceCaller(t *testing.T) {
+	agentInstanceID := uuid.NewString()
+	workloadID := uuid.NewString()
+	server := grpc.NewServer()
+	zitimgmtv1.RegisterZitiManagementServiceServer(server, &resolveIdentityServer{
+		response: &zitimgmtv1.ResolveIdentityResponse{
+			IdentityId:   agentInstanceID,
+			IdentityType: identityv1.IdentityType_IDENTITY_TYPE_AGENT,
+			WorkloadId:   &workloadID,
+		},
+	})
+	listener := bufconn.Listen(1024 * 1024)
+	go func() {
+		if err := server.Serve(listener); err != nil {
+			t.Errorf("serve ziti management: %v", err)
+		}
+	}()
+	defer server.Stop()
+
+	conn, err := grpc.NewClient("passthrough:///bufnet", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+		return listener.Dial()
+	}), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dial ziti management: %v", err)
+	}
+	defer conn.Close()
+
+	client := &Client{conn: conn, client: zitimgmtv1.NewZitiManagementServiceClient(conn)}
+	resolved, err := client.ResolveIdentity(context.Background(), "ziti-identity")
+	if err != nil {
+		t.Fatalf("ResolveIdentity failed: %v", err)
+	}
+	if resolved.IdentityID != agentInstanceID {
+		t.Fatalf("expected identity id %s, got %s", agentInstanceID, resolved.IdentityID)
+	}
+	if resolved.IdentityType != identity.IdentityTypeAgentInstance {
+		t.Fatalf("expected identity type %s, got %s", identity.IdentityTypeAgentInstance, resolved.IdentityType)
+	}
+	if resolved.WorkloadID != workloadID {
+		t.Fatalf("expected workload id %s, got %s", workloadID, resolved.WorkloadID)
+	}
+}
+
+type resolveIdentityServer struct {
+	zitimgmtv1.UnimplementedZitiManagementServiceServer
+	response *zitimgmtv1.ResolveIdentityResponse
+}
+
+func (s *resolveIdentityServer) ResolveIdentity(context.Context, *zitimgmtv1.ResolveIdentityRequest) (*zitimgmtv1.ResolveIdentityResponse, error) {
+	return s.response, nil
+}
+`);
+}
 
 replaceOnce(
   'cmd/gateway/main.go',
