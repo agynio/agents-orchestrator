@@ -855,7 +855,7 @@ jobs:
           NODE
           node "${GITHUB_WORKSPACE}/.github/scripts/patch-threads-agent-instance-send.js"
           buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1
-          CGO_ENABLED=0 go test ./internal/server -run 'Test(CreateThreadStoresAgentInstanceForAgentClassParticipant|SendMessageAllowsAgentInstanceParticipantWhenAuthorizationLags)' -count=1
+          CGO_ENABLED=0 go test ./internal/server -run 'Test(CreateThreadStoresAgentInstanceForAgentClassParticipant|SendMessageAllowsAgentCallerForParticipantSenderWhenAuthorizationLags)' -count=1
           devspace dev
 
       - name: Verify threads source deployment

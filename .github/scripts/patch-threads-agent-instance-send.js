@@ -14,8 +14,18 @@ function replaceOnce(path, label, original, replacement) {
 
 replaceOnce(
   'internal/server/server.go',
-  'threads agent instance participant send authorization',
+  'threads agent participant send authorization',
   [
+    '\tsenderID := identityID',
+    '\tif senderValue := strings.TrimSpace(req.GetSenderId()); senderValue != "" {',
+    '\t\tsenderID, err = parseUUID(senderValue)',
+    '\t\tif err != nil {',
+    '\t\t\treturn nil, status.Errorf(codes.InvalidArgument, "sender_id: %v", err)',
+    '\t\t}',
+    '\t\tif senderID != identityID {',
+    '\t\t\treturn nil, status.Error(codes.PermissionDenied, "permission denied")',
+    '\t\t}',
+    '\t}',
     '\tif err := s.requireAllowed(ctx, identityID, "can_write", fmt.Sprintf("%s%s", threadObjectPrefix, threadID.String())); err != nil {',
     '\t\treturn nil, err',
     '\t}',
@@ -26,15 +36,25 @@ replaceOnce(
     '\t}',
   ].join('\n'),
   [
+    '\tsenderID := identityID',
     '\tthread, err := s.store.GetThread(ctx, threadID)',
     '\tif err != nil {',
     '\t\treturn nil, toStatusError(err)',
+    '\t}',
+    '\tif senderValue := strings.TrimSpace(req.GetSenderId()); senderValue != "" {',
+    '\t\tsenderID, err = parseUUID(senderValue)',
+    '\t\tif err != nil {',
+    '\t\t\treturn nil, status.Errorf(codes.InvalidArgument, "sender_id: %v", err)',
+    '\t\t}',
+    '\t\tif senderID != identityID && !agentIdentityMaySendAsParticipant(ctx, thread, senderID) {',
+    '\t\t\treturn nil, status.Error(codes.PermissionDenied, "permission denied")',
+    '\t\t}',
     '\t}',
     '\tallowed, err := s.checkAllowed(ctx, identityID, "can_write", fmt.Sprintf("%s%s", threadObjectPrefix, threadID.String()))',
     '\tif err != nil {',
     '\t\treturn nil, err',
     '\t}',
-    '\tif !allowed && !agentInstanceIsThreadParticipant(ctx, thread, identityID) {',
+    '\tif !allowed && !agentIdentityMaySendAsParticipant(ctx, thread, senderID) {',
     '\t\treturn nil, status.Error(codes.PermissionDenied, "permission denied")',
     '\t}',
   ].join('\n'),
@@ -42,17 +62,17 @@ replaceOnce(
 
 replaceOnce(
   'internal/server/server.go',
-  'threads agent instance participant helper',
+  'threads agent participant helper',
   [
     'func (s *Server) deliveryRecipients(ctx context.Context, participants []store.Participant, senderID uuid.UUID) ([]uuid.UUID, []uuid.UUID, error) {',
   ].join('\n'),
   [
-    'func agentInstanceIsThreadParticipant(ctx context.Context, thread store.Thread, identityID uuid.UUID) bool {',
-    '\tif !isAgentInstanceIdentity(ctx) {',
+    'func agentIdentityMaySendAsParticipant(ctx context.Context, thread store.Thread, senderID uuid.UUID) bool {',
+    '\tif !isAgentIdentity(ctx) {',
     '\t\treturn false',
     '\t}',
     '\tfor _, participant := range thread.Participants {',
-    '\t\tif participant.ID == identityID {',
+    '\t\tif participant.ID == senderID {',
     '\t\t\treturn true',
     '\t\t}',
     '\t}',
@@ -60,40 +80,6 @@ replaceOnce(
     '}',
     '',
     'func (s *Server) deliveryRecipients(ctx context.Context, participants []store.Participant, senderID uuid.UUID) ([]uuid.UUID, []uuid.UUID, error) {',
-  ].join('\n'),
-);
-
-replaceOnce(
-  'internal/server/server.go',
-  'threads agent instance identity helper',
-  [
-    'func isAgentIdentity(ctx context.Context) bool {',
-    '\tmd, ok := metadata.FromIncomingContext(ctx)',
-    '\tif !ok {',
-    '\t\treturn false',
-    '\t}',
-    '\tidentityType := metadataValue(md, identityTypeMetadataKey)',
-    '\treturn strings.EqualFold(identityType, agentIdentityType) || strings.EqualFold(identityType, agentInstanceIdentityType)',
-    '}',
-  ].join('\n'),
-  [
-    'func isAgentIdentity(ctx context.Context) bool {',
-    '\tmd, ok := metadata.FromIncomingContext(ctx)',
-    '\tif !ok {',
-    '\t\treturn false',
-    '\t}',
-    '\tidentityType := metadataValue(md, identityTypeMetadataKey)',
-    '\treturn strings.EqualFold(identityType, agentIdentityType) || strings.EqualFold(identityType, agentInstanceIdentityType)',
-    '}',
-    '',
-    'func isAgentInstanceIdentity(ctx context.Context) bool {',
-    '\tmd, ok := metadata.FromIncomingContext(ctx)',
-    '\tif !ok {',
-    '\t\treturn false',
-    '\t}',
-    '\tidentityType := metadataValue(md, identityTypeMetadataKey)',
-    '\treturn strings.EqualFold(identityType, agentInstanceIdentityType)',
-    '}',
   ].join('\n'),
 );
 
@@ -128,16 +114,17 @@ replaceOnce(
 
 const testPath = 'internal/server/server_test.go';
 let testText = fs.readFileSync(testPath, 'utf8');
-if (!testText.includes('func TestSendMessageAllowsAgentInstanceParticipantWhenAuthorizationLags(')) {
+if (!testText.includes('func TestSendMessageAllowsAgentCallerForParticipantSenderWhenAuthorizationLags(')) {
   const marker = 'func TestSendMessageRecordsUsageWithThreadOrganization(t *testing.T) {';
   if (!testText.includes(marker)) {
     throw new Error('threads send usage test marker not found');
   }
   const addition = [
-    'func TestSendMessageAllowsAgentInstanceParticipantWhenAuthorizationLags(t *testing.T) {',
+    'func TestSendMessageAllowsAgentCallerForParticipantSenderWhenAuthorizationLags(t *testing.T) {',
     '\tthreadID := uuid.New()',
     '\tmessageID := uuid.New()',
     '\tidentityID := uuid.New()',
+    '\tsenderID := uuid.New()',
     '\trecipientID := uuid.New()',
     '\tnow := time.Now().UTC()',
     '\tstoreCalled := false',
@@ -149,7 +136,7 @@ if (!testText.includes('func TestSendMessageAllowsAgentInstanceParticipantWhenAu
     '\t\t\t\tt.Fatalf("expected thread %s, got %s", threadID, id)',
     '\t\t\t}',
     '\t\t\treturn store.Thread{ID: threadID, Participants: []store.Participant{',
-    '\t\t\t\t{ID: identityID, JoinedAt: now, Passive: false},',
+    '\t\t\t\t{ID: senderID, JoinedAt: now, Passive: false},',
     '\t\t\t\t{ID: recipientID, JoinedAt: now, Passive: false},',
     '\t\t\t}}, nil',
     '\t\t},',
@@ -158,10 +145,10 @@ if (!testText.includes('func TestSendMessageAllowsAgentInstanceParticipantWhenAu
     '\t\t\tif threadArg != threadID {',
     '\t\t\t\tt.Fatalf("expected thread %s, got %s", threadID, threadArg)',
     '\t\t\t}',
-    '\t\t\tif senderArg != identityID {',
-    '\t\t\t\tt.Fatalf("expected sender %s, got %s", identityID, senderArg)',
+    '\t\t\tif senderArg != senderID {',
+    '\t\t\t\tt.Fatalf("expected sender %s, got %s", senderID, senderArg)',
     '\t\t\t}',
-    '\t\t\treturn store.SendMessageResult{Message: store.Message{ID: messageID, ThreadID: threadID, SenderID: identityID, Body: body, CreatedAt: now}}, nil',
+    '\t\t\treturn store.SendMessageResult{Message: store.Message{ID: messageID, ThreadID: threadID, SenderID: senderID, Body: body, CreatedAt: now}}, nil',
     '\t\t},',
     '\t}',
     '\tauthStub := &stubAuthorizationService{',
@@ -174,9 +161,9 @@ if (!testText.includes('func TestSendMessageAllowsAgentInstanceParticipantWhenAu
     '\tsrv := New(storeStub, &stubNotifier{t: t}, authStub, &stubIdentityResolver{t: t}, nil, nil)',
     '\tctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(',
     '\t\t"x-identity-id", identityID.String(),',
-    '\t\t"x-identity-type", agentInstanceIdentityType,',
+    '\t\t"x-identity-type", agentIdentityType,',
     '\t))',
-    '\t_, err := srv.SendMessage(ctx, &threadsv1.SendMessageRequest{ThreadId: threadID.String(), SenderId: identityID.String(), Body: "hi"})',
+    '\t_, err := srv.SendMessage(ctx, &threadsv1.SendMessageRequest{ThreadId: threadID.String(), SenderId: senderID.String(), Body: "hi"})',
     '\tif err != nil {',
     '\t\tt.Fatalf("SendMessage returned error: %v", err)',
     '\t}',
