@@ -25,6 +25,7 @@ type FakeAgentsClient struct {
 	ListHooksFunc                      func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error)
 	GetVolumeFunc                      func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
 	ListSandboxesFunc                  func(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
+	UpdateSandboxRuntimeStateFunc      func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)
 }
 
 func (f *FakeAgentsClient) CreateAgent(context.Context, *agentsv1.CreateAgentRequest, ...grpc.CallOption) (*agentsv1.CreateAgentResponse, error) {
@@ -359,6 +360,13 @@ func (f *FakeAgentsClient) ListSandboxes(ctx context.Context, req *agentsv1.List
 		return f.ListSandboxesFunc(ctx, req, opts...)
 	}
 	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) UpdateSandboxRuntimeState(ctx context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, opts ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+	if f.UpdateSandboxRuntimeStateFunc != nil {
+		return f.UpdateSandboxRuntimeStateFunc(ctx, req, opts...)
+	}
+	return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
 }
 
 func (f *FakeAgentsClient) DeleteSandbox(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {

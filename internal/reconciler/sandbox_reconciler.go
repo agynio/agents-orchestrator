@@ -111,7 +111,7 @@ func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.San
 	switch sandbox.GetStatus() {
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_STARTING:
 		if plan.activeWorkload == nil {
-			return r.startSandboxWorkload(ctx, plan)
+			return r.startSandboxWorkloadAttempt(ctx, plan)
 		}
 		if err := r.reconcileActiveSandboxWorkload(ctx, plan); err != nil {
 			return err
@@ -119,28 +119,51 @@ func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.San
 		return nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING:
 		if plan.activeWorkload == nil {
-			return r.startSandboxWorkload(ctx, plan)
+			if plan.sandbox.WorkloadId != nil {
+				return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
+			}
+			return r.startSandboxWorkloadAttempt(ctx, plan)
 		}
 		if err := r.reconcileActiveSandboxWorkload(ctx, plan); err != nil {
 			return err
 		}
 		if sandboxIdle(sandbox, plan.activeWorkload, now) {
-			return r.stopSandboxWorkload(ctx, plan.activeWorkload)
+			if err := r.stopSandboxWorkload(ctx, plan.activeWorkload); err != nil {
+				return err
+			}
+			return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
 		}
 		return nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED:
 		if plan.activeWorkload != nil && sandboxIdle(sandbox, plan.activeWorkload, now) {
-			return r.stopSandboxWorkload(ctx, plan.activeWorkload)
+			if err := r.stopSandboxWorkload(ctx, plan.activeWorkload); err != nil {
+				return err
+			}
+			return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
+		}
+		if plan.activeWorkload == nil && plan.sandbox.WorkloadId != nil {
+			return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
 		}
 		return nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED:
 		if plan.activeWorkload != nil {
-			return r.stopSandboxWorkload(ctx, plan.activeWorkload)
+			if err := r.stopSandboxWorkload(ctx, plan.activeWorkload); err != nil {
+				return err
+			}
+			return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
+		}
+		if plan.sandbox.WorkloadId != nil {
+			return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
 		}
 		return nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_TERMINATED:
 		if plan.activeWorkload != nil {
 			if err := r.stopSandboxWorkload(ctx, plan.activeWorkload); err != nil {
+				return err
+			}
+		}
+		if plan.sandbox.WorkloadId != nil {
+			if err := r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_TERMINATED, "", true); err != nil {
 				return err
 			}
 		}
@@ -262,10 +285,30 @@ func (r *Reconciler) reconcileActiveSandboxWorkload(ctx context.Context, plan *s
 	if instanceID == "" {
 		return nil
 	}
-	return r.handlePresentRunnerWorkload(runnerCtx, runnerClient, workload, &runnerv1.WorkloadListItem{
+	if err := r.handlePresentRunnerWorkload(runnerCtx, runnerClient, workload, &runnerv1.WorkloadListItem{
 		InstanceId:  instanceID,
 		WorkloadKey: workload.GetMeta().GetId(),
-	})
+	}); err != nil {
+		return err
+	}
+	switch workload.GetStatus() {
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
+		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING, workload.GetMeta().GetId(), false)
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED:
+		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
+	default:
+		return nil
+	}
+}
+
+func (r *Reconciler) startSandboxWorkloadAttempt(ctx context.Context, plan *sandboxWorkloadPlan) error {
+	if err := r.startSandboxWorkload(ctx, plan); err != nil {
+		if updateErr := r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true); updateErr != nil {
+			return fmt.Errorf("start sandbox workload: %w; update sandbox runtime failed: %v", err, updateErr)
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWorkloadPlan) error {
@@ -350,7 +393,7 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		r.markWorkloadFailed(runnerCtx, workloadID, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, failureMessage, containers)
 		r.markSandboxWorkspaceFailed(runnerCtx, plan.workspaceVolume, workspaceVolumeID)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload failure")
-		return nil
+		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
 	}
 	if resp.GetId() != workloadID {
 		if resp.GetId() != "" {
@@ -361,7 +404,7 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		r.markWorkloadFailed(runnerCtx, workloadID, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "workload id mismatch", containers)
 		r.markSandboxWorkspaceFailed(runnerCtx, plan.workspaceVolume, workspaceVolumeID)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload id mismatch")
-		return nil
+		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
 	}
 	updateReq := &runnersv1.UpdateWorkloadRequest{
 		Id:         workloadID,
@@ -372,8 +415,61 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
 		updateReq.Status = &status
 	}
-	_, err = r.runners.UpdateWorkload(runnersContext(runnerCtx), updateReq)
-	return err
+	if _, err = r.runners.UpdateWorkload(runnersContext(runnerCtx), updateReq); err != nil {
+		return err
+	}
+	if resp.GetStatus() == runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING, workloadID, false)
+	}
+	return nil
+}
+
+func (r *Reconciler) updateSandboxRuntimeState(ctx context.Context, sandbox *agentsv1.Sandbox, status agentsv1.SandboxStatus, workloadID string, clearWorkloadID bool) error {
+	sandboxID, err := sandboxIDString(sandbox)
+	if err != nil {
+		return err
+	}
+	statusValue := status
+	req := &agentsv1.UpdateSandboxRuntimeStateRequest{Id: sandboxID, Status: &statusValue}
+	if clearWorkloadID {
+		req.WorkloadIdUpdate = &agentsv1.UpdateSandboxRuntimeStateRequest_ClearWorkloadId{ClearWorkloadId: true}
+	} else if strings.TrimSpace(workloadID) != "" {
+		req.WorkloadIdUpdate = &agentsv1.UpdateSandboxRuntimeStateRequest_WorkloadId{WorkloadId: strings.TrimSpace(workloadID)}
+	}
+	if runtimeStateAlreadyCurrent(sandbox, req) {
+		return nil
+	}
+	if _, err := r.agents.UpdateSandboxRuntimeState(ctx, req); err != nil {
+		return fmt.Errorf("update sandbox %s runtime state: %w", sandboxID, err)
+	}
+	return nil
+}
+
+func sandboxIDString(sandbox *agentsv1.Sandbox) (string, error) {
+	if sandbox == nil || sandbox.GetMeta() == nil {
+		return "", fmt.Errorf("sandbox meta missing")
+	}
+	sandboxID, err := uuidutil.ParseUUID(sandbox.GetMeta().GetId(), "sandbox.meta.id")
+	if err != nil {
+		return "", err
+	}
+	return sandboxID.String(), nil
+}
+
+func runtimeStateAlreadyCurrent(sandbox *agentsv1.Sandbox, req *agentsv1.UpdateSandboxRuntimeStateRequest) bool {
+	if sandbox.GetStatus() != req.GetStatus() {
+		return false
+	}
+	switch workloadUpdate := req.GetWorkloadIdUpdate().(type) {
+	case *agentsv1.UpdateSandboxRuntimeStateRequest_WorkloadId:
+		return sandbox.GetWorkloadId() == workloadUpdate.WorkloadId
+	case *agentsv1.UpdateSandboxRuntimeStateRequest_ClearWorkloadId:
+		return workloadUpdate.ClearWorkloadId && sandbox.WorkloadId == nil
+	case nil:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Reconciler) createSandboxWorkloadRecord(ctx context.Context, workloadID, runnerID string, assembled *assembler.SandboxAssembleResult, zitiIdentityID *string) error {
@@ -457,6 +553,9 @@ func (r *Reconciler) stopSandboxWorkload(ctx context.Context, workload *runnersv
 	}
 	if err := r.stopWorkloadWithContext(runnerCtx, workload); err != nil {
 		return err
+	}
+	if r.zitiMgmt == nil || workload.GetZitiIdentityId() == "" {
+		return nil
 	}
 	return r.deleteIdentity(ctx, workload.GetZitiIdentityId())
 }
