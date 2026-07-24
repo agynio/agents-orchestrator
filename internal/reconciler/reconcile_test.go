@@ -1530,6 +1530,7 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	var sandboxIdentityReq *zitimgmtv1.CreateSandboxIdentityRequest
 	var agentIdentityCalled bool
 	var deviceIdentityCalled bool
+	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
 	var startedWorkloadID string
 	agents := &testutil.FakeAgentsClient{
 		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
@@ -1543,6 +1544,10 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 		},
 		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
 			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+			runtimeReq = req
+			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
 		},
 	}
 	runners := &fakeRunnersClient{
@@ -1682,6 +1687,9 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	if updateWorkloadReq.GetInstanceId() != startedWorkloadID {
 		t.Fatalf("unexpected instance id: %q", updateWorkloadReq.GetInstanceId())
 	}
+	if runtimeReq == nil || runtimeReq.GetStatus() != agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING || runtimeReq.GetWorkloadId() != startedWorkloadID {
+		t.Fatalf("unexpected runtime update: %v", runtimeReq)
+	}
 }
 
 func TestReconcileSandboxPromotesStartingWorkload(t *testing.T) {
@@ -1731,8 +1739,13 @@ func TestReconcileSandboxPromotesStartingWorkload(t *testing.T) {
 	reconciler := newTestReconciler(Config{
 		RunnerDialer: runnerDialer,
 		Runners:      runners,
-		Agents:       &testutil.FakeAgentsClient{},
-		Assembler:    newTestAssembler(uuid.New(), false),
+		Agents: &testutil.FakeAgentsClient{UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+			if req.GetStatus() != agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING || req.GetWorkloadId() != workloadID {
+				return nil, errors.New("unexpected runtime update")
+			}
+			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
+		}},
+		Assembler: newTestAssembler(uuid.New(), false),
 	})
 	sandbox := &agentsv1.Sandbox{Meta: &agentsv1.EntityMeta{Id: sandboxID, CreatedAt: createdAt}, OrganizationId: testOrganizationID, OwnerId: ownerID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING}
 
@@ -1953,6 +1966,7 @@ func TestReconcileSandboxStartsFromStartingRuntimeState(t *testing.T) {
 	ownerID := uuid.NewString()
 	sandboxID := uuid.NewString()
 	flavorID := "flavor-1"
+	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
 	var startReq *runnerv1.StartWorkloadRequest
 	agents := &testutil.FakeAgentsClient{
 		GetEnvironmentFunc: func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
@@ -1963,6 +1977,10 @@ func TestReconcileSandboxStartsFromStartingRuntimeState(t *testing.T) {
 		},
 		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
 			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+			runtimeReq = req
+			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
 		},
 	}
 	runners := &fakeRunnersClient{
@@ -2011,6 +2029,9 @@ func TestReconcileSandboxStartsFromStartingRuntimeState(t *testing.T) {
 	if startReq == nil {
 		t.Fatal("expected sandbox workload start")
 	}
+	if runtimeReq == nil || runtimeReq.GetStatus() != agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING || runtimeReq.GetWorkloadId() == "" {
+		t.Fatalf("unexpected runtime update: %v", runtimeReq)
+	}
 }
 
 func TestReconcileSandboxesContinuesAfterRuntimeUpdateFailure(t *testing.T) {
@@ -2055,5 +2076,103 @@ func TestReconcileSandboxesContinuesAfterRuntimeUpdateFailure(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("expected both runtime updates, got %d", calls)
+	}
+}
+
+func TestReconcileSandboxTTLDeletesAfterClearingRuntimeWorkload(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	sandboxID := uuid.NewString()
+	workloadID := uuid.NewString()
+	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
+	deleteCalled := false
+	agents := &testutil.FakeAgentsClient{
+		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+			runtimeReq = req
+			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
+		},
+		DeleteSandboxFunc: func(_ context.Context, req *agentsv1.DeleteSandboxRequest, _ ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {
+			deleteCalled = true
+			if runtimeReq == nil {
+				return nil, errors.New("runtime state must clear before delete")
+			}
+			if req.GetId() != sandboxID {
+				return nil, errors.New("unexpected sandbox delete id")
+			}
+			return &agentsv1.DeleteSandboxResponse{}, nil
+		},
+	}
+	reconciler := newTestReconciler(Config{
+		Agents: agents,
+		Runners: &fakeRunnersClient{
+			listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+				return &runnersv1.ListWorkloadsResponse{}, nil
+			},
+			listVolumes: func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+				return &runnersv1.ListVolumesResponse{}, nil
+			},
+		},
+	})
+	sandbox := &agentsv1.Sandbox{
+		Meta:           &agentsv1.EntityMeta{Id: sandboxID, CreatedAt: timestamppb.New(now.Add(-2 * time.Hour))},
+		OrganizationId: testOrganizationID,
+		Status:         agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING,
+		Ttl:            "1h",
+		WorkloadId:     &workloadID,
+	}
+
+	if err := reconciler.reconcileSandbox(ctx, sandbox, now); err != nil {
+		t.Fatalf("reconcile sandbox: %v", err)
+	}
+	if runtimeReq == nil {
+		t.Fatal("expected runtime state clear")
+	}
+	if runtimeReq.GetStatus() != agentsv1.SandboxStatus_SANDBOX_STATUS_TERMINATED || !runtimeReq.GetClearWorkloadId() {
+		t.Fatalf("unexpected runtime update: %v", runtimeReq)
+	}
+	if !deleteCalled {
+		t.Fatal("expected sandbox delete")
+	}
+}
+
+func TestReconcileSandboxTTLDoesNotDeleteWhenRuntimeClearFails(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	sandboxID := uuid.NewString()
+	workloadID := uuid.NewString()
+	deleteCalled := false
+	agents := &testutil.FakeAgentsClient{
+		UpdateSandboxRuntimeStateFunc: func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+			return nil, errors.New("runtime clear failed")
+		},
+		DeleteSandboxFunc: func(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {
+			deleteCalled = true
+			return &agentsv1.DeleteSandboxResponse{}, nil
+		},
+	}
+	reconciler := newTestReconciler(Config{
+		Agents: agents,
+		Runners: &fakeRunnersClient{
+			listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+				return &runnersv1.ListWorkloadsResponse{}, nil
+			},
+			listVolumes: func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+				return &runnersv1.ListVolumesResponse{}, nil
+			},
+		},
+	})
+	sandbox := &agentsv1.Sandbox{
+		Meta:           &agentsv1.EntityMeta{Id: sandboxID, CreatedAt: timestamppb.New(now.Add(-2 * time.Hour))},
+		OrganizationId: testOrganizationID,
+		Status:         agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING,
+		Ttl:            "1h",
+		WorkloadId:     &workloadID,
+	}
+
+	if err := reconciler.reconcileSandbox(ctx, sandbox, now); err == nil {
+		t.Fatal("expected runtime clear failure")
+	}
+	if deleteCalled {
+		t.Fatal("delete must not run after runtime clear failure")
 	}
 }

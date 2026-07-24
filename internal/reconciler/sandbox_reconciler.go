@@ -566,6 +566,9 @@ func (r *Reconciler) terminateSandbox(ctx context.Context, plan *sandboxWorkload
 			return err
 		}
 	}
+	if err := r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_TERMINATED, "", true); err != nil {
+		return err
+	}
 	if err := r.deleteSandboxWorkspace(ctx, plan); err != nil {
 		return err
 	}
