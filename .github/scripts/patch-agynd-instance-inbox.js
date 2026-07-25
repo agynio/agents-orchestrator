@@ -623,26 +623,3 @@ replace(
   ['\tackCtx, cancel := context.WithTimeout(ctx, messageAckTimeout)', '\terr := d.threads.AckMessages(ackCtx, d.cfg.AgentID.String(), []string{message.ID})'].join('\n'),
   ['\tackCtx, cancel := context.WithTimeout(ctx, messageAckTimeout)', '\tvar err error', '\tif message.InboxItemID != "" {', '\t\terr = d.agentInbox.AckInboxItems(ackCtx, d.cfg.AgentInstanceID.String(), []string{message.InboxItemID})', '\t} else {', '\t\terr = d.threads.AckMessages(ackCtx, d.cfg.AgentID.String(), []string{message.ID})', '\t}'].join('\n'),
 );
-
-replace(
-  'internal/daemon/agn.go',
-  'defer agn mcp readiness until message processing',
-  [
-    '	if err := waitForMCPServers(ctx, cfg.MCPServers, mcpReadyTimeout); err != nil {',
-    '		_ = setup.gatewayConn.Close()',
-    '		return nil, err',
-    '	}',
-    '',
-    '	tracingProxy, err := tracingproxy.Start(ctx, tracingproxy.Config{',
-  ].join('\n'),
-  [
-    '	tracingProxy, err := tracingproxy.Start(ctx, tracingproxy.Config{',
-  ].join('\n'),
-);
-
-replace(
-  'internal/daemon/agn.go',
-  'agn mcp readiness checked per message',
-  ['		tracingProxy: tracingProxy,', '		mcpReady:     true,'].join('\n'),
-  ['		tracingProxy: tracingProxy,'].join('\n'),
-);
