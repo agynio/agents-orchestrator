@@ -292,6 +292,18 @@ replace(
 );
 replace(
   agynWaitPath,
+  'unique agyn wait ref',
+  'uniqueRef := "e2e-agyn-wait-fixed"',
+  'uniqueRef := fmt.Sprintf("e2e-aw-ref-%s", uuid.NewString()[:8])',
+);
+replace(
+  agynWaitPath,
+  'unique agyn wait sentinel',
+  'sentinel := "e2e-agyn-wait-sentinel-fixed"',
+  'sentinel := fmt.Sprintf("e2e-aw-sentinel-%s", uuid.NewString()[:8])',
+);
+replace(
+  agynWaitPath,
   'agent thread list filter',
   [
     '\t\tresp, err := client.ListOrganizationThreads(ctx, &threadsv1.ListOrganizationThreadsRequest{',
