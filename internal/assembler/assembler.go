@@ -747,11 +747,12 @@ func (a *Assembler) listEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest)
 	for {
 		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
 		page, err := a.agents.ListEnvs(rctx, &agentsv1.ListEnvsRequest{
-			AgentId:   req.GetAgentId(),
-			McpId:     req.GetMcpId(),
-			HookId:    req.GetHookId(),
-			PageSize:  listPageSize,
-			PageToken: token,
+			AgentId:       req.GetAgentId(),
+			McpId:         req.GetMcpId(),
+			HookId:        req.GetHookId(),
+			EnvironmentId: req.GetEnvironmentId(),
+			PageSize:      listPageSize,
+			PageToken:     token,
 		})
 		cancel()
 		if err != nil {
@@ -800,6 +801,7 @@ func (a *Assembler) listImagePullSecretAttachments(ctx context.Context, req *age
 			AgentId:           req.GetAgentId(),
 			McpId:             req.GetMcpId(),
 			HookId:            req.GetHookId(),
+			EnvironmentId:     req.GetEnvironmentId(),
 			PageSize:          listPageSize,
 			PageToken:         token,
 		})
