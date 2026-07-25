@@ -344,6 +344,12 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 		if _, err := r.runners.UpdateWorkload(runnersContext(ctx), updateReq); err != nil {
 			return err
 		}
+		if updateReq.Status != nil {
+			workload.Status = *updateReq.Status
+		}
+		if updateReq.InstanceId != nil {
+			workload.InstanceId = updateReq.InstanceId
+		}
 	}
 	if workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING {
 		return r.stopRunnerWorkload(ctx, runnerClient, instanceID)
@@ -452,6 +458,7 @@ func (r *Reconciler) failWorkloadOnRunner(ctx context.Context, runnerClient runn
 		return
 	}
 	r.markWorkloadFailed(ctx, workloadID, stringPtr(instanceID), failure.reason, failure.message, containers)
+	workload.Status = runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED
 	if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
 		log.Printf("reconciler: stop workload %s (instance %s) after failure: %v", workloadID, instanceID, err)
 	}
