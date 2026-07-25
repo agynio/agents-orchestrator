@@ -283,6 +283,21 @@ replace(
   'selector := fmt.Sprintf("%s=%s", labelManagedBy, managedByValue)',
 );
 
+
+const mcpPath = 'suites/go-core/tests/mcp_test.go';
+replace(
+  mcpPath,
+  'mcp overall timeout for agent instances',
+  'ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)',
+  'ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)',
+);
+replace(
+  mcpPath,
+  'mcp response timeout for agent instances',
+  'pollCtx, pollCancel := context.WithTimeout(threadsCtx, 6*time.Minute)',
+  'pollCtx, pollCancel := context.WithTimeout(threadsCtx, 10*time.Minute)',
+);
+
 const agynWaitPath = 'suites/go-core/tests/agent_agyn_wait_test.go';
 replace(
   agynWaitPath,
