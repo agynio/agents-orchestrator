@@ -286,6 +286,12 @@ replace(
 const agynWaitPath = 'suites/go-core/tests/agent_agyn_wait_test.go';
 replace(
   agynWaitPath,
+  'unique agent b nickname',
+  'agentBNickname := "e2e-agyn-wait-b-fixed"',
+  'agentBNickname := fmt.Sprintf("e2e-aw-b-%s", uuid.NewString()[:8])',
+);
+replace(
+  agynWaitPath,
   'agent thread list filter',
   [
     '\t\tresp, err := client.ListOrganizationThreads(ctx, &threadsv1.ListOrganizationThreadsRequest{',
@@ -308,6 +314,42 @@ replace(
   'agent thread participant predicate',
   'if thread == nil || thread.GetId() == "" || !threadHasParticipants(thread, participantA, participantB) {',
   'if thread == nil || thread.GetId() == "" {',
+);
+replace(
+  agynWaitPath,
+  'agent b exact sent body lookup',
+  'findThreadWithParticipantsAndMessage(threadsCtx, threadsClient, orgID, agentAID, agentBID, sentinel)',
+  'findThreadWithParticipantsAndMessage(threadsCtx, threadsClient, orgID, agentAID, agentBID, "Please reply with "+sentinel)',
+);
+replace(
+  agynWaitPath,
+  'agent thread exact body match',
+  'if messagesContainBodySubstring(messages, bodySubstring) {',
+  'if messagesContainExactBody(messages, bodySubstring) {',
+);
+replace(
+  agynWaitPath,
+  'exact body helper',
+  [
+    'func messagesContainBodySubstring(messages []*threadsv1.Message, substring string) bool {',
+    '\tfor _, msg := range messages {',
+    '\t\tif strings.Contains(msg.GetBody(), substring) {',
+    '\t\t\treturn true',
+    '\t\t}',
+    '\t}',
+    '\treturn false',
+    '}',
+  ].join('\n'),
+  [
+    'func messagesContainExactBody(messages []*threadsv1.Message, body string) bool {',
+    '\tfor _, msg := range messages {',
+    '\t\tif msg.GetBody() == body {',
+    '\t\t\treturn true',
+    '\t\t}',
+    '\t}',
+    '\treturn false',
+    '}',
+  ].join('\n'),
 );
 replace(
   agynWaitPath,
