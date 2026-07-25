@@ -286,24 +286,6 @@ replace(
 const agynWaitPath = 'suites/go-core/tests/agent_agyn_wait_test.go';
 replace(
   agynWaitPath,
-  'unique agent b nickname',
-  'agentBNickname := "e2e-agyn-wait-b-fixed"',
-  'agentBNickname := fmt.Sprintf("e2e-aw-b-%s", uuid.NewString()[:8])',
-);
-replace(
-  agynWaitPath,
-  'unique agyn wait ref',
-  'uniqueRef := "e2e-agyn-wait-fixed"',
-  'uniqueRef := fmt.Sprintf("e2e-aw-ref-%s", uuid.NewString()[:8])',
-);
-replace(
-  agynWaitPath,
-  'unique agyn wait sentinel',
-  'sentinel := "e2e-agyn-wait-sentinel-fixed"',
-  'sentinel := fmt.Sprintf("e2e-aw-sentinel-%s", uuid.NewString()[:8])',
-);
-replace(
-  agynWaitPath,
   'agent thread list filter',
   [
     '\t\tresp, err := client.ListOrganizationThreads(ctx, &threadsv1.ListOrganizationThreadsRequest{',
@@ -325,19 +307,31 @@ replace(
   agynWaitPath,
   'agent thread participant predicate',
   'if thread == nil || thread.GetId() == "" || !threadHasParticipants(thread, participantA, participantB) {',
-  'if thread == nil || thread.GetId() == "" {',
+  'if thread == nil || thread.GetId() == "" || thread.GetId() == excludedThreadID {',
 );
 replace(
   agynWaitPath,
-  'agent b exact sent body lookup',
+  'agent thread lookup signature',
+  'func findThreadWithParticipantsAndMessage(ctx context.Context, client threadsv1.ThreadsServiceClient, orgID, participantA, participantB, bodySubstring string) (*threadsv1.Thread, []*threadsv1.Message, error) {',
+  'func findThreadWithParticipantsAndMessage(ctx context.Context, client threadsv1.ThreadsServiceClient, orgID, participantA, participantB, excludedThreadID, sentBody, replyBody string) (*threadsv1.Thread, []*threadsv1.Message, error) {',
+);
+replace(
+  agynWaitPath,
+  'agent b exact sent and reply lookup',
   'findThreadWithParticipantsAndMessage(threadsCtx, threadsClient, orgID, agentAID, agentBID, sentinel)',
-  'findThreadWithParticipantsAndMessage(threadsCtx, threadsClient, orgID, agentAID, agentBID, "Please reply with "+sentinel)',
+  'findThreadWithParticipantsAndMessage(threadsCtx, threadsClient, orgID, agentAID, agentBID, threadAID, "Please reply with "+sentinel, agynWaitAgentBResponse)',
 );
 replace(
   agynWaitPath,
-  'agent thread exact body match',
+  'agent thread exact sent and reply body match',
   'if messagesContainBodySubstring(messages, bodySubstring) {',
-  'if messagesContainExactBody(messages, bodySubstring) {',
+  'if messagesContainExactBody(messages, sentBody) && messagesContainExactBody(messages, replyBody) {',
+);
+replace(
+  agynWaitPath,
+  'agent thread lookup error',
+  'return fmt.Errorf("thread with participants %s/%s and message containing %q not found", participantA, participantB, bodySubstring)',
+  'return fmt.Errorf("thread with participants %s/%s, sent body %q, and reply body %q not found", participantA, participantB, sentBody, replyBody)',
 );
 replace(
   agynWaitPath,
