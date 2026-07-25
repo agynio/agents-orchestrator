@@ -86,6 +86,23 @@ replaceHandler(
 );
 
 replaceHandler(
+  'force identity provider encoding',
+  [
+    '\tcopyProviderRequestHeaders(req.Header, callerHeaders)',
+    '\treq.Header.Set("Content-Type", "application/json")',
+  ].join('\n'),
+  [
+    '\tcopyProviderRequestHeaders(req.Header, callerHeaders)',
+    '\treq.Header.Set("Content-Type", "application/json")',
+    '\treq.Header.Set("Accept-Encoding", "identity")',
+  ].join('\n'),
+);
+replaceHandler(
+  'strip accept encoding for provider rewrite',
+  'case "Host", "Content-Length", "Connection", "Transfer-Encoding", "Keep-Alive", "Te", "Trailer", "Upgrade", "Authorization", "X-Api-Key":',
+  'case "Host", "Content-Length", "Connection", "Transfer-Encoding", "Keep-Alive", "Te", "Trailer", "Upgrade", "Authorization", "X-Api-Key", "Accept-Encoding":',
+);
+replaceHandler(
   'agyn wait helper functions',
   'func updateRequestPayload(payload map[string]any, remoteName string, forceStream bool) ([]byte, error) {',
   [
@@ -249,6 +266,9 @@ if (fs.existsSync(testPath)) {
       '\t\tif err := json.Unmarshal(body, &providerPayload); err != nil {',
       '\t\t\tt.Fatalf("unmarshal provider body: %v", err)',
       '\t\t}',
+      '\t\tif encoding := r.Header.Get("Accept-Encoding"); encoding != "identity" {',
+      '\t\t\tt.Fatalf("provider saw unexpected accept encoding header: %q", encoding)',
+      '\t\t}',
       '\t\tencoded := string(body)',
       '\t\tif strings.Contains(encoded, "e2e-aw-b-12345678") || strings.Contains(encoded, "e2e-aw-ref-12345678") || strings.Contains(encoded, "e2e-aw-sentinel-12345678") {',
       '\t\t\tt.Fatalf("provider saw dynamic agyn wait values: %s", encoded)',
@@ -276,6 +296,7 @@ if (fs.existsSync(testPath)) {
       '\tprompt := `Use agyn CLI to create a new thread with @e2e-aw-b-12345678 using ref e2e-aw-ref-12345678, send the exact text "Please reply with e2e-aw-sentinel-12345678", wait for the reply, then tell me whether it worked.`',
       '\tbody := `{"model":"` + modelID.String() + `","stream":false,"input":[{"role":"user","content":` + strconv.Quote(prompt) + `}]}`',
       '\treq := httptest.NewRequest(http.MethodPost, "http://example.com/v1/responses", strings.NewReader(body))',
+      '\treq.Header.Set("Accept-Encoding", "gzip")',
       '\tctx := identity.WithIdentity(req.Context(), identity.ResolvedIdentity{IdentityID: "user-1", IdentityType: identity.IdentityTypeUser})',
       '\treq = req.WithContext(ctx)',
       '\tresp := httptest.NewRecorder()',

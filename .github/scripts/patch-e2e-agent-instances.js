@@ -284,6 +284,37 @@ replace(
 );
 
 
+const llmGatewayHelpersPath = 'suites/go-core/tests/llm_gateway_helpers_test.go';
+replace(
+  llmGatewayHelpersPath,
+  'keep workflow llm provider during async cleanup',
+  [
+    '\tproviderID := provider.GetMeta().GetId()',
+    '\tt.Cleanup(func() {',
+    '\t\tcleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), gatewayRequestTimeout)',
+    '\t\tdefer cleanupCancel()',
+    '\t\t_, _ = client.DeleteLLMProvider(cleanupCtx, connect.NewRequest(&llmv1.DeleteLLMProviderRequest{Id: providerID}))',
+    '\t})',
+  ].join('\n'),
+  '\tproviderID := provider.GetMeta().GetId()',
+);
+replace(
+  llmGatewayHelpersPath,
+  'keep workflow llm model during async cleanup',
+  [
+    '\tmodelID := model.GetMeta().GetId()',
+    '\tt.Cleanup(func() {',
+    '\t\tcleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), gatewayRequestTimeout)',
+    '\t\tdefer cleanupCancel()',
+    '\t\t_, _ = client.DeleteModel(cleanupCtx, connect.NewRequest(&llmv1.DeleteModelRequest{Id: modelID}))',
+    '\t})',
+    '\treturn modelID',
+  ].join('\n'),
+  [
+    '\tmodelID := model.GetMeta().GetId()',
+    '\treturn modelID',
+  ].join('\n'),
+);
 const mcpPath = 'suites/go-core/tests/mcp_test.go';
 replace(
   mcpPath,
