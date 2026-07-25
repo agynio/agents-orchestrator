@@ -36,6 +36,7 @@ type Reconciler struct {
 	groups                          groupsClient
 	assembler                       *assembler.Assembler
 	wake                            <-chan struct{}
+	sandboxWake                     <-chan struct{}
 	sandboxReconcileEnabled         bool
 	poll                            time.Duration
 	workloadReconcileInterval       time.Duration
@@ -54,6 +55,7 @@ type Config struct {
 	Groups                          groupsClient
 	Assembler                       *assembler.Assembler
 	Wake                            <-chan struct{}
+	SandboxWake                     <-chan struct{}
 	Poll                            time.Duration
 	WorkloadReconcileInterval       time.Duration
 	Idle                            time.Duration
@@ -76,6 +78,7 @@ func New(cfg Config) *Reconciler {
 		groups:                          cfg.Groups,
 		assembler:                       cfg.Assembler,
 		wake:                            cfg.Wake,
+		sandboxWake:                     cfg.SandboxWake,
 		poll:                            cfg.Poll,
 		workloadReconcileInterval:       cfg.WorkloadReconcileInterval,
 		idle:                            cfg.Idle,

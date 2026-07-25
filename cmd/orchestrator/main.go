@@ -144,7 +144,7 @@ func run() error {
 		defer closeConn(groupsConn)
 		groupsClient = groupsv1.NewGroupsServiceClient(groupsConn)
 	}
-	subscriber := subscriber.New(notificationsClient, agentsClient)
+	subscriber := subscriber.NewWithSandboxOrganizations(notificationsClient, agentsClient, cfg.SandboxReconcileOrganizationIDs)
 	egressCANamespace, err := k8sclient.ResolveNamespace(cfg.EgressCANamespace, "egress CA")
 	if err != nil {
 		return err
@@ -172,6 +172,7 @@ func run() error {
 		Metering:                        meteringClient,
 		Assembler:                       assembler,
 		Wake:                            subscriber.Wake(),
+		SandboxWake:                     subscriber.SandboxWake(),
 		Poll:                            cfg.PollInterval,
 		WorkloadReconcileInterval:       cfg.WorkloadReconcileInterval,
 		Idle:                            cfg.IdleTimeout,

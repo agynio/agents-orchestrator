@@ -28,6 +28,8 @@ func (r *Reconciler) runSandboxReconcileLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-r.sandboxWake:
+			r.runSandboxReconcileCycle(ctx)
 		case <-ticker.C:
 			r.runSandboxReconcileCycle(ctx)
 		}

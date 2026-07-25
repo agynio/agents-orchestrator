@@ -162,6 +162,11 @@ func TestSubscriberResubscribesOnAgentChange(t *testing.T) {
 
 func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialAgents []*agentsv1.Agent, refreshInterval time.Duration) *subscriberHarness {
 	t.Helper()
+	return newSubscriberHarnessWithSandboxOrgs(t, responses, ack, initialAgents, refreshInterval, nil)
+}
+
+func newSubscriberHarnessWithSandboxOrgs(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialAgents []*agentsv1.Agent, refreshInterval time.Duration, sandboxOrgIDs []string) *subscriberHarness {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &agentStore{agents: initialAgents}
 	agentsClient := &testutil.FakeAgentsClient{ListAgentsFunc: func(ctx context.Context, req *agentsv1.ListAgentsRequest, opts ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
@@ -183,7 +188,7 @@ func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.Subscrib
 			ack:              ack,
 		}, nil
 	}}
-	subscriber := New(client, agentsClient)
+	subscriber := NewWithSandboxOrganizations(client, agentsClient, sandboxOrgIDs)
 	subscriber.roomRefreshInterval = refreshInterval
 	done := make(chan error, 1)
 	go func() {
@@ -337,4 +342,62 @@ type subscriberHarness struct {
 
 func agentFixture(id string) *agentsv1.Agent {
 	return &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: id}}
+}
+
+func TestSubscriberWakesSandboxOnSandboxUpdated(t *testing.T) {
+	responses := make(chan *notificationsv1.SubscribeResponse, 1)
+	ack := make(chan struct{}, 1)
+	agentID := "88888888-8888-8888-8888-888888888888"
+	orgID := "99999999-9999-9999-9999-999999999999"
+	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.Agent{agentInOrgFixture(agentID, orgID)}, time.Hour)
+	defer harness.cancel()
+
+	req := waitForSubscribe(t, harness.subscribeReqs, 1)
+	expected := []string{"agent:" + agentID, "sandbox_org:" + orgID, "thread_participant:" + agentID}
+	if !reflect.DeepEqual(req.req.GetRooms(), expected) {
+		t.Fatalf("expected rooms %v, got %v", expected, req.req.GetRooms())
+	}
+
+	responses <- messageEnvelope("sandbox.updated")
+	waitForAck(t, ack, 1)
+
+	select {
+	case <-harness.subscriber.SandboxWake():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected sandbox wake signal")
+	}
+	select {
+	case <-harness.subscriber.Wake():
+		t.Fatal("sandbox.updated must not wake the agent loop")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	harness.cancel()
+	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+}
+
+func TestSubscriberSubscribesConfiguredSandboxOrganizations(t *testing.T) {
+	responses := make(chan *notificationsv1.SubscribeResponse, 1)
+	ack := make(chan struct{}, 1)
+	agentID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	configuredOrgID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	harness := newSubscriberHarnessWithSandboxOrgs(t, responses, ack, []*agentsv1.Agent{agentFixture(agentID)}, time.Hour, []string{configuredOrgID})
+	defer harness.cancel()
+
+	req := waitForSubscribe(t, harness.subscribeReqs, 1)
+	expected := []string{"agent:" + agentID, "sandbox_org:" + configuredOrgID, "thread_participant:" + agentID}
+	if !reflect.DeepEqual(req.req.GetRooms(), expected) {
+		t.Fatalf("expected rooms %v, got %v", expected, req.req.GetRooms())
+	}
+
+	harness.cancel()
+	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+}
+
+func agentInOrgFixture(id, organizationID string) *agentsv1.Agent {
+	return &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: id}, OrganizationId: organizationID}
 }
