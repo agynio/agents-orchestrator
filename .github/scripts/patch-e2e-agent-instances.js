@@ -301,6 +301,25 @@ replace(
 const agynWaitPath = 'suites/go-core/tests/agent_agyn_wait_test.go';
 replace(
   agynWaitPath,
+  'agyn wait unique nickname',
+  'agentBNickname := "e2e-agyn-wait-b-fixed"',
+  'agentBNickname := fmt.Sprintf("e2e-aw-b-%s", uuid.NewString()[:8])',
+);
+replace(
+  agynWaitPath,
+  'agyn wait unique ref',
+  'uniqueRef := "e2e-agyn-wait-fixed"',
+  'uniqueRef := fmt.Sprintf("e2e-aw-ref-%s", uuid.NewString()[:8])',
+);
+replace(
+  agynWaitPath,
+  'agyn wait unique sentinel',
+  'sentinel := "e2e-agyn-wait-sentinel-fixed"',
+  'sentinel := fmt.Sprintf("e2e-aw-sentinel-%s", uuid.NewString()[:8])',
+);
+
+replace(
+  agynWaitPath,
   'agent thread list filter',
   [
     '\t\tresp, err := client.ListOrganizationThreads(ctx, &threadsv1.ListOrganizationThreadsRequest{',

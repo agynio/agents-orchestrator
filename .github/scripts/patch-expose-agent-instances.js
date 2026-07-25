@@ -209,6 +209,32 @@ func (m *mockZitiMgmt) ListServicePolicies(context.Context, *zitimanagementv1.Li
 );
 
 replace(
+  'internal/server/identity.go',
+  'agent instance identity type const',
+  'identityTypeAgent  identityType = identitymeta.IdentityTypeAgent',
+  'identityTypeAgent  identityType = identitymeta.IdentityTypeAgent\n\tidentityTypeAgentInstance identityType = "agent_instance"',
+);
+replace(
+  'internal/server/identity.go',
+  'parse agent instance identity type',
+  'case string(identityTypeAgent):\n\t\treturn identityTypeAgent, nil',
+  'case string(identityTypeAgent):\n\t\treturn identityTypeAgent, nil\n\tcase string(identityTypeAgentInstance):\n\t\treturn identityTypeAgentInstance, nil',
+);
+replace(
+  'internal/server/identity.go',
+  'agent instance workload id resolution',
+  'if caller.identity.identityType != identityTypeAgent {\n\t\treturn "", status.Error(codes.InvalidArgument, "workload id is required")\n\t}',
+  'if caller.identity.identityType != identityTypeAgent && caller.identity.identityType != identityTypeAgentInstance {\n\t\treturn "", status.Error(codes.InvalidArgument, "workload id is required")\n\t}',
+);
+
+replace(
+  'internal/server/server.go',
+  'add exposure permits agent instance self',
+  'if caller.identity.identityType != identityTypeAgent {\n\t\t\treturn nil, status.Error(codes.PermissionDenied, "permission denied")\n\t\t}',
+  'if caller.identity.identityType != identityTypeAgent && caller.identity.identityType != identityTypeAgentInstance {\n\t\t\treturn nil, status.Error(codes.PermissionDenied, "permission denied")\n\t\t}',
+);
+
+replace(
   'internal/server/server.go',
   'add exposure self check',
   `		if err := requireAgentSelf(caller, agentIDValue); err != nil {
@@ -274,7 +300,7 @@ func callerMatchesWorkload(caller exposureCaller, workload *runnersv1.Workload, 
 	if matched, err := agentMatchesWorkload(caller, agentID); err != nil || matched {
 		return matched, err
 	}
-	if caller.identity.identityType != identityTypeAgent {
+	if caller.identity.identityType != identityTypeAgentInstance {
 		return false, nil
 	}
 	callerID, err := parseIdentityUUID(caller.identity.identityID)
@@ -307,6 +333,27 @@ func requireWorkloadCaller(caller exposureCaller, workload *runnersv1.Workload, 
 }`,
 );
 
+replace(
+  'internal/server/server.go',
+  'list exposure caller workload match block',
+  [
+    '\tallowed, err := agentMatchesWorkload(caller, agentID)',
+    '\tif err != nil {',
+    '\t\treturn nil, err',
+    '\t}',
+    '\tif !allowed {',
+    '\t\tif err := requireOrgRelation(ctx, s.authz, caller.identity.identityID, orgID.String(), organizationMemberRelation); err != nil {',
+  ].join('\n'),
+  [
+    '\tallowed, err := callerMatchesWorkload(caller, workload, agentID)',
+    '\tif err != nil {',
+    '\t\treturn nil, err',
+    '\t}',
+    '\tif !allowed {',
+    '\t\tif err := requireOrgRelation(ctx, s.authz, caller.identity.identityID, orgID.String(), organizationMemberRelation); err != nil {',
+  ].join('\n'),
+);
+
 const testPath = 'internal/server/server_test.go';
 let testText = fs.readFileSync(testPath, 'utf8');
 const insertBefore = 'func TestAddExposureHappyPath(t *testing.T) {';
@@ -316,7 +363,7 @@ if (!testText.includes('func TestAddExposureAllowsAgentInstanceOwner')) {
 	agentID := uuid.New()
 	agentInstanceID := uuid.New()
 	orgID := uuid.New()
-	ctx := contextWithAgentIdentity(agentInstanceID, workloadID)
+	ctx := contextWithIdentity(agentInstanceID.String(), string(identityTypeAgentInstance), workloadID.String())
 
 	storeMock := &mockStore{}
 	storeMock.createExposure = func(context.Context, store.Exposure) error { return nil }
@@ -342,7 +389,7 @@ if (!testText.includes('func TestAddExposureAllowsAgentInstanceOwner')) {
 		if req.GetId() != workloadID.String() {
 			return nil, fmt.Errorf("unexpected workload id %s", req.GetId())
 		}
-		assertOutgoingIdentity(t, ctx, agentInstanceID.String(), string(identityTypeAgent), workloadID.String())
+		assertOutgoingIdentity(t, ctx, agentInstanceID.String(), string(identityTypeAgentInstance), workloadID.String())
 		return &runnersv1.GetWorkloadResponse{Workload: &runnersv1.Workload{
 			AgentId:         agentID.String(),
 			OwnerId:         agentInstanceID.String(),
