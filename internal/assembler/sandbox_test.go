@@ -19,7 +19,7 @@ import (
 const (
 	testSandboxImage      = "sandbox-image"
 	testSandboxInitImage  = "sandbox-init-image"
-	testSandboxFlavorID   = "flavor-1"
+	testSandboxFlavor     = "ram-2gb"
 	testSandboxRunnerID   = "runner-1"
 	testSandboxSizeGB     = "10"
 	testSandboxEnvName    = "sandbox-env"
@@ -28,12 +28,12 @@ const (
 )
 
 type fakeRunnersClient struct {
-	getFlavor func(context.Context, *runnersv1.GetFlavorRequest, ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error)
+	listFlavors func(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error)
 }
 
-func (f *fakeRunnersClient) GetFlavor(ctx context.Context, req *runnersv1.GetFlavorRequest, opts ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
-	if f.getFlavor != nil {
-		return f.getFlavor(ctx, req, opts...)
+func (f *fakeRunnersClient) ListFlavors(ctx context.Context, req *runnersv1.ListFlavorsRequest, opts ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+	if f.listFlavors != nil {
+		return f.listFlavors(ctx, req, opts...)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -88,7 +88,8 @@ func newSandboxFixture() *sandboxFixture {
 				OrganizationId: "org-1",
 				Name:           testSandboxEnvName,
 				Image:          testSandboxImage,
-				FlavorId:       testSandboxFlavorID,
+				RunnerId:       testSandboxRunnerID,
+				Flavor:         testSandboxFlavor,
 			}}, nil
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
@@ -99,14 +100,22 @@ func newSandboxFixture() *sandboxFixture {
 		},
 	}
 	fixture.runners = &fakeRunnersClient{
-		getFlavor: func(_ context.Context, req *runnersv1.GetFlavorRequest, _ ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
-			if req.GetId() != testSandboxFlavorID {
-				return nil, errors.New("unexpected flavor id")
+		listFlavors: func(_ context.Context, req *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			if req.GetRunnerId() != testSandboxRunnerID {
+				return nil, errors.New("unexpected runner id")
 			}
-			return &runnersv1.GetFlavorResponse{Flavor: &runnersv1.Flavor{
-				Meta:      &runnersv1.EntityMeta{Id: testSandboxFlavorID},
-				RunnerId:  testSandboxRunnerID,
-				Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"},
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{
+					RunnerId:  testSandboxRunnerID,
+					Name:      "other",
+					Default:   true,
+					Resources: &runnersv1.ComputeResources{RequestsCpu: "100m", RequestsMemory: "256Mi"},
+				},
+				{
+					RunnerId:  testSandboxRunnerID,
+					Name:      testSandboxFlavor,
+					Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"},
+				},
 			}}, nil
 		},
 	}
@@ -347,4 +356,56 @@ func TestAssembleSandboxDistributesEgressCA(t *testing.T) {
 	}
 	initEnvs := envMap(initContainer.GetEnv())
 	assertEnv(t, initEnvs, "SSL_CERT_FILE", egressCACertPath)
+}
+
+func TestResolveFlavorFallsBackToRunnerDefault(t *testing.T) {
+	// An environment naming no flavor takes whatever the runner marks default.
+	assembler := &Assembler{runners: &fakeRunnersClient{
+		listFlavors: func(_ context.Context, _ *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: testSandboxRunnerID, Name: "ram-4gb"},
+				{RunnerId: testSandboxRunnerID, Name: "ram-2gb", Default: true},
+			}}, nil
+		},
+	}}
+
+	flavor, err := assembler.resolveFlavor(context.Background(), testSandboxRunnerID, "")
+	if err != nil {
+		t.Fatalf("resolve flavor: %v", err)
+	}
+	if flavor.GetName() != "ram-2gb" {
+		t.Fatalf("expected the default flavor, got %q", flavor.GetName())
+	}
+}
+
+func TestResolveFlavorFailsWhenNameIsNotReported(t *testing.T) {
+	// Late binding means an unknown name is a scheduling failure the retry
+	// policy covers, not a silent fallback to some other size.
+	assembler := &Assembler{runners: &fakeRunnersClient{
+		listFlavors: func(_ context.Context, _ *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: testSandboxRunnerID, Name: "ram-2gb", Default: true},
+			}}, nil
+		},
+	}}
+
+	_, err := assembler.resolveFlavor(context.Background(), testSandboxRunnerID, "ram-64gb")
+	if err == nil || !strings.Contains(err.Error(), "ram-64gb") {
+		t.Fatalf("expected the unknown name to be reported, got %v", err)
+	}
+}
+
+func TestResolveFlavorFailsWhenRunnerHasNoDefault(t *testing.T) {
+	assembler := &Assembler{runners: &fakeRunnersClient{
+		listFlavors: func(_ context.Context, _ *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: testSandboxRunnerID, Name: "ram-2gb"},
+			}}, nil
+		},
+	}}
+
+	_, err := assembler.resolveFlavor(context.Background(), testSandboxRunnerID, "")
+	if err == nil || !strings.Contains(err.Error(), "no default flavor") {
+		t.Fatalf("expected a missing default to be reported, got %v", err)
+	}
 }

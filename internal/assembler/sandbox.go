@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
+
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
@@ -55,7 +57,7 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 	if err != nil {
 		return nil, err
 	}
-	flavor, err := a.fetchFlavor(ctx, environment.GetFlavorId())
+	flavor, err := a.resolveFlavor(ctx, environment.GetRunnerId(), environment.GetFlavor())
 	if err != nil {
 		return nil, err
 	}
@@ -229,31 +231,55 @@ func (a *Assembler) fetchEnvironment(ctx context.Context, environmentID uuid.UUI
 	if environment.GetImage() == "" {
 		return nil, fmt.Errorf("environment %s image is required", environmentID.String())
 	}
-	if environment.GetFlavorId() == "" {
-		return nil, fmt.Errorf("environment %s flavor_id is required", environmentID.String())
+	if environment.GetRunnerId() == "" {
+		return nil, fmt.Errorf("environment %s runner_id is required", environmentID.String())
 	}
 	return environment, nil
 }
 
-func (a *Assembler) fetchFlavor(ctx context.Context, flavorID string) (*runnersv1.Flavor, error) {
-	flavorID = strings.TrimSpace(flavorID)
-	if flavorID == "" {
-		return nil, fmt.Errorf("flavor id missing")
+// resolveFlavor looks the environment's flavor name up in the runner's reported
+// catalog. The name is late-bound by design, so a name that is not in the
+// catalog is a scheduling failure the standard retry policy covers rather than
+// a permanent error — the runner may report it on its next startup.
+func (a *Assembler) resolveFlavor(ctx context.Context, runnerID, flavorName string) (*runnersv1.Flavor, error) {
+	runnerID = strings.TrimSpace(runnerID)
+	if runnerID == "" {
+		return nil, fmt.Errorf("runner id missing")
 	}
 	rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-	resp, err := a.runners.GetFlavor(rctx, &runnersv1.GetFlavorRequest{Id: flavorID})
+	resp, err := a.runners.ListFlavors(rctx, &runnersv1.ListFlavorsRequest{
+		RunnerId: &runnerID,
+		// A deprecated entry still resolves and schedules; the flag only steers
+		// new references away from it.
+		IncludeDeprecated: proto.Bool(true),
+	})
 	cancel()
 	if err != nil {
-		return nil, fmt.Errorf("get flavor %s: %w", flavorID, err)
+		return nil, fmt.Errorf("list flavors for runner %s: %w", runnerID, err)
 	}
-	flavor := resp.GetFlavor()
-	if flavor == nil {
-		return nil, fmt.Errorf("flavor %s missing", flavorID)
+
+	flavorName = strings.TrimSpace(flavorName)
+	var defaultFlavor *runnersv1.Flavor
+	for _, flavor := range resp.GetFlavors() {
+		if flavor == nil {
+			continue
+		}
+		if flavorName != "" && flavor.GetName() == flavorName {
+			return flavor, nil
+		}
+		if flavor.GetDefault() {
+			defaultFlavor = flavor
+		}
 	}
-	if flavor.GetRunnerId() == "" {
-		return nil, fmt.Errorf("flavor %s runner_id is required", flavorID)
+
+	// An environment naming no flavor takes the runner's default.
+	if flavorName == "" {
+		if defaultFlavor == nil {
+			return nil, fmt.Errorf("runner %s reports no default flavor", runnerID)
+		}
+		return defaultFlavor, nil
 	}
-	return flavor, nil
+	return nil, fmt.Errorf("runner %s reports no flavor named %q", runnerID, flavorName)
 }
 
 func flavorAllocatedResources(flavor *runnersv1.Flavor) (int32, int64, error) {
