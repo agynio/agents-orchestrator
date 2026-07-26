@@ -1526,7 +1526,7 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	environmentID := uuid.NewString()
 	ownerID := uuid.NewString()
 	sandboxID := uuid.NewString()
-	flavorID := "flavor-1"
+	flavorName := "ram-2gb"
 	var createWorkloadReq *runnersv1.CreateWorkloadRequest
 	var createVolumeReq *runnersv1.CreateVolumeRequest
 	var updateWorkloadReq *runnersv1.UpdateWorkloadRequest
@@ -1540,7 +1540,7 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 			if req.GetId() != environmentID {
 				return nil, errors.New("unexpected environment id")
 			}
-			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", FlavorId: flavorID, Image: "sandbox-image"}}, nil
+			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", RunnerId: runnerID, Flavor: flavorName, Image: "sandbox-image"}}, nil
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
@@ -1554,11 +1554,13 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 		},
 	}
 	runners := &fakeRunnersClient{
-		getFlavor: func(_ context.Context, req *runnersv1.GetFlavorRequest, _ ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
-			if req.GetId() != flavorID {
-				return nil, errors.New("unexpected flavor id")
+		listFlavors: func(_ context.Context, req *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			if req.GetRunnerId() != runnerID {
+				return nil, errors.New("unexpected runner id")
 			}
-			return &runnersv1.GetFlavorResponse{Flavor: &runnersv1.Flavor{Meta: &runnersv1.EntityMeta{Id: flavorID}, RunnerId: runnerID, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}}}, nil
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: runnerID, Name: flavorName, Default: true, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}},
+			}}, nil
 		},
 		getRunner: func(_ context.Context, req *runnersv1.GetRunnerRequest, _ ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
 			if req.GetId() != runnerID {
@@ -1775,14 +1777,14 @@ func TestStartSandboxWorkloadWritesRuntimeRunning(t *testing.T) {
 	environmentID := uuid.NewString()
 	ownerID := uuid.NewString()
 	sandboxID := uuid.NewString()
-	flavorID := "flavor-1"
+	flavorName := "ram-2gb"
 	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
 	agents := &testutil.FakeAgentsClient{
 		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
 			if req.GetId() != environmentID {
 				return nil, errors.New("unexpected environment id")
 			}
-			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", FlavorId: flavorID, Image: "sandbox-image"}}, nil
+			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", RunnerId: runnerID, Flavor: flavorName, Image: "sandbox-image"}}, nil
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
@@ -1796,11 +1798,13 @@ func TestStartSandboxWorkloadWritesRuntimeRunning(t *testing.T) {
 		},
 	}
 	runners := &fakeRunnersClient{
-		getFlavor: func(_ context.Context, req *runnersv1.GetFlavorRequest, _ ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
-			if req.GetId() != flavorID {
-				return nil, errors.New("unexpected flavor id")
+		listFlavors: func(_ context.Context, req *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			if req.GetRunnerId() != runnerID {
+				return nil, errors.New("unexpected runner id")
 			}
-			return &runnersv1.GetFlavorResponse{Flavor: &runnersv1.Flavor{Meta: &runnersv1.EntityMeta{Id: flavorID}, RunnerId: runnerID, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}}}, nil
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: runnerID, Name: flavorName, Default: true, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}},
+			}}, nil
 		},
 		getRunner: func(_ context.Context, req *runnersv1.GetRunnerRequest, _ ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
 			if req.GetId() != runnerID {
@@ -1900,12 +1904,12 @@ func TestStartSandboxWorkloadFailureWritesRuntimeFailed(t *testing.T) {
 	environmentID := uuid.NewString()
 	ownerID := uuid.NewString()
 	sandboxID := uuid.NewString()
-	flavorID := "flavor-1"
+	flavorName := "ram-2gb"
 	runtimeWorkloadID := uuid.NewString()
 	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
 	agents := &testutil.FakeAgentsClient{
 		GetEnvironmentFunc: func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
-			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", FlavorId: flavorID, Image: "sandbox-image"}}, nil
+			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", RunnerId: runnerID, Flavor: flavorName, Image: "sandbox-image"}}, nil
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
@@ -1919,8 +1923,10 @@ func TestStartSandboxWorkloadFailureWritesRuntimeFailed(t *testing.T) {
 		},
 	}
 	runners := &fakeRunnersClient{
-		getFlavor: func(context.Context, *runnersv1.GetFlavorRequest, ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
-			return &runnersv1.GetFlavorResponse{Flavor: &runnersv1.Flavor{Meta: &runnersv1.EntityMeta{Id: flavorID}, RunnerId: runnerID, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}}}, nil
+		listFlavors: func(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: runnerID, Name: flavorName, Default: true, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}},
+			}}, nil
 		},
 		getRunner: func(context.Context, *runnersv1.GetRunnerRequest, ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
 			return &runnersv1.GetRunnerResponse{Runner: buildRunner(runnerID)}, nil
@@ -1968,12 +1974,12 @@ func TestReconcileSandboxStartsFromStartingRuntimeState(t *testing.T) {
 	environmentID := uuid.NewString()
 	ownerID := uuid.NewString()
 	sandboxID := uuid.NewString()
-	flavorID := "flavor-1"
+	flavorName := "ram-2gb"
 	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
 	var startReq *runnerv1.StartWorkloadRequest
 	agents := &testutil.FakeAgentsClient{
 		GetEnvironmentFunc: func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
-			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", FlavorId: flavorID, Image: "sandbox-image"}}, nil
+			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{Meta: &agentsv1.EntityMeta{Id: environmentID}, OrganizationId: testOrganizationID, Name: "sandbox-env", RunnerId: runnerID, Flavor: flavorName, Image: "sandbox-image"}}, nil
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
@@ -1993,8 +1999,10 @@ func TestReconcileSandboxStartsFromStartingRuntimeState(t *testing.T) {
 		listVolumes: func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{}, nil
 		},
-		getFlavor: func(context.Context, *runnersv1.GetFlavorRequest, ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error) {
-			return &runnersv1.GetFlavorResponse{Flavor: &runnersv1.Flavor{Meta: &runnersv1.EntityMeta{Id: flavorID}, RunnerId: runnerID, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}}}, nil
+		listFlavors: func(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: runnerID, Name: flavorName, Default: true, Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"}},
+			}}, nil
 		},
 		getRunner: func(context.Context, *runnersv1.GetRunnerRequest, ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
 			return &runnersv1.GetRunnerResponse{Runner: buildRunner(runnerID)}, nil
