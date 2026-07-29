@@ -2288,11 +2288,10 @@ func TestReconcileVolumesActivatesSandboxWorkspaceVolume(t *testing.T) {
 		},
 	}
 	reconciler := newTestReconciler(Config{
-		RunnerDialer:            &fakeRunnerDialer{dial: func(context.Context, string) (runnerv1.RunnerServiceClient, error) { return runner, nil }},
-		Runners:                 runners,
-		Agents:                  &testutil.FakeAgentsClient{},
-		Assembler:               newTestAssembler(uuid.New(), false),
-		SandboxReconcileEnabled: true,
+		RunnerDialer: &fakeRunnerDialer{dial: func(context.Context, string) (runnerv1.RunnerServiceClient, error) { return runner, nil }},
+		Runners:      runners,
+		Agents:       &testutil.FakeAgentsClient{},
+		Assembler:    newTestAssembler(uuid.New(), false),
 	})
 
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
@@ -2348,8 +2347,7 @@ func TestReconcileVolumesKeepsActiveSandboxWorkspaceVolume(t *testing.T) {
 		Agents: &testutil.FakeAgentsClient{UpdateSandboxRuntimeStateFunc: func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			return nil, errors.New("sandbox must not be failed while its workspace exists")
 		}},
-		Assembler:               newTestAssembler(uuid.New(), false),
-		SandboxReconcileEnabled: true,
+		Assembler: newTestAssembler(uuid.New(), false),
 	})
 
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
@@ -2391,8 +2389,7 @@ func TestReconcileVolumesFailsSandboxWhenWorkspaceVolumeLost(t *testing.T) {
 			runtimeReq = req
 			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
 		}},
-		Assembler:               newTestAssembler(uuid.New(), false),
-		SandboxReconcileEnabled: true,
+		Assembler: newTestAssembler(uuid.New(), false),
 	})
 
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
@@ -2455,40 +2452,6 @@ func TestReconcileOrphanIdentitiesSweepsSandboxIdentities(t *testing.T) {
 	}
 
 	reconciler := newTestReconciler(Config{
-		RunnerDialer:            &fakeRunnerDialer{},
-		ZitiMgmt:                zitiMgmt,
-		Runners:                 runners,
-		Assembler:               newTestAssembler(uuid.New(), true),
-		SandboxReconcileEnabled: true,
-	})
-	if err := reconciler.reconcileOrphanIdentities(ctx); err != nil {
-		t.Fatalf("reconcile orphan identities: %v", err)
-	}
-	if !reflect.DeepEqual(deleteCalls, []string{orphanSandboxID}) {
-		t.Fatalf("unexpected delete calls: %v", deleteCalls)
-	}
-}
-
-func TestReconcileOrphanIdentitiesSkipsSandboxSweepWhenDisabled(t *testing.T) {
-	ctx := context.Background()
-	runners := &fakeRunnersClient{
-		listWorkloads: func(_ context.Context, req *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
-			if len(req.GetFilter().GetOwnerKindIn()) != 0 {
-				return nil, errors.New("sandbox workloads must not be listed while sandbox reconcile is disabled")
-			}
-			return &runnersv1.ListWorkloadsResponse{}, nil
-		},
-	}
-	zitiMgmt := &fakeZitiMgmtClient{
-		listManagedIdentities: func(_ context.Context, req *zitimgmtv1.ListManagedIdentitiesRequest, _ ...grpc.CallOption) (*zitimgmtv1.ListManagedIdentitiesResponse, error) {
-			if req.GetIdentityType() != identityv1.IdentityType_IDENTITY_TYPE_AGENT {
-				return nil, errors.New("unexpected identity type")
-			}
-			return &zitimgmtv1.ListManagedIdentitiesResponse{}, nil
-		},
-	}
-
-	reconciler := newTestReconciler(Config{
 		RunnerDialer: &fakeRunnerDialer{},
 		ZitiMgmt:     zitiMgmt,
 		Runners:      runners,
@@ -2496,6 +2459,9 @@ func TestReconcileOrphanIdentitiesSkipsSandboxSweepWhenDisabled(t *testing.T) {
 	})
 	if err := reconciler.reconcileOrphanIdentities(ctx); err != nil {
 		t.Fatalf("reconcile orphan identities: %v", err)
+	}
+	if !reflect.DeepEqual(deleteCalls, []string{orphanSandboxID}) {
+		t.Fatalf("unexpected delete calls: %v", deleteCalls)
 	}
 }
 
@@ -2515,7 +2481,6 @@ func TestSandboxReconcileLoopRunsOnWake(t *testing.T) {
 		SandboxReconcileOrganizationIDs: []string{testOrganizationID},
 		Agents:                          agents,
 		SandboxWake:                     wake,
-		SandboxReconcileEnabled:         true,
 		// Long enough that only the wake can trigger the second cycle.
 		WorkloadReconcileInterval: time.Hour,
 	})

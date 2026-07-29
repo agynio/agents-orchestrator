@@ -287,18 +287,6 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 			if meta.GetId() == "" {
 				return nil, nil, fmt.Errorf("volume meta id missing")
 			}
-			if isSandboxVolume(volume) && !r.sandboxReconcileEnabled {
-				// Sandbox reconciliation is off: keep the workspace volume out of the
-				// orphan sweep instead of reconciling it.
-				runnerID := strings.TrimSpace(volume.GetRunnerId())
-				if runnerID != "" {
-					if ignoredVolumeKeysByRunner[runnerID] == nil {
-						ignoredVolumeKeysByRunner[runnerID] = map[string]struct{}{}
-					}
-					ignoredVolumeKeysByRunner[runnerID][meta.GetId()] = struct{}{}
-				}
-				continue
-			}
 			orgID := strings.TrimSpace(volume.GetOrganizationId())
 			if orgID == "" {
 				return nil, nil, fmt.Errorf("volume %s organization id missing", meta.GetId())

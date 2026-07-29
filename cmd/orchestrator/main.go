@@ -179,7 +179,6 @@ func run() error {
 		StopSec:                         cfg.StopTimeoutSec,
 		MeteringSampleInterval:          cfg.MeteringSampleInterval,
 		SandboxReconcileOrganizationIDs: append([]string(nil), cfg.SandboxReconcileOrganizationIDs...),
-		SandboxReconcileEnabled:         cfg.SandboxReconcileEnabled,
 	})
 
 	start := func(leadCtx context.Context) {

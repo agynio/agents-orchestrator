@@ -34,9 +34,6 @@ func (r *Reconciler) reconcileOrphanIdentities(ctx context.Context) error {
 	if err := r.sweepOrphanIdentities(ctx, identityv1.IdentityType_IDENTITY_TYPE_AGENT, active, now); err != nil {
 		return err
 	}
-	if !r.sandboxReconcileEnabled {
-		return nil
-	}
 	sandboxWorkloads, err := r.listActiveSandboxWorkloads(ctx)
 	if err != nil {
 		return err

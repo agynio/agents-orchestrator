@@ -20,7 +20,6 @@ type Config struct {
 	MeteringServiceAddress              string
 	MeteringSampleInterval              time.Duration
 	ZitiEnabled                         bool
-	SandboxReconcileEnabled             bool
 	SandboxReconcileOrganizationIDs     []string
 	ZitiManagementAddress               string
 	GroupsAddress                       string
@@ -134,14 +133,6 @@ func FromEnv() (Config, error) {
 	}
 	if _, err := strconv.ParseFloat(cfg.SandboxWorkspaceSizeGB, 64); err != nil {
 		return Config{}, fmt.Errorf("parse SANDBOX_WORKSPACE_SIZE_GB: %w", err)
-	}
-	sandboxReconcileEnabled := os.Getenv("SANDBOX_RECONCILE_ENABLED")
-	if sandboxReconcileEnabled != "" {
-		parsed, err := strconv.ParseBool(sandboxReconcileEnabled)
-		if err != nil {
-			return Config{}, fmt.Errorf("parse SANDBOX_RECONCILE_ENABLED: %w", err)
-		}
-		cfg.SandboxReconcileEnabled = parsed
 	}
 	var err error
 	cfg.SandboxReconcileOrganizationIDs, err = parseUUIDList(os.Getenv("SANDBOX_RECONCILE_ORGANIZATION_IDS"), "SANDBOX_RECONCILE_ORGANIZATION_IDS")

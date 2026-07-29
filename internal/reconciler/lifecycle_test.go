@@ -1220,15 +1220,21 @@ func TestReconcileOrphanIdentitiesDeletesOrphans(t *testing.T) {
 	deleteCalls := []string{}
 	zitiMgmt := &fakeZitiMgmtClient{
 		listManagedIdentities: func(_ context.Context, req *zitimgmtv1.ListManagedIdentitiesRequest, _ ...grpc.CallOption) (*zitimgmtv1.ListManagedIdentitiesResponse, error) {
-			if req.GetIdentityType() != identityv1.IdentityType_IDENTITY_TYPE_AGENT {
+			// The sweep covers agent and sandbox identities in the same pass;
+			// this case exercises the agent half and has no sandbox identities.
+			switch req.GetIdentityType() {
+			case identityv1.IdentityType_IDENTITY_TYPE_AGENT:
+				return &zitimgmtv1.ListManagedIdentitiesResponse{
+					Identities: []*zitimgmtv1.ManagedIdentity{
+						{ZitiIdentityId: activeID},
+						{ZitiIdentityId: orphanID},
+					},
+				}, nil
+			case identityv1.IdentityType_IDENTITY_TYPE_SANDBOX:
+				return &zitimgmtv1.ListManagedIdentitiesResponse{}, nil
+			default:
 				return nil, errors.New("unexpected identity type")
 			}
-			return &zitimgmtv1.ListManagedIdentitiesResponse{
-				Identities: []*zitimgmtv1.ManagedIdentity{
-					{ZitiIdentityId: activeID},
-					{ZitiIdentityId: orphanID},
-				},
-			}, nil
 		},
 		deleteIdentity: func(_ context.Context, req *zitimgmtv1.DeleteIdentityRequest, _ ...grpc.CallOption) (*zitimgmtv1.DeleteIdentityResponse, error) {
 			deleteCalls = append(deleteCalls, req.GetZitiIdentityId())
