@@ -114,6 +114,11 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		go func() {
+			if err := <-manager.IdentityLost(); err != nil {
+				log.Fatalf("terminating: %v", err)
+			}
+		}()
 		go manager.RunLeaseRenewal(ctx)
 		runnerDialer = runnerdial.NewDialer(manager)
 	} else {
