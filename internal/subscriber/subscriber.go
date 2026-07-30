@@ -20,8 +20,10 @@ import (
 const (
 	messageCreatedEvent               = "message.created"
 	agentUpdatedEvent                 = "agent.updated"
+	sandboxUpdatedEvent               = "sandbox.updated"
 	agentRoomPrefix                   = "agent:"
 	threadParticipantRoomPrefix       = "thread_participant:"
+	sandboxOrgRoomPrefix              = "sandbox_org:"
 	identityMetadataKey               = "x-identity-id"
 	listAgentsPageSize          int32 = 100
 	defaultRoomRefreshInterval        = 30 * time.Second
@@ -36,14 +38,24 @@ type Subscriber struct {
 	client              notificationsv1.NotificationsServiceClient
 	agents              agentsClient
 	wake                chan struct{}
+	sandboxWake         chan struct{}
+	sandboxOrgIDs       []string
 	roomRefreshInterval time.Duration
 }
 
 func New(client notificationsv1.NotificationsServiceClient, agents agentsClient) *Subscriber {
+	return NewWithSandboxOrganizations(client, agents, nil)
+}
+
+// NewWithSandboxOrganizations additionally watches the org-level sandbox rooms
+// of organizations that carry no agent, which the agent listing cannot surface.
+func NewWithSandboxOrganizations(client notificationsv1.NotificationsServiceClient, agents agentsClient, sandboxOrganizationIDs []string) *Subscriber {
 	return &Subscriber{
 		client:              client,
 		agents:              agents,
 		wake:                make(chan struct{}, 1),
+		sandboxWake:         make(chan struct{}, 1),
+		sandboxOrgIDs:       append([]string(nil), sandboxOrganizationIDs...),
 		roomRefreshInterval: defaultRoomRefreshInterval,
 	}
 }
@@ -147,6 +159,11 @@ func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubsc
 			case s.wake <- struct{}{}:
 			default:
 			}
+		case sandboxUpdatedEvent:
+			select {
+			case s.sandboxWake <- struct{}{}:
+			default:
+			}
 		}
 	}
 }
@@ -156,6 +173,7 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 		return nil, "", errors.New("agents client not configured")
 	}
 	roomsByIdentity := map[uuid.UUID]map[string]struct{}{}
+	sandboxOrgIdentities := map[string]uuid.UUID{}
 	pageToken := ""
 	for {
 		resp, err := s.agents.ListAgents(ctx, &agentsv1.ListAgentsRequest{
@@ -186,6 +204,17 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 			agentID = parsedAgentID.String()
 			rooms[agentRoomPrefix+agentID] = struct{}{}
 			rooms[threadParticipantRoomPrefix+agentID] = struct{}{}
+			orgID := strings.TrimSpace(agent.GetOrganizationId())
+			if orgID == "" {
+				continue
+			}
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent.organization_id")
+			if err != nil {
+				return nil, "", err
+			}
+			if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; !ok {
+				sandboxOrgIdentities[parsedOrgID.String()] = parsedAgentID
+			}
 		}
 		pageToken = resp.GetNextPageToken()
 		if pageToken == "" {
@@ -194,6 +223,9 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 	}
 	if len(roomsByIdentity) == 0 {
 		return nil, "", fmt.Errorf("no agent rooms available")
+	}
+	if err := s.applySandboxOrgRooms(roomsByIdentity, sandboxOrgIdentities); err != nil {
+		return nil, "", err
 	}
 
 	identityIDs := make([]uuid.UUID, 0, len(roomsByIdentity))
@@ -214,6 +246,42 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 		fingerprints = append(fingerprints, fingerprint)
 	}
 	return subscriptions, strings.Join(fingerprints, "|"), nil
+}
+
+// applySandboxOrgRooms attaches the org-level sandbox room of every organization
+// the reconciler covers to one subscription per organization, so sandbox status
+// changes wake the sandbox loop without waiting for the next poll tick.
+func (s *Subscriber) applySandboxOrgRooms(roomsByIdentity map[uuid.UUID]map[string]struct{}, sandboxOrgIdentities map[string]uuid.UUID) error {
+	for _, configuredOrgID := range s.sandboxOrgIDs {
+		parsedOrgID, err := uuidutil.ParseUUID(strings.TrimSpace(configuredOrgID), "sandbox_reconcile.organization_id")
+		if err != nil {
+			return err
+		}
+		if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; ok {
+			continue
+		}
+		// The organization has no agent to borrow an identity from; the org-level
+		// sandbox room is not identity-scoped, so any known identity can watch it.
+		sandboxOrgIdentities[parsedOrgID.String()] = lowestIdentity(roomsByIdentity)
+	}
+	for orgID, identityID := range sandboxOrgIdentities {
+		rooms, ok := roomsByIdentity[identityID]
+		if !ok {
+			continue
+		}
+		rooms[sandboxOrgRoomPrefix+orgID] = struct{}{}
+	}
+	return nil
+}
+
+func lowestIdentity(roomsByIdentity map[uuid.UUID]map[string]struct{}) uuid.UUID {
+	var lowest uuid.UUID
+	for identityID := range roomsByIdentity {
+		if lowest == uuid.Nil || identityID.String() < lowest.String() {
+			lowest = identityID
+		}
+	}
+	return lowest
 }
 
 func sortedRooms(rooms map[string]struct{}) []string {
@@ -252,6 +320,12 @@ func (s *Subscriber) watchRooms(ctx context.Context, fingerprint string, updated
 
 func (s *Subscriber) Wake() <-chan struct{} {
 	return s.wake
+}
+
+// SandboxWake signals sandbox.updated events so the sandbox reconcile loop can
+// react to connect/stop/delete without waiting for its poll interval.
+func (s *Subscriber) SandboxWake() <-chan struct{} {
+	return s.sandboxWake
 }
 
 func waitWithBackoff(ctx context.Context, delay time.Duration) error {

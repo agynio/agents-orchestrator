@@ -135,13 +135,16 @@ func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.San
 		}
 		return nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED:
-		if plan.activeWorkload != nil && sandboxIdle(sandbox, plan.activeWorkload, now) {
+		// A stopped sandbox must always converge to no running workload, whether it
+		// was stopped explicitly or by the idle timeout. Idleness is irrelevant here:
+		// an attached session does not keep an explicitly stopped sandbox alive.
+		if plan.activeWorkload != nil {
 			if err := r.stopSandboxWorkload(ctx, plan.activeWorkload); err != nil {
 				return err
 			}
 			return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
 		}
-		if plan.activeWorkload == nil && plan.sandbox.WorkloadId != nil {
+		if plan.sandbox.WorkloadId != nil {
 			return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
 		}
 		return nil
@@ -441,6 +444,25 @@ func (r *Reconciler) updateSandboxRuntimeState(ctx context.Context, sandbox *age
 	}
 	if _, err := r.agents.UpdateSandboxRuntimeState(ctx, req); err != nil {
 		return fmt.Errorf("update sandbox %s runtime state: %w", sandboxID, err)
+	}
+	return nil
+}
+
+// markSandboxFailed transitions a sandbox to failed when only its id is known.
+// Sandboxes have no agent instance to pause, so a lost runtime resource fails
+// the sandbox itself and clears the workload reference.
+func (r *Reconciler) markSandboxFailed(ctx context.Context, sandboxID string) error {
+	parsedSandboxID, err := uuidutil.ParseUUID(strings.TrimSpace(sandboxID), "sandbox.id")
+	if err != nil {
+		return err
+	}
+	status := agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED
+	if _, err := r.agents.UpdateSandboxRuntimeState(ctx, &agentsv1.UpdateSandboxRuntimeStateRequest{
+		Id:               parsedSandboxID.String(),
+		Status:           &status,
+		WorkloadIdUpdate: &agentsv1.UpdateSandboxRuntimeStateRequest_ClearWorkloadId{ClearWorkloadId: true},
+	}); err != nil {
+		return fmt.Errorf("update sandbox %s runtime state: %w", parsedSandboxID.String(), err)
 	}
 	return nil
 }

@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"github.com/agynio/agents-orchestrator/internal/testutil"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -235,4 +238,136 @@ func assertSampledAt(t *testing.T, entries []*runnersv1.SampledAtEntry, id strin
 		}
 	}
 	t.Fatalf("missing sampled_at entry for %s", id)
+}
+
+func TestSampleMeteringLabelsSandboxOwner(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	sandboxID := uuid.NewString()
+	ownerID := uuid.NewString()
+
+	workload := &runnersv1.Workload{
+		Meta:                   &runnersv1.EntityMeta{Id: "workload-sandbox", CreatedAt: timestamppb.New(now.Add(-time.Minute))},
+		RunnerId:               "runner-1",
+		OrganizationId:         testOrganizationID,
+		AllocatedCpuMillicores: 500,
+		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
+		OwnerId:                sandboxID,
+	}
+	volume := &runnersv1.Volume{
+		Meta:           &runnersv1.EntityMeta{Id: "volume-sandbox", CreatedAt: timestamppb.New(now.Add(-time.Minute))},
+		RunnerId:       "runner-1",
+		OrganizationId: testOrganizationID,
+		SizeGb:         "10",
+		OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
+		OwnerId:        sandboxID,
+	}
+
+	var recorded []*meteringv1.UsageRecord
+	metering := &fakeMeteringClient{record: func(_ context.Context, req *meteringv1.RecordRequest, _ ...grpc.CallOption) (*meteringv1.RecordResponse, error) {
+		recorded = req.GetRecords()
+		return &meteringv1.RecordResponse{}, nil
+	}}
+	runners := &fakeRunnersClient{
+		listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{workload}}, nil
+		},
+		listVolumes: func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{volume}}, nil
+		},
+		batchUpdateWorkload: func(context.Context, *runnersv1.BatchUpdateWorkloadSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error) {
+			return &runnersv1.BatchUpdateWorkloadSampledAtResponse{}, nil
+		},
+	}
+	getSandboxCalls := 0
+	agents := &testutil.FakeAgentsClient{
+		ListAgentsFunc: defaultListAgentsFunc(),
+		GetSandboxFunc: func(_ context.Context, req *agentsv1.GetSandboxRequest, _ ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error) {
+			getSandboxCalls++
+			if req.GetId() != sandboxID {
+				return nil, errors.New("unexpected sandbox id")
+			}
+			return &agentsv1.GetSandboxResponse{Sandbox: &agentsv1.Sandbox{
+				Meta:           &agentsv1.EntityMeta{Id: sandboxID},
+				OrganizationId: testOrganizationID,
+				OwnerId:        ownerID,
+			}}, nil
+		},
+	}
+
+	reconciler := New(Config{
+		Runners:                runners,
+		Metering:               metering,
+		Agents:                 agents,
+		MeteringSampleInterval: time.Minute,
+	})
+	if err := reconciler.sampleMetering(ctx, now); err != nil {
+		t.Fatalf("sample metering: %v", err)
+	}
+	if getSandboxCalls != 1 {
+		t.Fatalf("expected one sandbox lookup per cycle, got %d", getSandboxCalls)
+	}
+	if len(recorded) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(recorded))
+	}
+	for _, record := range recorded {
+		assertLabelValue(t, record.GetLabels(), labelOwnerKind, "sandbox")
+		assertLabelValue(t, record.GetLabels(), labelSandboxID, sandboxID)
+		assertLabelValue(t, record.GetLabels(), labelSandboxOwnerID, ownerID)
+	}
+}
+
+func TestSampleMeteringKeepsSandboxRecordsWhenOwnerUnresolved(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	sandboxID := uuid.NewString()
+
+	workload := &runnersv1.Workload{
+		Meta:                   &runnersv1.EntityMeta{Id: "workload-sandbox", CreatedAt: timestamppb.New(now.Add(-time.Minute))},
+		RunnerId:               "runner-1",
+		OrganizationId:         testOrganizationID,
+		AllocatedCpuMillicores: 500,
+		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
+		OwnerId:                sandboxID,
+	}
+
+	var recorded []*meteringv1.UsageRecord
+	metering := &fakeMeteringClient{record: func(_ context.Context, req *meteringv1.RecordRequest, _ ...grpc.CallOption) (*meteringv1.RecordResponse, error) {
+		recorded = req.GetRecords()
+		return &meteringv1.RecordResponse{}, nil
+	}}
+	runners := &fakeRunnersClient{
+		listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{workload}}, nil
+		},
+		listVolumes: func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{}, nil
+		},
+		batchUpdateWorkload: func(context.Context, *runnersv1.BatchUpdateWorkloadSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error) {
+			return &runnersv1.BatchUpdateWorkloadSampledAtResponse{}, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{
+		ListAgentsFunc: defaultListAgentsFunc(),
+		GetSandboxFunc: func(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error) {
+			return nil, errors.New("sandbox gone")
+		},
+	}
+
+	reconciler := New(Config{
+		Runners:                runners,
+		Metering:               metering,
+		Agents:                 agents,
+		MeteringSampleInterval: time.Minute,
+	})
+	if err := reconciler.sampleMetering(ctx, now); err != nil {
+		t.Fatalf("sample metering: %v", err)
+	}
+	if len(recorded) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(recorded))
+	}
+	if _, ok := recorded[0].GetLabels()[labelSandboxOwnerID]; ok {
+		t.Fatal("expected no sandbox owner label when the sandbox cannot be resolved")
+	}
+	assertLabelValue(t, recorded[0].GetLabels(), labelSandboxID, sandboxID)
 }

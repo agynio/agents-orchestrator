@@ -6,10 +6,12 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
@@ -25,6 +27,7 @@ const (
 	labelThreadID                = "thread_id"
 	labelAgentID                 = "agent_id"
 	labelSandboxID               = "sandbox_id"
+	labelSandboxOwnerID          = "sandbox_owner_id"
 	labelOwnerKind               = "owner_kind"
 	labelRunnerID                = "runner_id"
 	labelIdentityID              = "identity_id"
@@ -78,12 +81,14 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 		return nil
 	}
 
+	sandboxOwners := r.sandboxOwnerIDs(ctx, workloads, volumes)
+
 	records := make([]*meteringv1.UsageRecord, 0, len(workloads)*2+len(volumes))
 	workloadUpdates := make([]*runnersv1.SampledAtEntry, 0, len(workloads))
 	volumeUpdates := make([]*runnersv1.SampledAtEntry, 0, len(volumes))
 
 	for _, workload := range workloads {
-		workloadRecords, update, err := sampleWorkloadMetering(workload, now)
+		workloadRecords, update, err := sampleWorkloadMetering(workload, now, sandboxOwners)
 		if err != nil {
 			return err
 		}
@@ -93,7 +98,7 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 		records = append(records, workloadRecords...)
 	}
 	for _, volume := range volumes {
-		volumeRecord, update, err := sampleVolumeMetering(volume, now)
+		volumeRecord, update, err := sampleVolumeMetering(volume, now, sandboxOwners)
 		if err != nil {
 			return err
 		}
@@ -221,7 +226,55 @@ func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities
 	return volumes, nil
 }
 
-func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time) ([]*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
+// sandboxOwnerIDs resolves the owning user of every sandbox with pending
+// samples. Metering records for sandbox workloads are attributed to the
+// organization and labelled with the sandbox and its owner; a sandbox that can
+// no longer be resolved is metered without the owner label rather than losing
+// the whole sample cycle.
+func (r *Reconciler) sandboxOwnerIDs(ctx context.Context, workloads []*runnersv1.Workload, volumes []*runnersv1.Volume) map[string]string {
+	pending := map[string]struct{}{}
+	for _, workload := range workloads {
+		if workload.GetOwnerKind() != runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
+			continue
+		}
+		if sandboxID := strings.TrimSpace(workload.GetOwnerId()); sandboxID != "" {
+			pending[sandboxID] = struct{}{}
+		}
+	}
+	for _, volume := range volumes {
+		if volume.GetOwnerKind() != runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
+			continue
+		}
+		if sandboxID := strings.TrimSpace(volume.GetOwnerId()); sandboxID != "" {
+			pending[sandboxID] = struct{}{}
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	sandboxIDs := make([]string, 0, len(pending))
+	for sandboxID := range pending {
+		sandboxIDs = append(sandboxIDs, sandboxID)
+	}
+	sort.Strings(sandboxIDs)
+	owners := make(map[string]string, len(sandboxIDs))
+	for _, sandboxID := range sandboxIDs {
+		resp, err := r.agents.GetSandbox(ctx, &agentsv1.GetSandboxRequest{Ref: &agentsv1.GetSandboxRequest_Id{Id: sandboxID}})
+		if err != nil {
+			log.Printf("reconciler: warn: get sandbox %s for metering labels: %v", sandboxID, err)
+			continue
+		}
+		ownerID := strings.TrimSpace(resp.GetSandbox().GetOwnerId())
+		if ownerID == "" {
+			log.Printf("reconciler: warn: sandbox %s owner id missing for metering labels", sandboxID)
+			continue
+		}
+		owners[sandboxID] = ownerID
+	}
+	return owners
+}
+
+func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sandboxOwners map[string]string) ([]*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
 	meta := workload.GetMeta()
 	if meta == nil || meta.GetId() == "" {
 		return nil, nil, fmt.Errorf("workload meta missing")
@@ -242,7 +295,7 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time) ([]*met
 	if orgID == "" {
 		return nil, nil, fmt.Errorf("workload %s organization id missing", workloadID)
 	}
-	baseLabels, err := workloadLabels(workload, workloadID)
+	baseLabels, err := workloadLabels(workload, workloadID, sandboxOwners)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -295,7 +348,7 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time) ([]*met
 	return records, update, nil
 }
 
-func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time) (*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
+func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time, sandboxOwners map[string]string) (*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
 	meta := volume.GetMeta()
 	if meta == nil || meta.GetId() == "" {
 		return nil, nil, fmt.Errorf("volume meta missing")
@@ -316,7 +369,7 @@ func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time) (*meteringv1.
 	if orgID == "" {
 		return nil, nil, fmt.Errorf("volume %s organization id missing", volumeID)
 	}
-	labels, err := volumeLabels(volume, volumeID)
+	labels, err := volumeLabels(volume, volumeID, sandboxOwners)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -354,7 +407,7 @@ func sampleWindow(kind, id string, createdAt, lastSampledAt, removedAt *timestam
 	return start.AsTime().UTC(), end, nil
 }
 
-func workloadLabels(workload *runnersv1.Workload, workloadID string) (map[string]string, error) {
+func workloadLabels(workload *runnersv1.Workload, workloadID string, sandboxOwners map[string]string) (map[string]string, error) {
 	runnerID := strings.TrimSpace(workload.GetRunnerId())
 	if runnerID == "" {
 		return nil, fmt.Errorf("workload %s runner id missing", workloadID)
@@ -364,13 +417,13 @@ func workloadLabels(workload *runnersv1.Workload, workloadID string) (map[string
 		labelResourceID: workloadID,
 		labelRunnerID:   runnerID,
 	}
-	if err := applyOwnerLabels(labels, workloadID, workload.GetOwnerKind(), workload.GetOwnerId(), workload.GetAgentId(), workload.GetThreadId()); err != nil {
+	if err := applyOwnerLabels(labels, workloadID, workload.GetOwnerKind(), workload.GetOwnerId(), workload.GetAgentId(), workload.GetThreadId(), sandboxOwners); err != nil {
 		return nil, err
 	}
 	return labels, nil
 }
 
-func volumeLabels(volume *runnersv1.Volume, volumeID string) (map[string]string, error) {
+func volumeLabels(volume *runnersv1.Volume, volumeID string, sandboxOwners map[string]string) (map[string]string, error) {
 	runnerID := strings.TrimSpace(volume.GetRunnerId())
 	if runnerID == "" {
 		return nil, fmt.Errorf("volume %s runner id missing", volumeID)
@@ -380,13 +433,13 @@ func volumeLabels(volume *runnersv1.Volume, volumeID string) (map[string]string,
 		labelResourceID: volumeID,
 		labelRunnerID:   runnerID,
 	}
-	if err := applyOwnerLabels(labels, volumeID, volume.GetOwnerKind(), volume.GetOwnerId(), volume.GetAgentId(), volume.GetThreadId()); err != nil {
+	if err := applyOwnerLabels(labels, volumeID, volume.GetOwnerKind(), volume.GetOwnerId(), volume.GetAgentId(), volume.GetThreadId(), sandboxOwners); err != nil {
 		return nil, err
 	}
 	return labels, nil
 }
 
-func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind runnersv1.RuntimeOwnerKind, ownerID, agentID, threadID string) error {
+func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind runnersv1.RuntimeOwnerKind, ownerID, agentID, threadID string, sandboxOwners map[string]string) error {
 	switch ownerKind {
 	case runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX:
 		sandboxID := strings.TrimSpace(ownerID)
@@ -396,6 +449,9 @@ func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind run
 		labels[labelOwnerKind] = "sandbox"
 		labels[labelSandboxID] = sandboxID
 		labels[labelIdentityID] = sandboxID
+		if sandboxOwnerID := strings.TrimSpace(sandboxOwners[sandboxID]); sandboxOwnerID != "" {
+			labels[labelSandboxOwnerID] = sandboxOwnerID
+		}
 	case runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_UNSPECIFIED,
 		runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE:
 		cleanAgentID := strings.TrimSpace(agentID)

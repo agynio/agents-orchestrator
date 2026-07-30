@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,25 +74,13 @@ func TestNewEnrollsIdentity(t *testing.T) {
 	}
 }
 
-func TestRunLeaseRenewalReEnrollsOnNotFound(t *testing.T) {
+func TestRunLeaseRenewalSignalsIdentityLostOnNotFound(t *testing.T) {
 	resetTestHooks(t)
 	leaseRetryBackoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
 
 	client := &fakeZitiMgmtClient{}
-	var mu sync.Mutex
-	requestCalls := 0
-	reEnrollCh := make(chan struct{}, 1)
 	client.requestServiceIdentity = func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		requestCalls++
-		if requestCalls > 1 {
-			select {
-			case reEnrollCh <- struct{}{}:
-			default:
-			}
-		}
-		return identityResponse(fmt.Sprintf("id-%d", requestCalls)), nil
+		return identityResponse("id-1"), nil
 	}
 	client.extendIdentityLease = func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error) {
 		return nil, status.Error(codes.NotFound, "missing")
@@ -109,65 +97,32 @@ func TestRunLeaseRenewalReEnrollsOnNotFound(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		manager.RunLeaseRenewal(ctx)
-	}()
+	defer cancel()
+	go manager.RunLeaseRenewal(ctx)
+
 	select {
-	case <-reEnrollCh:
-		cancel()
+	case err := <-manager.IdentityLost():
+		if !errors.Is(err, ErrIdentityLost) {
+			t.Fatalf("expected ErrIdentityLost, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "id-1") {
+			t.Fatalf("expected error to name lost identity, got %v", err)
+		}
 	case <-time.After(500 * time.Millisecond):
-		cancel()
-		t.Fatal("expected re-enrollment after lease NotFound")
-	}
-	waitForIdentity(t, manager, "id-2")
-}
-
-func TestNotifyAuthFailureReEnrolls(t *testing.T) {
-	resetTestHooks(t)
-
-	client := &fakeZitiMgmtClient{}
-	requestCalls := 0
-	client.requestServiceIdentity = func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error) {
-		requestCalls++
-		return identityResponse(fmt.Sprintf("id-%d", requestCalls)), nil
-	}
-
-	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
-		return &fakeZitiContext{}, nil
-	}
-	configureZitiContext = func(ziti.Context) error { return nil }
-
-	manager, err := New(context.Background(), client, time.Second, time.Minute)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	manager.NotifyAuthFailure(context.Background())
-	if manager.currentIdentityID() != "id-2" {
-		t.Fatalf("expected re-enrolled identity id-2, got %q", manager.currentIdentityID())
-	}
-	if requestCalls != 2 {
-		t.Fatalf("expected 2 enrollment calls, got %d", requestCalls)
+		t.Fatal("expected IdentityLost signal after lease NotFound")
 	}
 }
 
-func TestNotifyAuthFailureDebounces(t *testing.T) {
+func TestNotifyAuthFailureSignalsIdentityLostWhenGone(t *testing.T) {
 	resetTestHooks(t)
+	leaseRetryBackoff = []time.Duration{time.Millisecond}
 
 	client := &fakeZitiMgmtClient{}
-	requestCalls := 0
-	reEnrollStart := make(chan struct{}, 1)
-	releaseEnroll := make(chan struct{})
 	client.requestServiceIdentity = func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error) {
-		requestCalls++
-		if requestCalls == 1 {
-			return identityResponse("id-1"), nil
-		}
-		select {
-		case reEnrollStart <- struct{}{}:
-		default:
-		}
-		<-releaseEnroll
-		return identityResponse("id-2"), nil
+		return identityResponse("id-1"), nil
+	}
+	client.extendIdentityLease = func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error) {
+		return nil, status.Error(codes.NotFound, "missing")
 	}
 
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
@@ -180,66 +135,31 @@ func TestNotifyAuthFailureDebounces(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	ready := make(chan struct{}, 3)
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ready <- struct{}{}
-			<-start
-			manager.NotifyAuthFailure(context.Background())
-		}()
-	}
-	for i := 0; i < 3; i++ {
-		<-ready
-	}
-	close(start)
+	manager.NotifyAuthFailure(context.Background())
 
 	select {
-	case <-reEnrollStart:
+	case err := <-manager.IdentityLost():
+		if !errors.Is(err, ErrIdentityLost) {
+			t.Fatalf("expected ErrIdentityLost, got %v", err)
+		}
 	case <-time.After(500 * time.Millisecond):
-		close(releaseEnroll)
-		wg.Wait()
-		t.Fatal("expected re-enrollment to start")
-	}
-	close(releaseEnroll)
-	wg.Wait()
-	if requestCalls != 2 {
-		t.Fatalf("expected 2 enrollment calls, got %d", requestCalls)
+		t.Fatal("expected IdentityLost signal after auth failure with missing identity")
 	}
 }
 
-func TestNotifyAuthFailureKeepsContextOnFailure(t *testing.T) {
+func TestNotifyAuthFailureIgnoresTransient(t *testing.T) {
 	resetTestHooks(t)
 
 	client := &fakeZitiMgmtClient{}
-	requestCalls := 0
 	client.requestServiceIdentity = func(context.Context, *zitimgmtv1.RequestServiceIdentityRequest, ...grpc.CallOption) (*zitimgmtv1.RequestServiceIdentityResponse, error) {
-		requestCalls++
-		switch requestCalls {
-		case 1:
-			return identityResponse("id-1"), nil
-		case 2:
-			return nil, status.Error(codes.InvalidArgument, "invalid")
-		case 3:
-			return identityResponse("id-2"), nil
-		default:
-			return nil, errors.New("unexpected enrollment call")
-		}
+		return identityResponse("id-1"), nil
+	}
+	client.extendIdentityLease = func(context.Context, *zitimgmtv1.ExtendIdentityLeaseRequest, ...grpc.CallOption) (*zitimgmtv1.ExtendIdentityLeaseResponse, error) {
+		return &zitimgmtv1.ExtendIdentityLeaseResponse{}, nil
 	}
 
-	closed := 0
-	ctxCalls := 0
-	ctx1 := &fakeZitiContext{closeFunc: func() { closed++ }}
-	ctx2 := &fakeZitiContext{}
 	newZitiContext = func(*ziti.Config) (ziti.Context, error) {
-		ctxCalls++
-		if ctxCalls == 1 {
-			return ctx1, nil
-		}
-		return ctx2, nil
+		return &fakeZitiContext{}, nil
 	}
 	configureZitiContext = func(ziti.Context) error { return nil }
 
@@ -249,25 +169,11 @@ func TestNotifyAuthFailureKeepsContextOnFailure(t *testing.T) {
 	}
 
 	manager.NotifyAuthFailure(context.Background())
-	if manager.zitiCtx != ctx1 {
-		t.Fatal("expected context to remain after failed re-enroll")
-	}
-	if manager.identityID != "id-1" {
-		t.Fatalf("expected identity id to remain id-1, got %q", manager.identityID)
-	}
-	if closed != 0 {
-		t.Fatalf("expected old context to remain open, closed %d", closed)
-	}
 
-	manager.NotifyAuthFailure(context.Background())
-	if manager.zitiCtx != ctx2 {
-		t.Fatal("expected context to swap after successful re-enroll")
-	}
-	if manager.identityID != "id-2" {
-		t.Fatalf("expected identity id to update to id-2, got %q", manager.identityID)
-	}
-	if closed != 1 {
-		t.Fatalf("expected old context to close after swap, closed %d", closed)
+	select {
+	case err := <-manager.IdentityLost():
+		t.Fatalf("expected no identity loss on transient auth failure, got %v", err)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -374,13 +280,12 @@ func TestDialContextUsesCurrentContext(t *testing.T) {
 		t.Fatalf("expected dial with ctx-1, got %q", first)
 	}
 
-	manager.NotifyAuthFailure(context.Background())
 	if _, err := manager.DialContext(context.Background(), "service-b"); err != nil {
-		t.Fatalf("DialContext after re-enroll: %v", err)
+		t.Fatalf("DialContext second: %v", err)
 	}
 	second := <-dialedCh
-	if second != "ctx-2" {
-		t.Fatalf("expected dial with ctx-2, got %q", second)
+	if second != "ctx-1" {
+		t.Fatalf("expected dial with current context ctx-1, got %q", second)
 	}
 }
 

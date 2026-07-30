@@ -114,6 +114,11 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		go func() {
+			if err := <-manager.IdentityLost(); err != nil {
+				log.Fatalf("terminating: %v", err)
+			}
+		}()
 		go manager.RunLeaseRenewal(ctx)
 		runnerDialer = runnerdial.NewDialer(manager)
 	} else {
@@ -144,7 +149,7 @@ func run() error {
 		defer closeConn(groupsConn)
 		groupsClient = groupsv1.NewGroupsServiceClient(groupsConn)
 	}
-	subscriber := subscriber.New(notificationsClient, agentsClient)
+	subscriber := subscriber.NewWithSandboxOrganizations(notificationsClient, agentsClient, cfg.SandboxReconcileOrganizationIDs)
 	egressCANamespace, err := k8sclient.ResolveNamespace(cfg.EgressCANamespace, "egress CA")
 	if err != nil {
 		return err
@@ -172,13 +177,13 @@ func run() error {
 		Metering:                        meteringClient,
 		Assembler:                       assembler,
 		Wake:                            subscriber.Wake(),
+		SandboxWake:                     subscriber.SandboxWake(),
 		Poll:                            cfg.PollInterval,
 		WorkloadReconcileInterval:       cfg.WorkloadReconcileInterval,
 		Idle:                            cfg.IdleTimeout,
 		StopSec:                         cfg.StopTimeoutSec,
 		MeteringSampleInterval:          cfg.MeteringSampleInterval,
 		SandboxReconcileOrganizationIDs: append([]string(nil), cfg.SandboxReconcileOrganizationIDs...),
-		SandboxReconcileEnabled:         cfg.SandboxReconcileEnabled,
 	})
 
 	start := func(leadCtx context.Context) {

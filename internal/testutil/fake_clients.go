@@ -24,6 +24,7 @@ type FakeAgentsClient struct {
 	ListMcpsFunc                       func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
 	ListHooksFunc                      func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error)
 	GetVolumeFunc                      func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
+	GetSandboxFunc                     func(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error)
 	ListSandboxesFunc                  func(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
 	UpdateSandboxRuntimeStateFunc      func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)
 	DeleteSandboxFunc                  func(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error)
@@ -352,6 +353,13 @@ func (f *FakeAgentsClient) AckInboxItems(context.Context, *agentsv1.AckInboxItem
 func (f *FakeAgentsClient) GetEnvironment(ctx context.Context, req *agentsv1.GetEnvironmentRequest, opts ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
 	if f.GetEnvironmentFunc != nil {
 		return f.GetEnvironmentFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) GetSandbox(ctx context.Context, req *agentsv1.GetSandboxRequest, opts ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error) {
+	if f.GetSandboxFunc != nil {
+		return f.GetSandboxFunc(ctx, req, opts...)
 	}
 	return nil, ErrNotImplemented
 }

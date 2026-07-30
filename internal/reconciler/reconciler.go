@@ -36,7 +36,7 @@ type Reconciler struct {
 	groups                          groupsClient
 	assembler                       *assembler.Assembler
 	wake                            <-chan struct{}
-	sandboxReconcileEnabled         bool
+	sandboxWake                     <-chan struct{}
 	poll                            time.Duration
 	workloadReconcileInterval       time.Duration
 	idle                            time.Duration
@@ -54,12 +54,12 @@ type Config struct {
 	Groups                          groupsClient
 	Assembler                       *assembler.Assembler
 	Wake                            <-chan struct{}
+	SandboxWake                     <-chan struct{}
 	Poll                            time.Duration
 	WorkloadReconcileInterval       time.Duration
 	Idle                            time.Duration
 	StopSec                         uint32
 	MeteringSampleInterval          time.Duration
-	SandboxReconcileEnabled         bool
 }
 
 func New(cfg Config) *Reconciler {
@@ -71,11 +71,11 @@ func New(cfg Config) *Reconciler {
 		runners:                         cfg.Runners,
 		metering:                        cfg.Metering,
 		meteringSampleInterval:          cfg.MeteringSampleInterval,
-		sandboxReconcileEnabled:         cfg.SandboxReconcileEnabled,
 		zitiMgmt:                        cfg.ZitiMgmt,
 		groups:                          cfg.Groups,
 		assembler:                       cfg.Assembler,
 		wake:                            cfg.Wake,
+		sandboxWake:                     cfg.SandboxWake,
 		poll:                            cfg.Poll,
 		workloadReconcileInterval:       cfg.WorkloadReconcileInterval,
 		idle:                            cfg.Idle,
@@ -91,9 +91,7 @@ func (r *Reconciler) Run(ctx context.Context) error {
 		return fmt.Errorf("metering sample interval must be greater than 0")
 	}
 	go r.runWorkloadReconcileLoop(ctx)
-	if r.sandboxReconcileEnabled {
-		go r.runSandboxReconcileLoop(ctx)
-	}
+	go r.runSandboxReconcileLoop(ctx)
 	go r.runVolumeReconcileLoop(ctx)
 	go r.runMeteringSampleLoop(ctx)
 

@@ -29,6 +29,20 @@ type volumeTTLInfo struct {
 	ttl        *time.Duration
 }
 
+// volumeIdentityID resolves the identity used to talk to the runner about a
+// volume. Sandbox-owned volumes carry no agent id; they are addressed by the
+// sandbox that owns them, matching the sandbox workload path.
+func volumeIdentityID(volume *runnersv1.Volume) string {
+	if volume.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
+		return strings.TrimSpace(volume.GetOwnerId())
+	}
+	return strings.TrimSpace(volume.GetAgentId())
+}
+
+func isSandboxVolume(volume *runnersv1.Volume) bool {
+	return volume.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX
+}
+
 func runnerIdentityForVolumes(runnerID string, runnerOrganizationID string, orgIdentities map[string]string, volumes map[string]*runnersv1.Volume) (string, error) {
 	orgID := strings.TrimSpace(runnerOrganizationID)
 	if orgID != "" {
@@ -43,9 +57,9 @@ func runnerIdentityForVolumes(runnerID string, runnerOrganizationID string, orgI
 	}
 	var identityID string
 	for volumeID, volume := range volumes {
-		volumeIdentityID := strings.TrimSpace(volume.GetAgentId())
+		volumeIdentityID := volumeIdentityID(volume)
 		if volumeIdentityID == "" {
-			return "", fmt.Errorf("volume %s missing agent id", volumeID)
+			return "", fmt.Errorf("volume %s missing owner identity", volumeID)
 		}
 		if identityID == "" {
 			identityID = volumeIdentityID
@@ -79,9 +93,9 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			log.Printf("reconciler: warn: volume %s missing runner id", volume.GetMeta().GetId())
 			continue
 		}
-		identityID := strings.TrimSpace(volume.GetAgentId())
+		identityID := volumeIdentityID(volume)
 		if identityID == "" {
-			return fmt.Errorf("volume %s missing agent id", volume.GetMeta().GetId())
+			return fmt.Errorf("volume %s missing owner identity", volume.GetMeta().GetId())
 		}
 		volumeID := volume.GetMeta().GetId()
 		if volumeID == "" {
@@ -140,12 +154,15 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
 			for volumeID, volume := range trackedVolumes {
-				volumeCtx, err := runnerIdentityContext(ctx, volume.GetAgentId())
+				volumeCtx, err := runnerIdentityContext(ctx, volumeIdentityID(volume))
 				if err != nil {
 					return err
 				}
 				if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s on unenrolled runner: %v", volumeID, err)
+				}
+				if isSandboxVolume(volume) {
+					continue
 				}
 				r.degradeThread(volumeCtx, volume.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
 			}
@@ -194,7 +211,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 
 		for volumeID, volume := range trackedVolumes {
-			volumeCtx, err := runnerIdentityContext(ctx, volume.GetAgentId())
+			volumeCtx, err := runnerIdentityContext(ctx, volumeIdentityID(volume))
 			if err != nil {
 				return err
 			}
@@ -204,7 +221,15 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 					log.Printf("reconciler: warn: handle missing volume %s: %v", volumeID, err)
 				}
 				if volume.GetStatus() == runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
-					r.degradeThread(volumeCtx, volume.GetThreadId(), degradeReasonVolumeLost, degraded)
+					if isSandboxVolume(volume) {
+						// No agent instance stands behind a sandbox: a lost workspace
+						// PVC fails the sandbox itself.
+						if err := r.markSandboxFailed(ctx, volume.GetOwnerId()); err != nil {
+							log.Printf("reconciler: warn: fail sandbox %s after lost workspace volume %s: %v", volume.GetOwnerId(), volumeID, err)
+						}
+					} else {
+						r.degradeThread(volumeCtx, volume.GetThreadId(), degradeReasonVolumeLost, degraded)
+					}
 				}
 				continue
 			}
@@ -261,16 +286,6 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 			}
 			if meta.GetId() == "" {
 				return nil, nil, fmt.Errorf("volume meta id missing")
-			}
-			if volume.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
-				runnerID := strings.TrimSpace(volume.GetRunnerId())
-				if runnerID != "" {
-					if ignoredVolumeKeysByRunner[runnerID] == nil {
-						ignoredVolumeKeysByRunner[runnerID] = map[string]struct{}{}
-					}
-					ignoredVolumeKeysByRunner[runnerID][meta.GetId()] = struct{}{}
-				}
-				continue
 			}
 			orgID := strings.TrimSpace(volume.GetOrganizationId())
 			if orgID == "" {
@@ -342,6 +357,11 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 			}); err != nil {
 				return err
 			}
+		}
+		if isSandboxVolume(volume) {
+			// The workspace volume lives and dies with its sandbox: it must survive
+			// idle stops and reconnects, so it has no independent TTL.
+			return nil
 		}
 		expired, err := r.volumeTTLExpired(ctx, volume, volumeInfoCache, threadCache)
 		if err != nil {

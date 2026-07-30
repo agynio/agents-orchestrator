@@ -20,11 +20,15 @@ var (
 	retryInitialBackoff = 1 * time.Second
 	retryMaxBackoff     = 15 * time.Second
 	leaseRetryBackoff   = []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
-	reEnrollCooldown    = 200 * time.Millisecond
 
 	newZitiContext       = ziti.NewContext
 	configureZitiContext = configureZitiClientContext
 )
+
+// ErrIdentityLost reports that the orchestrator's OpenZiti identity no longer
+// exists (garbage-collected while the pod was running). Recovery is a pod
+// restart: a fresh pod enrolls a fresh identity.
+var ErrIdentityLost = errors.New("ziti identity lost")
 
 type ZitiManager struct {
 	mu              sync.RWMutex
@@ -33,13 +37,9 @@ type ZitiManager struct {
 	mgmtClient      zitimgmtv1.ZitiManagementServiceClient
 	renewalInterval time.Duration
 	enrollTimeout   time.Duration
-	parentCtx       context.Context
 
-	reEnrollMu sync.Mutex
-	reEnrollCh chan error
-
-	lastReEnrollAt  time.Time
-	lastReEnrollErr error
+	lostOnce sync.Once
+	lostCh   chan error
 }
 
 func New(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, enrollTimeout, renewalInterval time.Duration) (*ZitiManager, error) {
@@ -59,7 +59,7 @@ func New(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, enr
 		mgmtClient:      client,
 		renewalInterval: renewalInterval,
 		enrollTimeout:   enrollTimeout,
-		parentCtx:       ctx,
+		lostCh:          make(chan error, 1),
 	}
 	enrollCtx, cancel := context.WithTimeout(ctx, enrollTimeout)
 	defer cancel()
@@ -72,6 +72,21 @@ func New(ctx context.Context, client zitimgmtv1.ZitiManagementServiceClient, enr
 	return manager, nil
 }
 
+// IdentityLost is signalled once, with an error wrapping ErrIdentityLost, when
+// the orchestrator's identity is found to be gone (definitive NOT_FOUND from
+// the lease extension, or an auth failure confirmed to be identity loss). The
+// caller must log the error and terminate so the pod restart path enrolls a
+// fresh identity.
+func (m *ZitiManager) IdentityLost() <-chan error {
+	return m.lostCh
+}
+
+func (m *ZitiManager) signalIdentityLost(err error) {
+	m.lostOnce.Do(func() {
+		m.lostCh <- err
+	})
+}
+
 func (m *ZitiManager) DialContext(ctx context.Context, service string) (edge.Conn, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -81,10 +96,21 @@ func (m *ZitiManager) DialContext(ctx context.Context, service string) (edge.Con
 	return m.zitiCtx.DialContext(ctx, service)
 }
 
+// NotifyAuthFailure is called by the dial path when a dial is rejected for
+// authentication reasons. It confirms whether the identity is truly gone by
+// attempting a lease extension; a definitive NOT_FOUND signals identity loss.
+// A transient auth failure (identity still present) is logged and ignored.
 func (m *ZitiManager) NotifyAuthFailure(ctx context.Context) {
-	waitCtx := m.effectiveContext(ctx)
-	if err := m.triggerReEnroll(waitCtx); err != nil && waitCtx.Err() == nil {
-		log.Printf("ziti re-enroll after auth failure failed: %v", err)
+	err := m.extendLeaseWithRetry(ctx)
+	if err == nil {
+		return
+	}
+	if isNotFoundGrpcError(err) {
+		m.signalIdentityLost(fmt.Errorf("%w: identity %s no longer exists (auth failure): %v", ErrIdentityLost, m.currentIdentityID(), err))
+		return
+	}
+	if ctx.Err() == nil {
+		log.Printf("ziti auth failure check for identity %s: %v", m.currentIdentityID(), err)
 	}
 }
 
@@ -103,15 +129,14 @@ func (m *ZitiManager) RunLeaseRenewal(ctx context.Context) {
 			if err == nil {
 				continue
 			}
+			if ctx.Err() != nil {
+				return
+			}
 			if isNotFoundGrpcError(err) {
-				if err := m.triggerReEnroll(ctx); err != nil && ctx.Err() == nil {
-					log.Printf("ziti lease renewal re-enroll failed: %v", err)
-				}
-				continue
+				m.signalIdentityLost(fmt.Errorf("%w: identity %s no longer exists: %v", ErrIdentityLost, m.currentIdentityID(), err))
+				return
 			}
-			if ctx.Err() == nil {
-				log.Printf("failed to extend ziti lease: %v", err)
-			}
+			log.Printf("failed to extend ziti lease for identity %s: %v", m.currentIdentityID(), err)
 		}
 	}
 }
@@ -148,74 +173,6 @@ func (m *ZitiManager) currentIdentityID() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.identityID
-}
-
-func (m *ZitiManager) triggerReEnroll(ctx context.Context) error {
-	waitCtx := m.effectiveContext(ctx)
-	enrollCtx := m.parentCtx
-	if enrollCtx == nil {
-		enrollCtx = waitCtx
-	}
-	ch, started := m.startReEnroll()
-	if !started {
-		return waitForReEnroll(waitCtx, ch)
-	}
-	err := m.reEnroll(enrollCtx)
-	m.finishReEnroll(ch, err)
-	return err
-}
-
-func (m *ZitiManager) startReEnroll() (chan error, bool) {
-	m.reEnrollMu.Lock()
-	defer m.reEnrollMu.Unlock()
-	if m.reEnrollCh != nil {
-		return m.reEnrollCh, false
-	}
-	if m.lastReEnrollErr == nil && !m.lastReEnrollAt.IsZero() {
-		if time.Since(m.lastReEnrollAt) < reEnrollCooldown {
-			ch := make(chan error, 1)
-			ch <- m.lastReEnrollErr
-			close(ch)
-			return ch, false
-		}
-	}
-	ch := make(chan error, 1)
-	m.reEnrollCh = ch
-	return ch, true
-}
-
-func (m *ZitiManager) finishReEnroll(ch chan error, err error) {
-	m.reEnrollMu.Lock()
-	if m.reEnrollCh == ch {
-		m.reEnrollCh = nil
-		m.lastReEnrollAt = time.Now()
-		m.lastReEnrollErr = err
-	}
-	m.reEnrollMu.Unlock()
-	if ch != nil {
-		ch <- err
-		close(ch)
-	}
-}
-
-func (m *ZitiManager) reEnroll(ctx context.Context) error {
-	enrollCtx, cancel := context.WithTimeout(ctx, m.enrollTimeout)
-	defer cancel()
-	zitiCtx, identityID, err := m.enroll(enrollCtx)
-	if err != nil {
-		return err
-	}
-
-	m.mu.Lock()
-	oldCtx := m.zitiCtx
-	m.zitiCtx = zitiCtx
-	m.identityID = identityID
-	m.mu.Unlock()
-
-	if oldCtx != nil {
-		oldCtx.Close()
-	}
-	return nil
 }
 
 func (m *ZitiManager) enroll(ctx context.Context) (ziti.Context, string, error) {
@@ -312,31 +269,6 @@ func isRetryableGrpcError(err error) bool {
 func isNotFoundGrpcError(err error) bool {
 	statusErr, ok := status.FromError(err)
 	return ok && statusErr.Code() == codes.NotFound
-}
-
-func (m *ZitiManager) effectiveContext(ctx context.Context) context.Context {
-	if ctx != nil {
-		return ctx
-	}
-	if m.parentCtx != nil {
-		return m.parentCtx
-	}
-	return context.Background()
-}
-
-func waitForReEnroll(ctx context.Context, ch <-chan error) error {
-	if ch == nil {
-		return nil
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err, ok := <-ch:
-		if !ok {
-			return nil
-		}
-		return err
-	}
 }
 
 func waitWithContext(ctx context.Context, delay time.Duration) error {
