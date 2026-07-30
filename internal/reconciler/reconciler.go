@@ -247,6 +247,21 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 			return
 		}
 		selectedRunner = runner
+	} else if assembled.RunnerID != "" {
+		// An agent with an environment is placed on the environment's runner
+		// instead of by labels and capabilities. A thread that already has
+		// volumes keeps its pin above: the agent's state physically lives on
+		// that runner and cannot be moved by picking a different one.
+		runner, enrolled, err := r.getRunnerIfEnrolled(runnerCtx, assembled.RunnerID)
+		if err != nil {
+			log.Printf("reconciler: get environment runner %s for agent %s thread %s: %v", assembled.RunnerID, target.AgentID.String(), target.ThreadID.String(), err)
+			return
+		}
+		if !enrolled {
+			log.Printf("reconciler: environment runner %s is not enrolled for agent %s thread %s", assembled.RunnerID, target.AgentID.String(), target.ThreadID.String())
+			return
+		}
+		selectedRunner = runner
 	} else {
 		selectedRunner, err = r.selectRunner(ctx, assembled.OrganizationID, assembled.RunnerLabels, assembled.Request.GetCapabilities())
 		if err != nil {

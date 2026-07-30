@@ -14,6 +14,7 @@ import (
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
+	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/testutil"
@@ -2216,5 +2217,211 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	}
 	if strings.Contains(zitiSidecarScript, ZitiEnrollmentTokenEnvVar) {
 		t.Fatalf("expected sidecar script not to consume %s", ZitiEnrollmentTokenEnvVar)
+	}
+}
+
+const (
+	testAgentInlineImage         = "agent-image"
+	testAgentEnvironmentImage    = "environment-image"
+	testAgentEnvironmentFlavor   = "ram-2gb"
+	testAgentEnvironmentRunnerID = "runner-environment"
+)
+
+type agentEnvironmentFixture struct {
+	agentID       uuid.UUID
+	threadID      uuid.UUID
+	environmentID uuid.UUID
+	agent         *agentsv1.Agent
+	agents        *testutil.FakeAgentsClient
+	runners       *fakeRunnersClient
+	secrets       *testutil.FakeSecretsClient
+	cfg           *config.Config
+}
+
+func newAgentEnvironmentFixture() *agentEnvironmentFixture {
+	agentID := uuid.New()
+	environmentID := uuid.New()
+	fixture := &agentEnvironmentFixture{
+		agentID:       agentID,
+		threadID:      uuid.New(),
+		environmentID: environmentID,
+		secrets:       &testutil.FakeSecretsClient{},
+		cfg: &config.Config{
+			AgentGatewayAddress: "gateway:50051",
+			AgentLLMBaseURL:     "http://llm:8080/v1",
+		},
+	}
+	fixture.agent = &agentsv1.Agent{
+		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+		OrganizationId: "org-1",
+		Name:           "assistant",
+		Image:          testAgentInlineImage,
+		InitImage:      "agent-init-image",
+		EnvironmentId:  environmentID.String(),
+	}
+	fixture.agents = &testutil.FakeAgentsClient{
+		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				return nil, errors.New("unexpected agent id")
+			}
+			return &agentsv1.GetAgentResponse{Agent: fixture.agent}, nil
+		},
+		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+			if req.GetId() != environmentID.String() {
+				return nil, errors.New("unexpected environment id")
+			}
+			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{
+				Meta:           &agentsv1.EntityMeta{Id: environmentID.String()},
+				OrganizationId: "org-1",
+				Name:           "shared-runtime",
+				Image:          testAgentEnvironmentImage,
+				RunnerId:       testAgentEnvironmentRunnerID,
+				Flavor:         testAgentEnvironmentFlavor,
+			}}, nil
+		},
+		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		ListVolumeAttachmentsFunc: func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		ListMcpsFunc: func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		ListHooksFunc: func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+	fixture.runners = &fakeRunnersClient{
+		listFlavors: func(_ context.Context, req *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			if req.GetRunnerId() != testAgentEnvironmentRunnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: testAgentEnvironmentRunnerID, Name: "other", Default: true},
+				{RunnerId: testAgentEnvironmentRunnerID, Name: testAgentEnvironmentFlavor},
+			}}, nil
+		},
+	}
+	return fixture
+}
+
+func (f *agentEnvironmentFixture) assemble(t *testing.T) *AssembleResult {
+	t.Helper()
+	assembler := NewWithRunners(f.agents, f.runners, f.secrets, f.cfg)
+	result, err := assembler.Assemble(context.Background(), f.agentID, f.threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	return result
+}
+
+func TestAssemblerUsesEnvironmentImageAndRunner(t *testing.T) {
+	fixture := newAgentEnvironmentFixture()
+	result := fixture.assemble(t)
+
+	main := result.Request.GetMain()
+	if main == nil {
+		t.Fatal("expected main container")
+	}
+	if main.GetImage() != testAgentEnvironmentImage {
+		t.Fatalf("expected environment image %q, got %q", testAgentEnvironmentImage, main.GetImage())
+	}
+	if result.RunnerID != testAgentEnvironmentRunnerID {
+		t.Fatalf("expected environment runner %q, got %q", testAgentEnvironmentRunnerID, result.RunnerID)
+	}
+	// The init image stays the agent's: an environment supplies the runtime an
+	// agent runs in, not the bootstrap that seeds it.
+	initContainer := testutil.FindInitContainer(result.Request.GetInitContainers(), "agent-init")
+	if initContainer == nil || initContainer.GetImage() != "agent-init-image" {
+		t.Fatalf("expected the agent's init image, got %+v", initContainer)
+	}
+}
+
+func TestAssemblerWithoutEnvironmentKeepsAgentImageAndPlacement(t *testing.T) {
+	fixture := newAgentEnvironmentFixture()
+	fixture.agent.EnvironmentId = ""
+	// Agents predating environments must not reach for one at all.
+	fixture.agents.GetEnvironmentFunc = func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+		return nil, errors.New("unexpected environment lookup")
+	}
+	fixture.agents.ListEnvsFunc = func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+		if req.GetEnvironmentId() != "" {
+			return nil, errors.New("unexpected environment-scoped env listing")
+		}
+		return &agentsv1.ListEnvsResponse{}, nil
+	}
+	fixture.agents.ListImagePullSecretAttachmentsFunc = func(_ context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+		if req.GetEnvironmentId() != "" {
+			return nil, errors.New("unexpected environment-scoped image pull secret listing")
+		}
+		return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+	}
+	fixture.runners.listFlavors = func(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+		return nil, errors.New("unexpected flavor lookup")
+	}
+
+	result := fixture.assemble(t)
+
+	if result.Request.GetMain().GetImage() != testAgentInlineImage {
+		t.Fatalf("expected the agent's inline image %q, got %q", testAgentInlineImage, result.Request.GetMain().GetImage())
+	}
+	// An empty runner id is what keeps these agents on label and capability
+	// selection in the reconciler.
+	if result.RunnerID != "" {
+		t.Fatalf("expected no environment runner, got %q", result.RunnerID)
+	}
+}
+
+func TestAssemblerInheritsEnvironmentEnvsAndImagePullSecrets(t *testing.T) {
+	fixture := newAgentEnvironmentFixture()
+	environmentSecretID := uuid.NewString()
+	fixture.agents.ListEnvsFunc = func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+		switch {
+		case req.GetAgentId() == fixture.agentID.String():
+			return &agentsv1.ListEnvsResponse{Envs: []*agentsv1.Env{
+				{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "AGENT_ONLY", Source: &agentsv1.Env_Value{Value: "agent-only"}},
+				{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "SHARED", Source: &agentsv1.Env_Value{Value: "from-agent"}},
+			}}, nil
+		case req.GetEnvironmentId() == fixture.environmentID.String():
+			return &agentsv1.ListEnvsResponse{Envs: []*agentsv1.Env{
+				{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "ENVIRONMENT_ONLY", Source: &agentsv1.Env_Value{Value: "environment-only"}},
+				{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "SHARED", Source: &agentsv1.Env_Value{Value: "from-environment"}},
+			}}, nil
+		}
+		return &agentsv1.ListEnvsResponse{}, nil
+	}
+	fixture.agents.ListImagePullSecretAttachmentsFunc = func(_ context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+		if req.GetEnvironmentId() == fixture.environmentID.String() {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{
+				{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, ImagePullSecretId: environmentSecretID},
+			}}, nil
+		}
+		return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+	}
+	fixture.secrets.ResolveImagePullSecretFunc = func(_ context.Context, req *secretsv1.ResolveImagePullSecretRequest, _ ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
+		if req.GetId() != environmentSecretID {
+			return nil, errors.New("unexpected image pull secret id")
+		}
+		return &secretsv1.ResolveImagePullSecretResponse{Registry: "registry.example.com", Username: "robot", Password: "token"}, nil
+	}
+
+	result := fixture.assemble(t)
+
+	envs := envMap(result.Request.GetMain().GetEnv())
+	assertEnv(t, envs, "ENVIRONMENT_ONLY", "environment-only")
+	assertEnv(t, envs, "AGENT_ONLY", "agent-only")
+	// The agent's own value is the more specific of the two, so it wins.
+	assertEnv(t, envs, "SHARED", "from-agent")
+
+	credentials := result.Request.GetImagePullCredentials()
+	if len(credentials) != 1 {
+		t.Fatalf("expected 1 image pull credential, got %d", len(credentials))
+	}
+	if credentials[0].GetRegistry() != "registry.example.com" || credentials[0].GetUsername() != "robot" || credentials[0].GetPassword() != "token" {
+		t.Fatalf("unexpected image pull credential: %v", credentials[0])
 	}
 }
