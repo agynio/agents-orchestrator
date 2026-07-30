@@ -15,14 +15,11 @@ on:
         required: false
         default: main
 
-# The run-tests action supplies an init image for anything left unset, and that
-# default is where the e2e repo lands its fixes. Pinning one here silently opts
-# out of them, so only pin what this service deliberately runs ahead of.
+# Init images are resolved to the newest published release by the run-tests
+# action. Pinning one here opts this workflow out of every fix shipped after it.
 env:
   BOOTSTRAP_REF: main
   K8S_RUNNER_REF: main
-  AGN_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
-  AGN_EXPOSE_INIT_IMAGE: ghcr.io/agynio/agent-init-agn:0.5.6
 
 permissions:
   contents: read
