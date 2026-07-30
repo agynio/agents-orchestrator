@@ -32,6 +32,7 @@ const (
 	testAgentIDAlt             = "33333333-3333-3333-3333-333333333333"
 	testAllocatedCPUMillicores = int32(500)
 	testAllocatedRAMBytes      = int64(1 << 30)
+	testEnvironmentImage       = "environment-image"
 )
 
 var errNotImplemented = errors.New("not implemented")
@@ -476,6 +477,186 @@ func TestStartWorkloadDegradesWhenPinnedRunnerNotEnrolled(t *testing.T) {
 	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
 
 	if !reflect.DeepEqual(calls, []string{"list-volumes", "get-runner", "degrade"}) {
+		t.Fatalf("unexpected call order: %v", calls)
+	}
+}
+
+func TestStartWorkloadPlacesEnvironmentAgentOnEnvironmentRunner(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	environmentID := uuid.New()
+	environmentRunnerID := "runner-environment"
+	mainContainerID := "container-main"
+	testAssembler := newTestEnvironmentAssembler(agentID, environmentID, environmentRunnerID)
+
+	var calls []string
+	runner := &fakeRunnerClient{
+		startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
+			calls = append(calls, "start")
+			if req.GetMain().GetImage() != testEnvironmentImage {
+				return nil, errors.New("unexpected main image")
+			}
+			return &runnerv1.StartWorkloadResponse{
+				Id:     req.GetWorkloadId(),
+				Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				Containers: &runnerv1.WorkloadContainers{
+					Main: mainContainerID,
+				},
+			}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != environmentRunnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+
+	runners := &fakeRunnersClient{
+		listVolumesByThread: func(_ context.Context, req *runnersv1.ListVolumesByThreadRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error) {
+			calls = append(calls, "list-volumes")
+			if req.GetThreadId() != threadID.String() {
+				return nil, errors.New("unexpected thread id")
+			}
+			return &runnersv1.ListVolumesByThreadResponse{}, nil
+		},
+		getRunner: func(_ context.Context, req *runnersv1.GetRunnerRequest, _ ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
+			calls = append(calls, "get-runner")
+			if req.GetId() != environmentRunnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.GetRunnerResponse{Runner: buildRunner(environmentRunnerID)}, nil
+		},
+		createWorkload: func(_ context.Context, req *runnersv1.CreateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
+			calls = append(calls, "create-workload")
+			if req.GetRunnerId() != environmentRunnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.CreateWorkloadResponse{}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			calls = append(calls, "update-workload")
+			if req.GetInstanceId() == "" {
+				return nil, errors.New("missing instance id")
+			}
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+		listRunners: func(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return nil, errors.New("unexpected list runners")
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Assembler:    testAssembler,
+	})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
+
+	// No list-runners: the environment's runner replaces label and capability
+	// selection for an unpinned thread.
+	if !reflect.DeepEqual(calls, []string{"list-volumes", "get-runner", "dial", "create-workload", "start", "update-workload"}) {
+		t.Fatalf("unexpected call order: %v", calls)
+	}
+}
+
+func TestStartWorkloadKeepsPinnedRunnerWhenEnvironmentNamesAnother(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	environmentID := uuid.New()
+	environmentRunnerID := "runner-environment"
+	pinnedRunnerID := "runner-pinned"
+	volumeKey := "volume-1"
+	mainContainerID := "container-main"
+	testAssembler := newTestEnvironmentAssembler(agentID, environmentID, environmentRunnerID)
+
+	var calls []string
+	threads := &fakeThreadsClient{
+		degradeThread: func(context.Context, *threadsv1.DegradeThreadRequest, ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error) {
+			calls = append(calls, "degrade")
+			return &threadsv1.DegradeThreadResponse{}, nil
+		},
+	}
+	runner := &fakeRunnerClient{
+		startWorkload: func(_ context.Context, req *runnerv1.StartWorkloadRequest, _ ...grpc.CallOption) (*runnerv1.StartWorkloadResponse, error) {
+			calls = append(calls, "start")
+			return &runnerv1.StartWorkloadResponse{
+				Id:     req.GetWorkloadId(),
+				Status: runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				Containers: &runnerv1.WorkloadContainers{
+					Main: mainContainerID,
+				},
+			}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, id string) (runnerv1.RunnerServiceClient, error) {
+			calls = append(calls, "dial")
+			if id != pinnedRunnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return runner, nil
+		},
+	}
+
+	runners := &fakeRunnersClient{
+		listVolumesByThread: func(_ context.Context, req *runnersv1.ListVolumesByThreadRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesByThreadResponse, error) {
+			calls = append(calls, "list-volumes")
+			if req.GetThreadId() != threadID.String() {
+				return nil, errors.New("unexpected thread id")
+			}
+			return &runnersv1.ListVolumesByThreadResponse{Volumes: []*runnersv1.Volume{
+				{
+					Meta:     &runnersv1.EntityMeta{Id: volumeKey},
+					RunnerId: pinnedRunnerID,
+					Status:   runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+					ThreadId: threadID.String(),
+					VolumeId: "volume-id",
+				},
+			}}, nil
+		},
+		getRunner: func(_ context.Context, req *runnersv1.GetRunnerRequest, _ ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
+			calls = append(calls, "get-runner")
+			if req.GetId() != pinnedRunnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.GetRunnerResponse{Runner: buildRunner(pinnedRunnerID)}, nil
+		},
+		createWorkload: func(_ context.Context, req *runnersv1.CreateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.CreateWorkloadResponse, error) {
+			calls = append(calls, "create-workload")
+			if req.GetRunnerId() != pinnedRunnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.CreateWorkloadResponse{}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			calls = append(calls, "update-workload")
+			if req.GetInstanceId() == "" {
+				return nil, errors.New("missing instance id")
+			}
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+		listRunners: func(context.Context, *runnersv1.ListRunnersRequest, ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return nil, errors.New("unexpected list runners")
+		},
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Threads:      threads,
+		Assembler:    testAssembler,
+	})
+	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
+
+	// The pin wins over the environment's runner and is not a fault: the agent's
+	// state volume physically lives on the pinned runner, so nothing degrades.
+	if !reflect.DeepEqual(calls, []string{"list-volumes", "get-runner", "dial", "create-workload", "start", "update-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
 }
@@ -1611,6 +1792,81 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 		ZitiRuntimeControllerPort:           "443",
 	}
 	return assembler.New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
+}
+
+// newTestEnvironmentAssembler builds an assembler for an agent that runs in an
+// environment: its image and runner come from the environment rather than from
+// the agent's own deprecated inline image and label-based placement.
+func newTestEnvironmentAssembler(agentID, environmentID uuid.UUID, runnerID string) *assembler.Assembler {
+	agentsClient := &testutil.FakeAgentsClient{
+		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			if req.GetId() != agentID.String() {
+				return nil, errors.New("unexpected agent id")
+			}
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{
+				Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+				OrganizationId: testOrganizationID,
+				Image:          "agent-image",
+				InitImage:      "agent-init-image",
+				EnvironmentId:  environmentID.String(),
+				Resources: &agentsv1.ComputeResources{
+					RequestsCpu:    "500m",
+					RequestsMemory: "1Gi",
+				},
+			}}, nil
+		},
+		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+			if req.GetId() != environmentID.String() {
+				return nil, errors.New("unexpected environment id")
+			}
+			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{
+				Meta:           &agentsv1.EntityMeta{Id: environmentID.String()},
+				OrganizationId: testOrganizationID,
+				Name:           "shared-runtime",
+				Image:          testEnvironmentImage,
+				RunnerId:       runnerID,
+			}}, nil
+		},
+		ListSkillsFunc: func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		ListInitScriptsFunc: func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
+			return &agentsv1.ListInitScriptsResponse{}, nil
+		},
+		ListVolumeAttachmentsFunc: func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		},
+		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
+		},
+		ListMcpsFunc: func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{}, nil
+		},
+		ListHooksFunc: func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
+			return &agentsv1.ListHooksResponse{}, nil
+		},
+	}
+
+	// The environment names no flavor, so it takes the runner's default.
+	runnersClient := &fakeRunnersClient{
+		listFlavors: func(_ context.Context, req *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			if req.GetRunnerId() != runnerID {
+				return nil, errors.New("unexpected runner id")
+			}
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{
+				{RunnerId: runnerID, Name: "ram-1gb", Default: true},
+			}}, nil
+		},
+	}
+
+	cfg := &config.Config{
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	}
+	return assembler.NewWithRunners(agentsClient, runnersClient, &testutil.FakeSecretsClient{}, cfg)
 }
 
 func envMap(envs []*runnerv1.EnvVar) map[string]string {

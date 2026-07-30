@@ -13,6 +13,7 @@ import (
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
+	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
@@ -354,9 +355,13 @@ type Assembler struct {
 }
 
 type AssembleResult struct {
-	Request                *runnerv1.StartWorkloadRequest
-	OrganizationID         string
-	RunnerLabels           map[string]string
+	Request        *runnerv1.StartWorkloadRequest
+	OrganizationID string
+	RunnerLabels   map[string]string
+	// RunnerID names the runner the agent's environment places workloads on.
+	// Empty for an agent without an environment, which is still placed by
+	// labels and capabilities.
+	RunnerID               string
 	PersistentVolumes      []PersistentVolumeInfo
 	AllocatedCPUMillicores int32
 	AllocatedRAMBytes      int64
@@ -400,6 +405,11 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	volumeResolver := newVolumeResolver(a.agents, threadID)
 	imagePullResolver := newImagePullResolver(a.secrets)
 
+	environment, flavor, err := a.resolveAgentEnvironment(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+
 	agentEnvs, err := a.listEnvs(ctx, &agentsv1.ListEnvsRequest{AgentId: agentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list agent envs: %w", err)
@@ -425,7 +435,35 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		return nil, fmt.Errorf("resolve agent image pull secrets: %w", err)
 	}
 
+	mainImage := agent.GetImage()
+	var environmentEnvVars []*runnerv1.EnvVar
+	if environment != nil {
+		environmentID := environment.GetMeta().GetId()
+		mainImage = environment.GetImage()
+		environmentEnvs, err := a.listEnvs(ctx, &agentsv1.ListEnvsRequest{EnvironmentId: environmentID})
+		if err != nil {
+			return nil, fmt.Errorf("list environment envs: %w", err)
+		}
+		environmentEnvVars, err = resolver.ResolveEnvVars(ctx, environmentEnvs)
+		if err != nil {
+			return nil, fmt.Errorf("resolve environment envs: %w", err)
+		}
+		environmentImagePullAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{EnvironmentId: environmentID})
+		if err != nil {
+			return nil, fmt.Errorf("list environment image pull secret attachments: %w", err)
+		}
+		if err := imagePullResolver.Resolve(ctx, environmentImagePullAttachments); err != nil {
+			return nil, fmt.Errorf("resolve environment image pull secrets: %w", err)
+		}
+	}
+
 	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
+	if len(environmentEnvVars) > 0 {
+		// mergeEnvVars keeps the first occurrence of a name, so layering the
+		// environment's envs onto the agent's leaves the agent's own value in
+		// place on a collision: it is the more specific of the two.
+		mainEnv = mergeEnvVars(mainEnv, environmentEnvVars, fmt.Sprintf("environment %s", environment.GetMeta().GetId()))
+	}
 	mainEnv = appendEgressCAEnvVars(mainEnv)
 
 	initImage := agent.GetInitImage()
@@ -436,7 +474,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	mainMounts := append([]*runnerv1.VolumeMount{}, agentMounts...)
 	mainMounts = append(mainMounts, &runnerv1.VolumeMount{Volume: agynBinVolumeName, MountPath: agynBinMountPath})
 	main := &runnerv1.ContainerSpec{
-		Image:            agent.GetImage(),
+		Image:            mainImage,
 		Name:             fmt.Sprintf("agent-%s-%s", agentID.String()[:8], threadID.String()[:8]),
 		Cmd:              []string{agynBinBinaryPath},
 		Env:              mainEnv,
@@ -607,10 +645,34 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Request:                request,
 		OrganizationID:         agent.GetOrganizationId(),
 		RunnerLabels:           runnerLabels,
+		RunnerID:               flavor.GetRunnerId(),
 		PersistentVolumes:      persistentVolumes,
 		AllocatedCPUMillicores: allocatedCPU,
 		AllocatedRAMBytes:      allocatedRAM,
 	}, nil
+}
+
+// resolveAgentEnvironment resolves the environment an agent runs in the same
+// way a sandbox resolves its own. environment_id is optional: every agent
+// created before environments existed has none and keeps its inline image and
+// label-based placement, so a missing id resolves to nil rather than an error.
+func (a *Assembler) resolveAgentEnvironment(ctx context.Context, agent *agentsv1.Agent) (*agentsv1.Environment, *runnersv1.Flavor, error) {
+	if strings.TrimSpace(agent.GetEnvironmentId()) == "" {
+		return nil, nil, nil
+	}
+	environmentID, err := uuidutil.ParseUUID(agent.GetEnvironmentId(), "agent.environment_id")
+	if err != nil {
+		return nil, nil, err
+	}
+	environment, err := a.fetchEnvironment(ctx, environmentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	flavor, err := a.resolveFlavor(ctx, environment.GetRunnerId(), environment.GetFlavor())
+	if err != nil {
+		return nil, nil, err
+	}
+	return environment, flavor, nil
 }
 
 func zitiEnvVars() []*runnerv1.EnvVar {
