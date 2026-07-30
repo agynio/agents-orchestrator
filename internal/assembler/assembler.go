@@ -361,7 +361,10 @@ type AssembleResult struct {
 	// RunnerID names the runner the agent's environment places workloads on.
 	// Empty for an agent without an environment, which is still placed by
 	// labels and capabilities.
-	RunnerID               string
+	RunnerID string
+	// Flavor names the catalog entry the workload is allocated from, and is
+	// what compute is billed by. Empty for an agent without an environment.
+	Flavor                 string
 	PersistentVolumes      []PersistentVolumeInfo
 	AllocatedCPUMillicores int32
 	AllocatedRAMBytes      int64
@@ -646,6 +649,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		OrganizationID:         agent.GetOrganizationId(),
 		RunnerLabels:           runnerLabels,
 		RunnerID:               flavor.GetRunnerId(),
+		Flavor:                 flavor.GetName(),
 		PersistentVolumes:      persistentVolumes,
 		AllocatedCPUMillicores: allocatedCPU,
 		AllocatedRAMBytes:      allocatedRAM,

@@ -312,7 +312,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentThread, degr
 		r.compensateIdentity(ctx, zitiIdentityID, "volume record failure")
 		return
 	}
-	if err := r.createWorkloadRecord(runnerCtx, workloadIDValue, runnerID, target, assembled.OrganizationID, zitiIdentityID, assembled.AllocatedCPUMillicores, assembled.AllocatedRAMBytes); err != nil {
+	if err := r.createWorkloadRecord(runnerCtx, workloadIDValue, runnerID, target, assembled, zitiIdentityID); err != nil {
 		log.Printf("reconciler: create workload record %s for agent %s thread %s: %v", workloadIDValue, target.AgentID.String(), target.ThreadID.String(), err)
 		r.compensateIdentity(ctx, zitiIdentityID, "workload record failure")
 		return

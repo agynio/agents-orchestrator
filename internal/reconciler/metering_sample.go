@@ -30,13 +30,14 @@ const (
 	labelSandboxOwnerID          = "sandbox_owner_id"
 	labelOwnerKind               = "owner_kind"
 	labelRunnerID                = "runner_id"
+	labelFlavor                  = "flavor"
 	labelIdentityID              = "identity_id"
 	resourceWorkload             = "workload"
 	resourceVolume               = "volume"
 	kindRAM                      = "ram"
 	kindStorage                  = "storage"
-	unitCoreSecondsLabel         = "core_seconds"
 	unitGBSecondsLabel           = "gb_seconds"
+	unitFlavorSecondsLabel       = "flavor_seconds"
 	microUnitValue         int64 = 1000000
 	bytesPerGB             int64 = 1 << 30
 )
@@ -300,52 +301,36 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sandbox
 		return nil, nil, err
 	}
 
-	records := make([]*meteringv1.UsageRecord, 0, 2)
-	cpuMillicores := int64(workload.GetAllocatedCpuMillicores())
-	if cpuMillicores < 0 {
-		return nil, nil, fmt.Errorf("workload %s allocated cpu millicores must be non-negative", workloadID)
+	// Compute is billed by the flavor the workload occupies, for as long as it
+	// occupies it. The flavor is read from the workload record rather than
+	// re-resolved, so repointing an environment does not retroactively change
+	// what a running workload bills.
+	//
+	// A workload with no flavor is one carrying an inline image and resources,
+	// which is deprecated; it emits no compute record rather than keeping a
+	// second billing shape alive.
+	flavor := strings.TrimSpace(workload.GetFlavor())
+	if flavor == "" {
+		return nil, update, nil
 	}
-	if cpuMillicores > 0 {
-		value, err := microCoreSeconds(cpuMillicores, duration)
-		if err != nil {
-			return nil, nil, fmt.Errorf("workload %s core seconds: %w", workloadID, err)
-		}
-		if value > 0 {
-			records = append(records, &meteringv1.UsageRecord{
-				OrgId:          orgID,
-				IdempotencyKey: meteringKey(resourceWorkload, workloadID, unitCoreSecondsLabel, "", intervalEnd),
-				Producer:       meteringProducer,
-				Timestamp:      timestamppb.New(intervalEnd),
-				Labels:         baseLabels,
-				Unit:           meteringv1.Unit_UNIT_CORE_SECONDS,
-				Value:          value,
-			})
-		}
+	value, err := microFlavorSeconds(duration)
+	if err != nil {
+		return nil, nil, fmt.Errorf("workload %s flavor seconds: %w", workloadID, err)
 	}
-	ramBytes := workload.GetAllocatedRamBytes()
-	if ramBytes < 0 {
-		return nil, nil, fmt.Errorf("workload %s allocated ram bytes must be non-negative", workloadID)
+	if value <= 0 {
+		return nil, update, nil
 	}
-	if ramBytes > 0 {
-		value, err := microGBSeconds(ramBytes, duration)
-		if err != nil {
-			return nil, nil, fmt.Errorf("workload %s ram gb seconds: %w", workloadID, err)
-		}
-		if value > 0 {
-			labels := copyLabels(baseLabels)
-			labels[labelKind] = kindRAM
-			records = append(records, &meteringv1.UsageRecord{
-				OrgId:          orgID,
-				IdempotencyKey: meteringKey(resourceWorkload, workloadID, unitGBSecondsLabel, kindRAM, intervalEnd),
-				Producer:       meteringProducer,
-				Timestamp:      timestamppb.New(intervalEnd),
-				Labels:         labels,
-				Unit:           meteringv1.Unit_UNIT_GB_SECONDS,
-				Value:          value,
-			})
-		}
-	}
-	return records, update, nil
+	labels := copyLabels(baseLabels)
+	labels[labelFlavor] = flavor
+	return []*meteringv1.UsageRecord{{
+		OrgId:          orgID,
+		IdempotencyKey: meteringKey(resourceWorkload, workloadID, unitFlavorSecondsLabel, "", intervalEnd),
+		Producer:       meteringProducer,
+		Timestamp:      timestamppb.New(intervalEnd),
+		Labels:         labels,
+		Unit:           meteringv1.Unit_UNIT_FLAVOR_SECONDS,
+		Value:          value,
+	}}, update, nil
 }
 
 func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time, sandboxOwners map[string]string) (*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
@@ -472,15 +457,15 @@ func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind run
 	return nil
 }
 
-func microCoreSeconds(cpuMillicores int64, duration time.Duration) (int64, error) {
+// microFlavorSeconds is the interval duration in seconds, expressed in the same
+// micro-units as every other value on the wire: one second of occupancy is one
+// flavor-second.
+func microFlavorSeconds(duration time.Duration) (int64, error) {
 	nanos := duration.Nanoseconds()
 	if nanos < 0 {
 		return 0, fmt.Errorf("duration must be positive")
 	}
-	if cpuMillicores != 0 && nanos > math.MaxInt64/cpuMillicores {
-		return 0, fmt.Errorf("core seconds overflow")
-	}
-	return cpuMillicores * nanos / microUnitValue, nil
+	return nanos / (int64(time.Second) / microUnitValue), nil
 }
 
 func microGBSeconds(bytes int64, duration time.Duration) (int64, error) {

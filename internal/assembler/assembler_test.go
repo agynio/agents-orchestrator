@@ -2333,6 +2333,11 @@ func TestAssemblerUsesEnvironmentImageAndRunner(t *testing.T) {
 	if result.RunnerID != testAgentEnvironmentRunnerID {
 		t.Fatalf("expected environment runner %q, got %q", testAgentEnvironmentRunnerID, result.RunnerID)
 	}
+	// The resolved flavor name is carried out of assembly, not discarded:
+	// it is written to the workload record and is what compute bills by.
+	if result.Flavor != testAgentEnvironmentFlavor {
+		t.Fatalf("expected environment flavor %q, got %q", testAgentEnvironmentFlavor, result.Flavor)
+	}
 	// The init image stays the agent's: an environment supplies the runtime an
 	// agent runs in, not the bootstrap that seeds it.
 	initContainer := testutil.FindInitContainer(result.Request.GetInitContainers(), "agent-init")
