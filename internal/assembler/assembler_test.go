@@ -1692,6 +1692,18 @@ func TestLoadEgressCACertificate(t *testing.T) {
 	}
 }
 
+// hostBash resolves bash on whatever runs the test. zitiEnrollEntrypoint is the
+// path inside the sidecar image, where bash is at /usr/bin/bash; macOS keeps it
+// at /bin/bash, so running the script through the constant fails there.
+func hostBash(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash not available: %v", err)
+	}
+	return path
+}
+
 func TestZitiEnrollScriptRemovesOnlyJwtControllerLoopbackAlias(t *testing.T) {
 	workDir := t.TempDir()
 	identityDir := filepath.Join(workDir, "netfoundry")
@@ -1790,16 +1802,22 @@ case "$filter" in
   *) echo "unexpected jq filter: $filter" >&2; exit 1 ;;
 esac
 `)
+	// The stub shadows cat on PATH, so it has to exec the real one by absolute
+	// path -- which is /bin/cat on macOS and /usr/bin/cat on Linux.
+	realCat, err := exec.LookPath("cat")
+	if err != nil {
+		t.Skipf("cat not available: %v", err)
+	}
 	_ = writeExecutable(t, workDir, "cat", fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
-real_cat=/usr/bin/cat
+real_cat=%q
 if [[ "$#" -ge 1 && "$1" == %q ]]; then
   printf 'nameserver 127.0.0.1\n' > %q
 fi
 exec "${real_cat}" "$@"
-`, hostsPath+".tmp", resolvPath))
+`, realCat, hostsPath+".tmp", resolvPath))
 
-	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10", "", "", "", "")...)
+	cmd := exec.Command(hostBash(t), buildZitiEnrollCommand("10.43.0.10", "", "", "", "")...)
 	cmd.Env = append(os.Environ(),
 		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		ZitiEnrollmentTokenEnvVar+"="+jwt,
@@ -1969,7 +1987,7 @@ case "$filter" in
 esac
 `)
 
-	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10", enrollmentResolveHost, "2496", runtimeResolveHost, "443")...)
+	cmd := exec.Command(hostBash(t), buildZitiEnrollCommand("10.43.0.10", enrollmentResolveHost, "2496", runtimeResolveHost, "443")...)
 	cmd.Env = append(os.Environ(),
 		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		ZitiEnrollmentTokenEnvVar+"="+jwt,
