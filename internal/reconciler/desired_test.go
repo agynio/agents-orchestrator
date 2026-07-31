@@ -236,3 +236,15 @@ func TestListActiveInstancesWithUnackedInboxPaginates(t *testing.T) {
 		t.Fatalf("unexpected page tokens: %#v %#v", requests[0], requests[1])
 	}
 }
+
+func (f *fakeAgentsClient) GetSandbox(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) UpdateSandboxRuntimeState(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+	return nil, errNotImplemented
+}
+
+func (f *fakeAgentsClient) GetVolume(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
+	return nil, errNotImplemented
+}

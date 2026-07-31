@@ -30,13 +30,18 @@ type volumeTTLInfo struct {
 }
 
 // volumeIdentityID is the identity a volume pins its runner to: the sandbox for
-// a sandbox volume, the agent instance for an agent volume. owner_id carries
-// both. agent_id is only a fallback for rows written before owner_kind existed —
-// it names the class, so pinning on it would tie every instance of an agent to
-// one runner.
+// a sandbox volume, the agent instance for an agent volume.
+//
+// owner_id carries both and is preferred. agent_instance_id covers rows written
+// before owner_kind existed but after instances did. agent_id is the last
+// resort, and only that: it names the class, so pinning on it would tie every
+// instance of an agent to a single runner.
 func volumeIdentityID(volume *runnersv1.Volume) string {
 	if ownerID := strings.TrimSpace(volume.GetOwnerId()); ownerID != "" {
 		return ownerID
+	}
+	if instanceID := strings.TrimSpace(volume.GetAgentInstanceId()); instanceID != "" {
+		return instanceID
 	}
 	return strings.TrimSpace(volume.GetAgentId())
 }
