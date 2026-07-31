@@ -6,6 +6,7 @@ import (
 	"time"
 
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
+	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -53,7 +54,7 @@ func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, 
 	}
 }
 
-func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runnerID string, target AgentThread, organizationID string, zitiIdentityID *string, allocatedCPUMillicores int32, allocatedRAMBytes int64) error {
+func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runnerID string, target AgentThread, assembled *assembler.AssembleResult, zitiIdentityID *string) error {
 	status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING
 	zitiIdentityValue := ""
 	if zitiIdentityID != nil {
@@ -64,11 +65,12 @@ func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runne
 		RunnerId:               runnerID,
 		ThreadId:               target.ThreadID.String(),
 		AgentId:                target.AgentID.String(),
-		OrganizationId:         organizationID,
+		OrganizationId:         assembled.OrganizationID,
 		Status:                 status,
 		ZitiIdentityId:         zitiIdentityValue,
-		AllocatedCpuMillicores: allocatedCPUMillicores,
-		AllocatedRamBytes:      allocatedRAMBytes,
+		AllocatedCpuMillicores: assembled.AllocatedCPUMillicores,
+		AllocatedRamBytes:      assembled.AllocatedRAMBytes,
+		Flavor:                 assembled.Flavor,
 		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
 		OwnerId:                target.ThreadID.String(),
 		AgentClassId:           stringPtr(target.AgentID.String()),

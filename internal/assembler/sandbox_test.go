@@ -139,6 +139,11 @@ func TestAssembleSandboxUsesEnvironmentImageAndFlavor(t *testing.T) {
 	if result.RunnerID != testSandboxRunnerID {
 		t.Fatalf("expected runner %q, got %q", testSandboxRunnerID, result.RunnerID)
 	}
+	// The resolved flavor name is carried out of assembly, not discarded:
+	// it is written to the workload record and is what compute bills by.
+	if result.Flavor != testSandboxFlavor {
+		t.Fatalf("expected flavor %q, got %q", testSandboxFlavor, result.Flavor)
+	}
 	if result.OrganizationID != "org-1" {
 		t.Fatalf("unexpected organization id %q", result.OrganizationID)
 	}

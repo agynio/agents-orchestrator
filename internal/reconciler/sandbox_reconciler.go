@@ -508,6 +508,7 @@ func (r *Reconciler) createSandboxWorkloadRecord(ctx context.Context, workloadID
 		ZitiIdentityId:         zitiIdentityValue,
 		AllocatedCpuMillicores: assembled.AllocatedCPUMillicores,
 		AllocatedRamBytes:      assembled.AllocatedRAMBytes,
+		Flavor:                 assembled.Flavor,
 		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
 		OwnerId:                assembled.Request.GetAdditionalProperties()[assembler.LabelKeyPrefix+assembler.LabelSandboxID],
 	})

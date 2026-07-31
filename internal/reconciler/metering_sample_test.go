@@ -49,17 +49,20 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 		AgentId:                testAgentID,
 		RunnerId:               "runner-1",
 		OrganizationId:         testOrganizationID,
+		Flavor:                 "cpu-1x",
 		AllocatedCpuMillicores: 500,
 		AllocatedRamBytes:      2 * (1 << 30),
 	}
+	// No flavor: an agent still carrying an inline image and resources. It is
+	// still marked sampled, it just bills nothing.
 	workload2 := &runnersv1.Workload{
 		Meta:                   &runnersv1.EntityMeta{Id: "workload-2", CreatedAt: timestamppb.New(workload2Created)},
 		ThreadId:               "thread-2",
 		AgentId:                testAgentIDAlt,
 		RunnerId:               "runner-2",
 		OrganizationId:         testOrganizationID,
-		AllocatedCpuMillicores: 0,
-		AllocatedRamBytes:      0,
+		AllocatedCpuMillicores: 500,
+		AllocatedRamBytes:      2 * (1 << 30),
 		LastMeteringSampledAt:  timestamppb.New(workload2Sampled),
 	}
 	volume := &runnersv1.Volume{
@@ -136,70 +139,68 @@ func TestSampleMeteringEmitsRecordsAndUpdatesSampledAt(t *testing.T) {
 	if workloadCalls != 1 || volumeCalls != 1 {
 		t.Fatalf("expected update calls once each, got workloads=%d volumes=%d", workloadCalls, volumeCalls)
 	}
-	if len(recorded) != 3 {
-		t.Fatalf("expected 3 records, got %d", len(recorded))
+	// One compute record for the flavored workload and one storage record.
+	// The flavorless workload contributes neither.
+	if len(recorded) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(recorded))
 	}
 
-	var cpuRecord *meteringv1.UsageRecord
-	var ramRecord *meteringv1.UsageRecord
+	var flavorRecord *meteringv1.UsageRecord
 	var storageRecord *meteringv1.UsageRecord
 	for _, record := range recorded {
 		switch record.GetUnit() {
-		case meteringv1.Unit_UNIT_CORE_SECONDS:
-			cpuRecord = record
+		case meteringv1.Unit_UNIT_FLAVOR_SECONDS:
+			flavorRecord = record
 		case meteringv1.Unit_UNIT_GB_SECONDS:
-			if record.GetLabels()[labelKind] == kindRAM {
-				ramRecord = record
-			} else if record.GetLabels()[labelKind] == kindStorage {
+			if record.GetLabels()[labelKind] == kindStorage {
 				storageRecord = record
 			}
+		case meteringv1.Unit_UNIT_CORE_SECONDS:
+			t.Fatalf("compute must no longer emit core seconds")
 		}
 	}
-	if cpuRecord == nil || ramRecord == nil || storageRecord == nil {
-		t.Fatalf("expected cpu, ram, and storage records")
+	if flavorRecord == nil || storageRecord == nil {
+		t.Fatalf("expected flavor and storage records")
+	}
+	if flavorRecord.GetLabels()[labelResourceID] != "workload-1" {
+		t.Fatalf("flavor record is for %q, want workload-1", flavorRecord.GetLabels()[labelResourceID])
 	}
 
-	if cpuRecord.GetValue() != 60000000 {
-		t.Fatalf("unexpected cpu value %d", cpuRecord.GetValue())
-	}
-	if ramRecord.GetValue() != 240000000 {
-		t.Fatalf("unexpected ram value %d", ramRecord.GetValue())
+	// The workload ran for the full 2-minute interval, so it occupied its
+	// flavor for 120 seconds regardless of what CPU and RAM it was allocated.
+	if flavorRecord.GetValue() != 120000000 {
+		t.Fatalf("unexpected flavor value %d", flavorRecord.GetValue())
 	}
 	if storageRecord.GetValue() != 2400000000 {
 		t.Fatalf("unexpected storage value %d", storageRecord.GetValue())
 	}
 
-	if cpuRecord.GetTimestamp().AsTime().UTC() != now {
-		t.Fatalf("unexpected cpu timestamp %v", cpuRecord.GetTimestamp().AsTime())
-	}
-	if ramRecord.GetTimestamp().AsTime().UTC() != now {
-		t.Fatalf("unexpected ram timestamp %v", ramRecord.GetTimestamp().AsTime())
+	if flavorRecord.GetTimestamp().AsTime().UTC() != now {
+		t.Fatalf("unexpected flavor timestamp %v", flavorRecord.GetTimestamp().AsTime())
 	}
 	if storageRecord.GetTimestamp().AsTime().UTC() != volumeRemoved {
 		t.Fatalf("unexpected storage timestamp %v", storageRecord.GetTimestamp().AsTime())
 	}
 
-	if cpuRecord.GetIdempotencyKey() != meteringKey(resourceWorkload, "workload-1", unitCoreSecondsLabel, "", now) {
-		t.Fatalf("unexpected cpu idempotency key %q", cpuRecord.GetIdempotencyKey())
-	}
-	if ramRecord.GetIdempotencyKey() != meteringKey(resourceWorkload, "workload-1", unitGBSecondsLabel, kindRAM, now) {
-		t.Fatalf("unexpected ram idempotency key %q", ramRecord.GetIdempotencyKey())
+	if flavorRecord.GetIdempotencyKey() != meteringKey(resourceWorkload, "workload-1", unitFlavorSecondsLabel, "", now) {
+		t.Fatalf("unexpected flavor idempotency key %q", flavorRecord.GetIdempotencyKey())
 	}
 	if storageRecord.GetIdempotencyKey() != meteringKey(resourceVolume, "volume-1", unitGBSecondsLabel, kindStorage, volumeRemoved) {
 		t.Fatalf("unexpected storage idempotency key %q", storageRecord.GetIdempotencyKey())
 	}
 
-	assertLabelValue(t, cpuRecord.GetLabels(), labelResource, resourceWorkload)
-	assertLabelValue(t, cpuRecord.GetLabels(), labelResourceID, "workload-1")
-	assertLabelValue(t, cpuRecord.GetLabels(), labelThreadID, "thread-1")
-	assertLabelValue(t, cpuRecord.GetLabels(), labelAgentID, testAgentID)
-	assertLabelValue(t, cpuRecord.GetLabels(), labelRunnerID, "runner-1")
-	assertLabelValue(t, cpuRecord.GetLabels(), labelIdentityID, testAgentID)
-	if _, ok := cpuRecord.GetLabels()[labelKind]; ok {
-		t.Fatalf("unexpected cpu kind label")
+	assertLabelValue(t, flavorRecord.GetLabels(), labelResource, resourceWorkload)
+	assertLabelValue(t, flavorRecord.GetLabels(), labelResourceID, "workload-1")
+	assertLabelValue(t, flavorRecord.GetLabels(), labelThreadID, "thread-1")
+	assertLabelValue(t, flavorRecord.GetLabels(), labelAgentID, testAgentID)
+	assertLabelValue(t, flavorRecord.GetLabels(), labelRunnerID, "runner-1")
+	assertLabelValue(t, flavorRecord.GetLabels(), labelIdentityID, testAgentID)
+	// flavor and runner_id are the pair billing aggregates on.
+	assertLabelValue(t, flavorRecord.GetLabels(), labelFlavor, "cpu-1x")
+	if _, ok := flavorRecord.GetLabels()[labelKind]; ok {
+		t.Fatalf("unexpected kind label on the flavor record")
 	}
 
-	assertLabelValue(t, ramRecord.GetLabels(), labelKind, kindRAM)
 	assertLabelValue(t, storageRecord.GetLabels(), labelKind, kindStorage)
 
 	if workloadUpdateReq == nil || volumeUpdateReq == nil {
@@ -250,6 +251,7 @@ func TestSampleMeteringLabelsSandboxOwner(t *testing.T) {
 		Meta:                   &runnersv1.EntityMeta{Id: "workload-sandbox", CreatedAt: timestamppb.New(now.Add(-time.Minute))},
 		RunnerId:               "runner-1",
 		OrganizationId:         testOrganizationID,
+		Flavor:                 "cpu-1x",
 		AllocatedCpuMillicores: 500,
 		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
 		OwnerId:                sandboxID,
@@ -326,6 +328,7 @@ func TestSampleMeteringKeepsSandboxRecordsWhenOwnerUnresolved(t *testing.T) {
 		Meta:                   &runnersv1.EntityMeta{Id: "workload-sandbox", CreatedAt: timestamppb.New(now.Add(-time.Minute))},
 		RunnerId:               "runner-1",
 		OrganizationId:         testOrganizationID,
+		Flavor:                 "cpu-1x",
 		AllocatedCpuMillicores: 500,
 		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
 		OwnerId:                sandboxID,
