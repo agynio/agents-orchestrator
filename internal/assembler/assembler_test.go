@@ -173,8 +173,12 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
 	assertEnv(t, envs, "AGYN_ORGANIZATION_ID", agent.GetOrganizationId())
 	assertEnv(t, envs, "AGENT_INSTANCE_ID", threadID.String())
-	assertEnv(t, envs, "THREAD_ID", threadID.String())
 	assertEnv(t, envs, "AGYN_IDENTITY_ID", threadID.String())
+	// An instance serves every thread in its inbox, so naming one at startup
+	// would scope it to whichever happened to be first unacked.
+	if _, ok := envs["THREAD_ID"]; ok {
+		t.Fatalf("expected no THREAD_ID, got %q", envs["THREAD_ID"])
+	}
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
@@ -602,7 +606,7 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	}
 
 	assembler := New(&testutil.FakeAgentsClient{}, &testutil.FakeSecretsClient{}, &cfg)
-	envs := envMap(assembler.baseAgentEnvVars(agent, agentID, threadID, threadID))
+	envs := envMap(assembler.baseAgentEnvVars(agent, agentID, threadID))
 	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")

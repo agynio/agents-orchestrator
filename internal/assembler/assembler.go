@@ -463,7 +463,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		}
 	}
 
-	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, agentInstanceID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
+	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, agentInstanceID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
 	if len(environmentEnvVars) > 0 {
 		// mergeEnvVars keeps the first occurrence of a name, so layering the
 		// environment's envs onto the agent's leaves the agent's own value in
@@ -1171,7 +1171,10 @@ func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runn
 	return result
 }
 
-func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstanceID, threadID uuid.UUID) []*runnerv1.EnvVar {
+// No THREAD_ID: an instance serves every thread that reaches its inbox, so
+// there is no one thread to name at startup. Pinning it here would scope the
+// daemon to whichever thread happened to be first unacked when it launched.
+func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstanceID uuid.UUID) []*runnerv1.EnvVar {
 	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_INSTANCE_ID", Value: agentInstanceID.String()},
@@ -1181,7 +1184,6 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstan
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
 		{Name: "AGYN_ORGANIZATION_ID", Value: agent.GetOrganizationId()},
-		{Name: "THREAD_ID", Value: threadID.String()},
 		{Name: "AGYN_IDENTITY_ID", Value: agentInstanceID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
