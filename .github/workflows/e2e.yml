@@ -145,11 +145,10 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "base init images: codex=$codex agn=$agn claude=$claude"
 
-      - name: Build agent init images with instance inbox agynd
+      - name: Build agent init images
         working-directory: .e2e-deps/agynd-cli
         run: |-
           set -euo pipefail
-          node "${GITHUB_WORKSPACE}/.github/scripts/patch-agynd-instance-inbox.js"
           buf generate buf.build/agynio/api
           gofmt -w internal/config/config.go internal/platform/grpc.go internal/platform/threads.go internal/platform/consumer.go internal/platform/notifications.go internal/platform/agents.go internal/platform/runners.go internal/subscriber/subscriber.go internal/tracingproxy/proxy.go internal/daemon/daemon.go internal/daemon/agn.go internal/daemon/claude.go
           CGO_ENABLED=0 go test ./internal/subscriber ./internal/tracingproxy
@@ -1050,7 +1049,6 @@ jobs:
               --type merge \
               -p '{"spec":{"syncPolicy":{"automated":null}}}'
           fi
-          node "${GITHUB_WORKSPACE}/.github/scripts/patch-expose-agent-instances.js"
           buf generate buf.build/agynio/api \
             --include-imports \
             --path agynio/api/expose/v1 \
