@@ -107,6 +107,44 @@ jobs:
         with:
           go-version-file: .e2e-deps/agynd-cli/go.mod
 
+      # The base init images are not pinned: pinning opts this workflow out of
+      # every fix shipped in a later image. run-tests resolves them, but that
+      # runs after this build step, so resolve them here too.
+      - name: Resolve base init images
+        run: |-
+          set -euo pipefail
+          latest_image() {
+            repo="$1"
+            token="$(curl -fsS "https://ghcr.io/token?scope=repository:agynio/${repo}:pull" |
+              python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+            url="https://ghcr.io/v2/agynio/${repo}/tags/list?n=1000"
+            tags=""
+            while [ -n "$url" ]; do
+              page="$(curl -fsS -D /tmp/hdr.$$ -H "Authorization: Bearer ${token}" "$url")"
+              tags="${tags}$(printf '%s' "$page" |
+                python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin).get("tags") or []))')
+          "
+              next="$(sed -n 's/^[Ll]ink:.*<\([^>]*\)>.*/\1/p' /tmp/hdr.$$)"
+              rm -f /tmp/hdr.$$
+              [ -n "$next" ] && url="https://ghcr.io${next}" || url=""
+            done
+            latest="$(printf '%s\n' "$tags" | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } |
+              sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+            [ -n "$latest" ] || { echo "No semver tags for ghcr.io/agynio/${repo}." >&2; return 1; }
+            printf 'ghcr.io/agynio/%s:%s' "$repo" "$latest"
+          }
+          codex="$(latest_image agent-init-codex)"
+          agn="$(latest_image agent-init-agn)"
+          claude="$(latest_image agent-init-claude)"
+          {
+            echo "CODEX_INIT_IMAGE=$codex"
+            echo "AGYN_AGENT_INIT_IMAGE=$codex"
+            echo "AGN_INIT_IMAGE=$agn"
+            echo "AGN_EXPOSE_INIT_IMAGE=$agn"
+            echo "CLAUDE_INIT_IMAGE=$claude"
+          } >> "$GITHUB_ENV"
+          echo "base init images: codex=$codex agn=$agn claude=$claude"
+
       - name: Build agent init images with instance inbox agynd
         working-directory: .e2e-deps/agynd-cli
         run: |-
