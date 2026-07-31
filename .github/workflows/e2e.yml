@@ -955,7 +955,9 @@ jobs:
         working-directory: .e2e-deps/runners
         run: |-
           set -euo pipefail
-          node "${GITHUB_WORKSPACE}/.github/scripts/patch-runners-agent-instances.js"
+          # runners main carries the agent-instance work (owner_kind/owner_id,
+          # ListWorkloadsByAgentInstance, ListVolumesByAgentInstance) since #71,
+          # so the patch that used to add it now duplicates declarations.
           buf generate buf.build/agynio/api \
             --include-imports \
             --path agynio/api/agents/v1 \
