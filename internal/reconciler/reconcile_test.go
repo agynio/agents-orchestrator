@@ -1409,7 +1409,10 @@ func TestReconcileVolumesSkipsSandboxOwnedVolumes(t *testing.T) {
 	threadID := uuid.New().String()
 	sandboxID := uuid.New().String()
 
-	var updateReq *runnersv1.UpdateVolumeRequest
+	// Keyed by volume: reconcileVolumes walks a map, so the order two volumes
+	// are updated in is not fixed and a single captured request would make the
+	// assertions depend on it.
+	updates := map[string][]*runnersv1.UpdateVolumeRequest{}
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
@@ -1421,7 +1424,7 @@ func TestReconcileVolumesSkipsSandboxOwnedVolumes(t *testing.T) {
 			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
 		},
 		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			updateReq = req
+			updates[req.GetId()] = append(updates[req.GetId()], req)
 			return &runnersv1.UpdateVolumeResponse{}, nil
 		},
 	}
@@ -1455,14 +1458,22 @@ func TestReconcileVolumesSkipsSandboxOwnedVolumes(t *testing.T) {
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
 		t.Fatalf("reconcile volumes: %v", err)
 	}
-	if updateReq == nil {
-		t.Fatal("expected agent volume update")
+	agentUpdates := updates[agentVolumeKey]
+	if len(agentUpdates) != 1 {
+		t.Fatalf("expected one agent volume update, got %d", len(agentUpdates))
 	}
-	if updateReq.GetId() != agentVolumeKey {
-		t.Fatalf("unexpected volume update: %v", updateReq.GetId())
+	if agentUpdates[0].GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
+		t.Fatalf("unexpected status: %v", agentUpdates[0].GetStatus())
 	}
-	if updateReq.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
-		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+
+	// The sandbox volume is still linked to the instance the runner reports --
+	// sandbox teardown needs that id to find the runner-side volume. What it
+	// must never pick up is a status change: its lifetime is the sandbox's, so
+	// no TTL may deprovision it.
+	for _, update := range updates[sandboxVolumeKey] {
+		if update.Status != nil {
+			t.Fatalf("sandbox volume status changed to %v", update.GetStatus())
+		}
 	}
 }
 
