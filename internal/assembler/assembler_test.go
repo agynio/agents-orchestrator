@@ -2320,7 +2320,7 @@ func newAgentEnvironmentFixture() *agentEnvironmentFixture {
 func (f *agentEnvironmentFixture) assemble(t *testing.T) *AssembleResult {
 	t.Helper()
 	assembler := NewWithRunners(f.agents, f.runners, f.secrets, f.cfg)
-	result, err := assembler.Assemble(context.Background(), f.agentID, f.threadID)
+	result, err := assembler.Assemble(context.Background(), f.agentID, f.threadID, f.threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}

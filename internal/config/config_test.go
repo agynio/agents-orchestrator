@@ -327,29 +327,6 @@ func TestFromEnvAgyndDirectAddresses(t *testing.T) {
 	}
 }
 
-func TestFromEnvSandboxReconcileEnabled(t *testing.T) {
-	setBaseEnv(t)
-	t.Setenv("SANDBOX_RECONCILE_ENABLED", "true")
-
-	cfg, err := FromEnv()
-	if err != nil {
-		t.Fatalf("FromEnv: %v", err)
-	}
-	if !cfg.SandboxReconcileEnabled {
-		t.Fatal("expected sandbox reconciliation to be enabled")
-	}
-}
-
-func TestFromEnvSandboxReconcileEnabledInvalid(t *testing.T) {
-	setBaseEnv(t)
-	t.Setenv("SANDBOX_RECONCILE_ENABLED", "not-bool")
-
-	_, err := FromEnv()
-	if err == nil {
-		t.Fatal("expected SANDBOX_RECONCILE_ENABLED parse error")
-	}
-}
-
 func TestFromEnvGroupSyncConfig(t *testing.T) {
 	setBaseEnv(t)
 	t.Setenv("GROUP_SYNC_ENABLED", "true")

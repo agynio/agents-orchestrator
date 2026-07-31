@@ -18,25 +18,15 @@ import (
 )
 
 const (
-<<<<<<< HEAD
-	messageCreatedEvent               = "message.created"
-	agentUpdatedEvent                 = "agent.updated"
-	sandboxUpdatedEvent               = "sandbox.updated"
-	agentRoomPrefix                   = "agent:"
-	threadParticipantRoomPrefix       = "thread_participant:"
-	sandboxOrgRoomPrefix              = "sandbox_org:"
-	identityMetadataKey               = "x-identity-id"
-	listAgentsPageSize          int32 = 100
-	defaultRoomRefreshInterval        = 30 * time.Second
-=======
 	messageCreatedEvent              = "message.created"
 	instanceUpdatedEvent             = "instance.updated"
+	sandboxUpdatedEvent              = "sandbox.updated"
 	agentInstanceRoomPrefix          = "agent_instance:"
 	instanceInboxRoomPrefix          = "instance_inbox:"
+	sandboxOrgRoomPrefix             = "sandbox_org:"
 	identityMetadataKey              = "x-identity-id"
 	listInstancesPageSize      int32 = 100
 	defaultRoomRefreshInterval       = 30 * time.Second
->>>>>>> 368846f (fix(orchestrator): subscribe to instance inbox rooms)
 )
 
 type roomSubscription struct {
@@ -212,26 +202,22 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 				rooms = map[string]struct{}{}
 				roomsByIdentity[parsedInstanceID] = rooms
 			}
-<<<<<<< HEAD
-			agentID = parsedAgentID.String()
-			rooms[agentRoomPrefix+agentID] = struct{}{}
-			rooms[threadParticipantRoomPrefix+agentID] = struct{}{}
-			orgID := strings.TrimSpace(agent.GetOrganizationId())
+			instanceID = parsedInstanceID.String()
+			rooms[agentInstanceRoomPrefix+instanceID] = struct{}{}
+			rooms[instanceInboxRoomPrefix+instanceID] = struct{}{}
+			// Sandbox rooms are per organization, so one instance identity per
+			// org is elected to hold the subscription.
+			orgID := strings.TrimSpace(instance.GetOrganizationId())
 			if orgID == "" {
 				continue
 			}
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent.organization_id")
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent_instance.organization_id")
 			if err != nil {
 				return nil, "", err
 			}
 			if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; !ok {
-				sandboxOrgIdentities[parsedOrgID.String()] = parsedAgentID
+				sandboxOrgIdentities[parsedOrgID.String()] = parsedInstanceID
 			}
-=======
-			instanceID = parsedInstanceID.String()
-			rooms[agentInstanceRoomPrefix+instanceID] = struct{}{}
-			rooms[instanceInboxRoomPrefix+instanceID] = struct{}{}
->>>>>>> 368846f (fix(orchestrator): subscribe to instance inbox rooms)
 		}
 		pageToken = resp.GetNextPageToken()
 		if pageToken == "" {

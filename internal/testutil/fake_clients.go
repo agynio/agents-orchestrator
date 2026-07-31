@@ -127,7 +127,10 @@ func (f *FakeAgentsClient) CreateSandbox(context.Context, *agentsv1.CreateSandbo
 	return nil, ErrNotImplemented
 }
 
-func (f *FakeAgentsClient) GetSandbox(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error) {
+func (f *FakeAgentsClient) GetSandbox(ctx context.Context, req *agentsv1.GetSandboxRequest, opts ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error) {
+	if f.GetSandboxFunc != nil {
+		return f.GetSandboxFunc(ctx, req, opts...)
+	}
 	return nil, ErrNotImplemented
 }
 
@@ -142,7 +145,17 @@ func (f *FakeAgentsClient) StopSandbox(context.Context, *agentsv1.StopSandboxReq
 	return nil, ErrNotImplemented
 }
 
-func (f *FakeAgentsClient) DeleteSandbox(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {
+func (f *FakeAgentsClient) UpdateSandboxRuntimeState(ctx context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, opts ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+	if f.UpdateSandboxRuntimeStateFunc != nil {
+		return f.UpdateSandboxRuntimeStateFunc(ctx, req, opts...)
+	}
+	return nil, ErrNotImplemented
+}
+
+func (f *FakeAgentsClient) DeleteSandbox(ctx context.Context, req *agentsv1.DeleteSandboxRequest, opts ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error) {
+	if f.DeleteSandboxFunc != nil {
+		return f.DeleteSandboxFunc(ctx, req, opts...)
+	}
 	return nil, ErrNotImplemented
 }
 

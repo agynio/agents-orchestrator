@@ -555,7 +555,7 @@ func TestStartWorkloadPlacesEnvironmentAgentOnEnvironmentRunner(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
-	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
+	reconciler.startWorkload(ctx, AgentInstanceTarget{AgentInstanceID: threadID, AgentID: agentID, ThreadID: threadID})
 
 	// No list-runners: the environment's runner replaces label and capability
 	// selection for an unpinned thread.
@@ -652,7 +652,7 @@ func TestStartWorkloadKeepsPinnedRunnerWhenEnvironmentNamesAnother(t *testing.T)
 		Threads:      threads,
 		Assembler:    testAssembler,
 	})
-	reconciler.startWorkload(ctx, AgentThread{AgentID: agentID, ThreadID: threadID}, newDegradeTracker())
+	reconciler.startWorkload(ctx, AgentInstanceTarget{AgentInstanceID: threadID, AgentID: agentID, ThreadID: threadID})
 
 	// The pin wins over the environment's runner and is not a fault: the agent's
 	// state volume physically lives on the pinned runner, so nothing degrades.
@@ -1919,7 +1919,6 @@ type fakeRunnersClient struct {
 	batchUpdateVolume            func(context.Context, *runnersv1.BatchUpdateVolumeSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateVolumeSampledAtResponse, error)
 	getVolume                    func(context.Context, *runnersv1.GetVolumeRequest, ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error)
 	streamWorkloadLogs           func(context.Context, *runnerv1.StreamWorkloadLogsRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[runnerv1.StreamWorkloadLogsResponse], error)
-	getFlavor                    func(context.Context, *runnersv1.GetFlavorRequest, ...grpc.CallOption) (*runnersv1.GetFlavorResponse, error)
 	listWorkloadsByAgentInstance func(context.Context, *runnersv1.ListWorkloadsByAgentInstanceRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsByAgentInstanceResponse, error)
 	listVolumesByAgentInstance   func(context.Context, *runnersv1.ListVolumesByAgentInstanceRequest, ...grpc.CallOption) (*runnersv1.ListVolumesByAgentInstanceResponse, error)
 }
@@ -1974,10 +1973,6 @@ func (f *fakeRunnersClient) UpdateFlavor(context.Context, *runnersv1.UpdateFlavo
 }
 
 func (f *fakeRunnersClient) DeleteFlavor(context.Context, *runnersv1.DeleteFlavorRequest, ...grpc.CallOption) (*runnersv1.DeleteFlavorResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (f *fakeRunnersClient) ListFlavors(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
 	return nil, errNotImplemented
 }
 
