@@ -16,10 +16,11 @@ replaceOnce(
   'internal/identity/identity.go',
   'gateway agent instance identity type constant',
   [
-    '\tIdentityTypeUser   IdentityType = "user"',
-    '\tIdentityTypeAgent  IdentityType = "agent"',
-    '\tIdentityTypeApp    IdentityType = "app"',
-    '\tIdentityTypeRunner IdentityType = "runner"',
+    '\tIdentityTypeUser    IdentityType = "user"',
+    '\tIdentityTypeAgent   IdentityType = "agent"',
+    '\tIdentityTypeApp     IdentityType = "app"',
+    '\tIdentityTypeRunner  IdentityType = "runner"',
+    '\tIdentityTypeSandbox IdentityType = "sandbox"',
   ].join('\n'),
   [
     '\tIdentityTypeUser          IdentityType = "user"',
@@ -27,6 +28,7 @@ replaceOnce(
     '\tIdentityTypeAgentInstance IdentityType = "agent_instance"',
     '\tIdentityTypeApp           IdentityType = "app"',
     '\tIdentityTypeRunner        IdentityType = "runner"',
+    '\tIdentityTypeSandbox       IdentityType = "sandbox"',
   ].join('\n'),
 );
 
