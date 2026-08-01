@@ -89,9 +89,10 @@ func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
 	}
 	e2eWorkflow := string(e2e)
 	for _, expected := range []string{
-		"BOOTSTRAP_REF: main",
+		// Bootstrap no longer provisions this workflow: the VM does, and it
+		// carries its own platform version rather than a ref to build from.
+		"agynio/e2e/.github/actions/provision-vm@main",
 		"K8S_RUNNER_REF: main",
-		"github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF",
 		"github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF",
 		"name: Patch workload Ziti DNS runtime target",
 		"current_router_target=",
@@ -115,8 +116,9 @@ func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"BOOTSTRAP_REF: noa/issue-577",
 		"K8S_RUNNER_REF: noa/issue-73",
+		// Bootstrap is deprecated; provisioning must not come back to it.
+		"agynio/bootstrap/.github/actions/provision",
 		"name: Build Ziti sidecar image",
 		"build/ziti-tunnel-x509/Dockerfile",
 		"k3d image import",
