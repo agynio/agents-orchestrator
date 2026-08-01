@@ -243,8 +243,8 @@ jobs:
             kubectl get application authorization -n argocd -o yaml >&2 || true
             kubectl get deployment authorization -n platform -o yaml >&2 || true
             kubectl get svc -A -o wide | grep -i openfga >&2 || true
-            kubectl get pods -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization -o wide >&2 || true
-            kubectl logs -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization --all-containers --tail=300 >&2 || true
+            kubectl get pods -n platform -l app.kubernetes.io/name=authorization -o wide >&2 || true
+            kubectl logs -n platform -l app.kubernetes.io/name=authorization --all-containers --tail=300 >&2 || true
             kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
           }
           trap dump_authorization_model_diagnostics ERR
@@ -366,7 +366,7 @@ jobs:
             --from-literal=OPENFGA_STORE_ID="${store_id}" \
             --from-literal=OPENFGA_MODEL_ID="${model_id}" \
             --dry-run=client -o yaml | kubectl apply -f -
-          authorization_deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=authorization,app.kubernetes.io/instance=authorization -o jsonpath='{.items[0].metadata.name}')"
+          authorization_deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=authorization -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
           if [ -z "${authorization_deployment}" ]; then
             echo "authorization deployment not found" >&2
             kubectl get deployment -n platform -o wide >&2 || true
@@ -450,7 +450,7 @@ jobs:
         run: |-
           set -euo pipefail
           dump_identity_source_diagnostics() {
-            selector="app.kubernetes.io/name=identity,app.kubernetes.io/instance=identity"
+            selector="app.kubernetes.io/name=identity"
             echo "== identity source deployment diagnostics ==" >&2
             kubectl get application identity -n argocd -o yaml >&2 || true
             kubectl get deployment identity -n platform -o yaml >&2 || true
@@ -490,7 +490,7 @@ jobs:
       - name: Verify identity source deployment
         run: |-
           set -euo pipefail
-          selector="app.kubernetes.io/name=identity,app.kubernetes.io/instance=identity"
+          selector="app.kubernetes.io/name=identity"
           source_pod=""
           extra_pods=""
           elapsed=0
@@ -627,7 +627,7 @@ jobs:
         run: |-
           set -euo pipefail
           dump_threads_source_diagnostics() {
-            selector="app.kubernetes.io/name=threads,app.kubernetes.io/instance=threads"
+            selector="app.kubernetes.io/name=threads"
             echo "== threads source deployment diagnostics ==" >&2
             kubectl get application threads -n argocd -o yaml >&2 || true
             kubectl get deployment threads-threads -n platform -o yaml >&2 || kubectl get deployment threads -n platform -o yaml >&2 || true
@@ -707,7 +707,7 @@ jobs:
       - name: Verify threads source deployment
         run: |-
           set -euo pipefail
-          selector="app.kubernetes.io/name=threads,app.kubernetes.io/instance=threads"
+          selector="app.kubernetes.io/name=threads"
           source_pod=""
           extra_pods=""
           elapsed=0
@@ -792,7 +792,7 @@ jobs:
       - name: Verify runners source deployment
         run: |-
           set -euo pipefail
-          selector="app.kubernetes.io/name=runners,app.kubernetes.io/instance=runners"
+          selector="app.kubernetes.io/name=runners"
           source_pod=""
           extra_pods=""
           elapsed=0
@@ -838,7 +838,7 @@ jobs:
         run: |-
           set -euo pipefail
           dump_expose_source_diagnostics() {
-            selector="app.kubernetes.io/name=expose,app.kubernetes.io/instance=expose"
+            selector="app.kubernetes.io/name=expose"
             echo "== expose source deployment diagnostics ==" >&2
             kubectl get application expose -n argocd -o yaml >&2 || true
             kubectl get deployment expose -n platform -o yaml >&2 || true
@@ -889,7 +889,7 @@ jobs:
         run: |-
           set -euo pipefail
           dump_k8s_runner_source_diagnostics() {
-            selector="app.kubernetes.io/name=k8s-runner,app.kubernetes.io/instance=k8s-runner"
+            selector="app.kubernetes.io/name=k8s-runner"
             echo "== k8s-runner source deployment diagnostics ==" >&2
             kubectl get application k8s-runner -n argocd -o yaml >&2 || true
             kubectl get deployment k8s-runner -n platform -o yaml >&2 || true
@@ -911,7 +911,7 @@ jobs:
           const replacement = `  deploy:
             run: |-
               disable_argocd_sync
-              LABEL_SELECTOR="app.kubernetes.io/name=k8s-runner,app.kubernetes.io/instance=k8s-runner"
+              LABEL_SELECTOR="app.kubernetes.io/name=k8s-runner"
               echo "Scaling k8s-runner down before source patch..."
               kubectl scale deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --replicas=0
               if [ -n "$(kubectl get pods -n \${K8S_RUNNER_NAMESPACE} -l "\${LABEL_SELECTOR}" -o name)" ]; then
@@ -1361,7 +1361,7 @@ jobs:
         run: |-
           set -euo pipefail
           dump_gateway_source_diagnostics() {
-            selector="app.kubernetes.io/name=gateway,app.kubernetes.io/instance=gateway"
+            selector="app.kubernetes.io/name=gateway"
             echo "== gateway source deployment diagnostics ==" >&2
             kubectl get application gateway -n argocd -o yaml >&2 || true
             kubectl get deployment gateway -n platform -o yaml >&2 || true
@@ -1389,7 +1389,7 @@ jobs:
               throw new Error('gateway DevSpace patch marker not found');
             }
             text = text.replace(marker, [
-              '      label_selector="app.kubernetes.io/name=gateway,app.kubernetes.io/instance=gateway"',
+              '      label_selector="app.kubernetes.io/name=gateway"',
               '      echo "' + scaleDownMarker + '"',
               '      kubectl scale deployment/gateway -n ${GATEWAY_NAMESPACE} --replicas=0',
               '      if [ -n "$(kubectl get pods -n ${GATEWAY_NAMESPACE} -l "${label_selector}" -o name)" ]; then',
@@ -1444,7 +1444,7 @@ jobs:
       - name: Verify gateway Ziti service binding
         run: |-
           set -euo pipefail
-          selector="app.kubernetes.io/name=gateway,app.kubernetes.io/instance=gateway"
+          selector="app.kubernetes.io/name=gateway"
           source_pod=""
           elapsed=0
           while [ "${elapsed}" -lt 180 ]; do
@@ -1580,7 +1580,7 @@ jobs:
               '      kubectl get deployments -A -o wide >&2 || true',
               '      exit 1',
               '    fi',
-              '    label_selector="app.kubernetes.io/name=llm-proxy,app.kubernetes.io/instance=llm-proxy"',
+              '    label_selector="app.kubernetes.io/name=llm-proxy"',
               '    echo "Scaling ${llm_proxy_namespace}/${llm_proxy_deployment} down before source patch..."',
               '    kubectl scale "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --replicas=0',
               '    if [ -n "$(kubectl get pods -n "${llm_proxy_namespace}" -l "${label_selector}" -o name)" ]; then',
@@ -1727,9 +1727,9 @@ jobs:
             kubectl get application "$app" -n argocd -o yaml >&2 || true
           }
           wait_argocd_app_sync_finished llm-proxy
-          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
+          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=llm-proxy -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
           if [ -z "${deployment}" ]; then
-            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
+            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=llm-proxy -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
           fi
           if [ -z "${deployment}" ]; then
             echo "llm-proxy deployment not found" >&2
@@ -1894,7 +1894,7 @@ jobs:
           set +e
           echo "== runners DevSpace log =="
           for app in runners agents-orchestrator k8s-runner agents authorization identity threads expose gateway llm-proxy; do
-            selector="app.kubernetes.io/name=${app},app.kubernetes.io/instance=${app}"
+            selector="app.kubernetes.io/name=${app}"
             echo "== ${app} deployment =="
             kubectl get deployment "${app}" -n platform -o yaml || kubectl get deployment "${app}-${app}" -n platform -o yaml || true
             echo "== ${app} pods =="
