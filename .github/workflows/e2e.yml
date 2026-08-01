@@ -213,8 +213,9 @@ jobs:
           docker build --build-arg BASE_IMAGE="${CODEX_INIT_IMAGE}" -t "${codex_image}" "${build_context}"
           docker build --build-arg BASE_IMAGE="${AGN_INIT_IMAGE}" -t "${agn_image}" "${build_context}"
           docker build --build-arg BASE_IMAGE="${CLAUDE_INIT_IMAGE}" -t "${claude_image}" "${build_context}"
-          k3d_image_subcommand="import"
-          k3d image "${k3d_image_subcommand}" -c agyn-local "${codex_image}" "${agn_image}" "${claude_image}"
+          # k3s, not k3d: the platform VM has no registry mirror, so the
+          # cluster is handed the images the host just built.
+          agyn local load-image "${codex_image}" "${agn_image}" "${claude_image}"
           {
           echo "CODEX_INIT_IMAGE=${codex_image}"
           echo "AGYN_AGENT_INIT_IMAGE=${codex_image}"
@@ -870,8 +871,7 @@ jobs:
           CGO_ENABLED=0 go test ./internal/server -run 'TestAddExposureAllowsAgentInstanceOwner|TestAddExposureHappyPath|TestListExposuresSuccess' -count=1
           image="e2e/expose:agent-instances"
           docker build -t "${image}" .
-          k3d_image_subcommand="import"
-          k3d image "${k3d_image_subcommand}" -c agyn-local "${image}"
+          agyn local load-image "${image}"
           kubectl patch deployment expose -n platform --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
           kubectl set image deployment/expose -n platform expose="${image}"
           kubectl rollout status deployment/expose -n platform --timeout=240s
