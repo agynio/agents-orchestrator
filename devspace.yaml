@@ -194,13 +194,13 @@ functions:
       echo "ERROR: orchestrator deployment rollout failed" >&2
       kubectl get deployment agents-orchestrator -n ${ORCHESTRATOR_NAMESPACE} -o yaml >&2 || true
       kubectl get replicasets -n ${ORCHESTRATOR_NAMESPACE} \
-        -l app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator \
+        -l app.kubernetes.io/name=agents-orchestrator \
         -o wide >&2 || true
       kubectl get pods -n ${ORCHESTRATOR_NAMESPACE} \
-        -l app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator \
+        -l app.kubernetes.io/name=agents-orchestrator \
         -o wide >&2 || true
       kubectl describe pods -n ${ORCHESTRATOR_NAMESPACE} \
-        -l app.kubernetes.io/name=agents-orchestrator,app.kubernetes.io/instance=agents-orchestrator >&2 || true
+        -l app.kubernetes.io/name=agents-orchestrator >&2 || true
       kubectl get events -n ${ORCHESTRATOR_NAMESPACE} \
         --sort-by=.metadata.creationTimestamp >&2 || true
       exit 1
