@@ -899,14 +899,25 @@ jobs:
           service_endpoint_ips() {
             kubectl get endpoints "$1" -n "$2" -o jsonpath='{range .subsets[*].addresses[*]}{.ip}{" "}{end}'
           }
-          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          # Whichever resolver this cluster gives workloads. bootstrap ran a
+          # dedicated ziti-workload-dns; the platform VM does not -- it answers
+          # the ziti hostnames from CoreDNS via coredns-custom rewrites, so the
+          # address to allow is kube-dns.
+          dns_service=ziti-workload-dns
+          dns_namespace=ziti
+          if ! kubectl get service "${dns_service}" -n "${dns_namespace}" >/dev/null 2>&1; then
+            dns_service=kube-dns
+            dns_namespace=kube-system
+          fi
+          echo "workload DNS: ${dns_service}.${dns_namespace}"
+          ziti_dns_ip="$(kubectl get service "${dns_service}" -n "${dns_namespace}" -o jsonpath='{.spec.clusterIP}')"
           if [ -z "${ziti_dns_ip}" ]; then
-            echo "ziti-workload-dns ClusterIP is empty" >&2
+            echo "${dns_service} ClusterIP is empty" >&2
             exit 1
           fi
-          ziti_dns_endpoint_ips="$(service_endpoint_ips ziti-workload-dns ziti)"
+          ziti_dns_endpoint_ips="$(service_endpoint_ips "${dns_service}" "${dns_namespace}")"
           if [ -z "${ziti_dns_endpoint_ips}" ]; then
-            echo "ziti-workload-dns endpoints are empty" >&2
+            echo "${dns_service} endpoints are empty" >&2
             exit 1
           fi
           ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
