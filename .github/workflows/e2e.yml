@@ -6,10 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      bootstrap_ref:
-        description: Bootstrap ref to provision from.
-        required: false
-        default: main
       k8s_runner_ref:
         description: k8s-runner ref to deploy from.
         required: false
@@ -54,7 +50,6 @@ on:
 # Init images are resolved to the newest published release by the run-tests
 # action. Pinning one here opts this workflow out of every fix shipped after it.
 env:
-  BOOTSTRAP_REF: main
   K8S_RUNNER_REF: main
   AGENTS_REF: main
   AUTHORIZATION_REF: main
@@ -82,9 +77,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@main
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF }}
+        uses: agynio/e2e/.github/actions/provision-vm@main
 
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@main
@@ -261,16 +254,6 @@ jobs:
               --type merge \
               -p '{"spec":{"syncPolicy":{"automated":null}}}'
           fi
-          platform_stack="${GITHUB_WORKSPACE}/bootstrap/stacks/platform"
-          if [ ! -d "${platform_stack}" ]; then
-            echo "bootstrap platform stack missing at ${platform_stack}" >&2
-            exit 1
-          fi
-          store_id="$(terraform -chdir="${platform_stack}" output -raw openfga_store_id)"
-          if [ -z "${store_id}" ]; then
-            echo "openfga_store_id Terraform output was empty" >&2
-            exit 1
-          fi
           openfga_namespace="openfga"
           openfga_service="$(kubectl get svc -n "${openfga_namespace}" -l app.kubernetes.io/name=openfga -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
           if [ -z "${openfga_service}" ] && kubectl get svc openfga -n "${openfga_namespace}" >/dev/null 2>&1; then
@@ -314,6 +297,13 @@ jobs:
             fi
             sleep 1
           done
+          store_id="$(curl -fsS "http://127.0.0.1:18080/stores" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("stores") or [{}])[0].get("id",""))')"
+          if [ -z "${store_id}" ]; then
+            echo "OpenFGA reported no authorization store" >&2
+            curl -fsS "http://127.0.0.1:18080/stores" >&2 || true
+            exit 1
+          fi
+          echo "openfga store: ${store_id}"
           apply_file="$(mktemp apply-authorization-model-XXXX.go)"
           trap 'rm -f "${apply_file}"; cleanup' EXIT
           cat >"${apply_file}" <<'GO'
@@ -534,20 +524,16 @@ jobs:
           fi
           kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
 
-      - name: Register bootstrap identities
+      - name: Register cluster-admin identities
         working-directory: .e2e-deps/identity
         run: |-
           set -euo pipefail
           identity_ids="a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10"
-          bootstrap_dir="${GITHUB_WORKSPACE}/bootstrap"
-          k8s_stack="${bootstrap_dir}/stacks/k8s"
-          platform_stack="${bootstrap_dir}/stacks/platform"
-          if [ -d "${k8s_stack}" ] && [ -d "${platform_stack}" ]; then
-            domain="$(terraform -chdir="${k8s_stack}" output -raw domain)"
-            ingress_port="$(terraform -chdir="${k8s_stack}" output -raw ingress_port)"
-            api_token="$(terraform -chdir="${platform_stack}" output -raw cluster_admin_api_token)"
-            gateway_url="https://gateway.${domain}:${ingress_port}"
-            me_payload="$(curl -fsSk -H "Authorization: Bearer ${api_token}" "${gateway_url}/me" || true)"
+          # The Gateway's own identity is whatever the cluster-admin token maps
+          # to, which the token's holder can only learn by asking. The URL and
+          # token come from the provisioning step's environment.
+          if [ -n "${AGYN_BASE_URL:-}" ] && [ -n "${AGYN_API_TOKEN:-}" ]; then
+            me_payload="$(curl -fsSk -H "Authorization: Bearer ${AGYN_API_TOKEN}" "${AGYN_BASE_URL}/me" || true)"
             gateway_identity_id="$(node -e 'let data=""; process.stdin.on("data", c => data += c); process.stdin.on("end", () => { try { const p = JSON.parse(data || "{}"); process.stdout.write(String(p.identity_id || "").trim()); } catch (_) {} });' <<<"${me_payload}")"
             if [ -n "${gateway_identity_id}" ] && ! printf '%s\n' "${identity_ids}" | grep -Fxq "${gateway_identity_id}"; then
               identity_ids="$(printf '%s\n%s' "${identity_ids}" "${gateway_identity_id}")"
@@ -623,7 +609,7 @@ jobs:
             if len(response.GetEntries()) != len(ids) {
               panic(fmt.Errorf("verify identities: expected %d entries, got %d", len(ids), len(response.GetEntries())))
             }
-            fmt.Printf("registered %d bootstrap identities\n", len(ids))
+            fmt.Printf("registered %d cluster-admin identities\n", len(ids))
           }
           GO
           E2E_IDENTITY_IDS="${identity_ids}" go run "${seed_file}"
@@ -1123,7 +1109,7 @@ jobs:
           kubectl get endpointslice -n agyn-workloads -l 'kubernetes.io/service-name in (agents,runners)' -o wide
           kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
 
-      # Validation shim only: source-of-truth workload DNS belongs in bootstrap.
+      # Validation shim only: source-of-truth workload DNS belongs in the platform image.
       # It enforces ziti.agyn.dev -> ziti-controller-client and ziti-router.agyn.dev -> ziti-router-edge.
       - name: Patch workload Ziti DNS runtime target
         run: |-
@@ -1390,9 +1376,7 @@ jobs:
             kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
           }
           trap dump_gateway_source_diagnostics ERR
-          node "${GITHUB_WORKSPACE}/.github/scripts/patch-gateway-agent-instances.js"
           buf generate buf.build/agynio/api
-          gofmt -w internal/identity/identity.go internal/identity/identity_test.go internal/zitimgmtclient/client.go internal/zitimgmtclient/client_test.go internal/gateway/agents.go internal/gateway/runners.go internal/gateway/threads.go
           CGO_ENABLED=0 go test ./cmd/gateway ./internal/identity ./internal/zitimgmtclient
           node <<'NODE'
           const fs = require('fs');
@@ -1719,7 +1703,7 @@ jobs:
           fs.writeFileSync(path, text);
           NODE
           devspace dev
-      # Validation only: llm-proxy Ziti binding is configured by bootstrap source of truth.
+      # Validation only: llm-proxy Ziti binding is configured by the platform image.
       - name: Verify llm-proxy Ziti service binding
         run: |-
           set -euo pipefail
