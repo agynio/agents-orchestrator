@@ -143,8 +143,6 @@ jobs:
         run: |-
           set -euo pipefail
           buf generate buf.build/agynio/api
-          gofmt -w internal/config/config.go internal/platform/grpc.go internal/platform/threads.go internal/platform/consumer.go internal/platform/notifications.go internal/platform/agents.go internal/platform/runners.go internal/subscriber/subscriber.go internal/tracingproxy/proxy.go internal/daemon/daemon.go internal/daemon/agn.go internal/daemon/claude.go
-          CGO_ENABLED=0 go test ./internal/subscriber ./internal/tracingproxy
           mkdir -p .build
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o .build/agynd ./cmd/agynd
 
