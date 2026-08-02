@@ -45,7 +45,7 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context, orgIdentities map[
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
 	}
 	for {
-		resp, err := r.runners.ListWorkloads(runnersContext(ctx), &runnersv1.ListWorkloadsRequest{
+		resp, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{

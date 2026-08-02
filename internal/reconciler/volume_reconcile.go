@@ -290,7 +290,7 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 		runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
 	}
 	for {
-		resp, err := r.runners.ListVolumes(runnersContext(ctx), &runnersv1.ListVolumesRequest{
+		resp, err := r.runners.ListVolumes(internalContext(ctx), &runnersv1.ListVolumesRequest{
 			PageSize:  activeVolumePageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListVolumesFilter{
@@ -344,7 +344,7 @@ func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runn
 		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
-		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
 			Id:        volumeID,
 			Status:    &status,
 			RemovedAt: timestamppb.New(time.Now().UTC()),
@@ -367,7 +367,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 	switch volume.GetStatus() {
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE
-		_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
 			Id:         volumeID,
 			Status:     &status,
 			InstanceId: stringPtr(instanceID),
@@ -375,7 +375,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 		return err
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
 		if volume.GetInstanceId() != instanceID {
-			if _, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
+			if _, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
 				Id:         volumeID,
 				InstanceId: stringPtr(instanceID),
 			}); err != nil {
@@ -395,7 +395,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 			return nil
 		}
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING
-		if _, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{Id: volumeID, Status: &status}); err != nil {
+		if _, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{Id: volumeID, Status: &status}); err != nil {
 			return err
 		}
 		return r.removeRunnerVolume(ctx, runnerClient, instanceID)

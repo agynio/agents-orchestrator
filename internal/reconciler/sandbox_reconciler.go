@@ -221,7 +221,7 @@ func (r *Reconciler) listSandboxWorkloads(ctx context.Context, sandboxID string)
 	pageToken := ""
 	var workloads []*runnersv1.Workload
 	for {
-		resp, err := r.runners.ListWorkloads(runnersContext(ctx), &runnersv1.ListWorkloadsRequest{
+		resp, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
@@ -244,7 +244,7 @@ func (r *Reconciler) listSandboxVolumes(ctx context.Context, sandboxID string) (
 	pageToken := ""
 	var volumes []*runnersv1.Volume
 	for {
-		resp, err := r.runners.ListVolumes(runnersContext(ctx), &runnersv1.ListVolumesRequest{
+		resp, err := r.runners.ListVolumes(internalContext(ctx), &runnersv1.ListVolumesRequest{
 			PageSize:  activeVolumePageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListVolumesFilter{
@@ -418,7 +418,7 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
 		updateReq.Status = &status
 	}
-	if _, err = r.runners.UpdateWorkload(runnersContext(runnerCtx), updateReq); err != nil {
+	if _, err = r.runners.UpdateWorkload(internalContext(runnerCtx), updateReq); err != nil {
 		return err
 	}
 	if resp.GetStatus() == runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
@@ -500,7 +500,7 @@ func (r *Reconciler) createSandboxWorkloadRecord(ctx context.Context, workloadID
 	if zitiIdentityID != nil {
 		zitiIdentityValue = *zitiIdentityID
 	}
-	_, err := r.runners.CreateWorkload(runnersContext(ctx), &runnersv1.CreateWorkloadRequest{
+	_, err := r.runners.CreateWorkload(internalContext(ctx), &runnersv1.CreateWorkloadRequest{
 		Id:                     workloadID,
 		RunnerId:               runnerID,
 		OrganizationId:         assembled.OrganizationID,
@@ -516,7 +516,7 @@ func (r *Reconciler) createSandboxWorkloadRecord(ctx context.Context, workloadID
 }
 
 func (r *Reconciler) createSandboxWorkspaceRecord(ctx context.Context, assembled *assembler.SandboxAssembleResult, runnerID string) error {
-	_, err := r.runners.CreateVolume(runnersContext(ctx), &runnersv1.CreateVolumeRequest{
+	_, err := r.runners.CreateVolume(internalContext(ctx), &runnersv1.CreateVolumeRequest{
 		Id:             assembled.WorkspaceVolumeID,
 		RunnerId:       runnerID,
 		OrganizationId: assembled.OrganizationID,
@@ -622,7 +622,7 @@ func (r *Reconciler) deleteSandboxWorkspace(ctx context.Context, plan *sandboxWo
 		}
 	}
 	status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
-	_, err = r.runners.UpdateVolume(runnersContext(runnerCtx), &runnersv1.UpdateVolumeRequest{
+	_, err = r.runners.UpdateVolume(internalContext(runnerCtx), &runnersv1.UpdateVolumeRequest{
 		Id:        volume.GetMeta().GetId(),
 		Status:    &status,
 		RemovedAt: timestamppb.New(time.Now().UTC()),
@@ -638,7 +638,7 @@ func (r *Reconciler) markSandboxWorkspaceFailed(ctx context.Context, existing *r
 		return
 	}
 	status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-	_, err := r.runners.UpdateVolume(runnersContext(ctx), &runnersv1.UpdateVolumeRequest{
+	_, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
 		Id:        volumeID,
 		Status:    &status,
 		RemovedAt: timestamppb.New(time.Now().UTC()),

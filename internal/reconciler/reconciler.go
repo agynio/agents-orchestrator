@@ -365,7 +365,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarg
 		InstanceId: stringPtr(instanceID),
 		Containers: containers,
 	}
-	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), updateReq); err != nil {
+	if _, err := r.runners.UpdateWorkload(internalContext(runnerCtx), updateReq); err != nil {
 		log.Printf("reconciler: update workload record %s after start: %v", workloadIDValue, err)
 	}
 }
@@ -411,7 +411,7 @@ func (r *Reconciler) stopWorkloadWithContext(runnerCtx context.Context, workload
 		return fmt.Errorf("dial runner %s for workload %s: %w", runnerID, workloadID, err)
 	}
 	stoppingStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING
-	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
+	if _, err := r.runners.UpdateWorkload(internalContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
 		Id:     workloadID,
 		Status: &stoppingStatus,
 	}); err != nil {
@@ -428,7 +428,7 @@ func (r *Reconciler) stopWorkloadWithContext(runnerCtx context.Context, workload
 		return fmt.Errorf("stop workload %s: %w", workloadID, err)
 	}
 	stoppedStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
-	if _, err := r.runners.UpdateWorkload(runnersContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
+	if _, err := r.runners.UpdateWorkload(internalContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
 		Id:        workloadID,
 		Status:    &stoppedStatus,
 		RemovedAt: timestamppb.New(time.Now().UTC()),
