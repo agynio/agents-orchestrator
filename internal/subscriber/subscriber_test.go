@@ -180,6 +180,10 @@ func newSubscriberHarnessWithSandboxOrgs(t *testing.T, responses chan *notificat
 			if len(values) > 0 {
 				call.identityID = values[0]
 			}
+			types := md.Get(identityTypeMetadataKey)
+			if len(types) > 0 {
+				call.identityType = types[0]
+			}
 		}
 		subscribeReqs <- call
 		return &fakeSubscribeStream{
@@ -210,8 +214,9 @@ func messageEnvelope(event string) *notificationsv1.SubscribeResponse {
 }
 
 type subscribeCall struct {
-	req        *notificationsv1.SubscribeRequest
-	identityID string
+	req          *notificationsv1.SubscribeRequest
+	identityID   string
+	identityType string
 }
 
 func waitForSubscribe(t *testing.T, subscribeReqs <-chan subscribeCall, count int) subscribeCall {
@@ -248,6 +253,12 @@ func assertSubscribeRequestForIdentity(t *testing.T, reqs []subscribeCall, insta
 
 func assertSubscribeIdentity(t *testing.T, req subscribeCall, instanceID string) {
 	t.Helper()
+	// Notifications settles an instance inbox room by identity *and* type;
+	// sending only the id had every inbox subscription denied, so no inbox
+	// delivery ever woke the reconciler.
+	if req.identityType != agentInstanceIdentityType {
+		t.Fatalf("expected subscribe identity type %q, got %q", agentInstanceIdentityType, req.identityType)
+	}
 	if req.identityID != instanceID {
 		t.Fatalf("expected subscribe identity %s, got %q", instanceID, req.identityID)
 	}

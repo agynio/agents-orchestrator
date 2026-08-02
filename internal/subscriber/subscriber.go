@@ -18,13 +18,19 @@ import (
 )
 
 const (
-	messageCreatedEvent              = "message.created"
-	instanceUpdatedEvent             = "instance.updated"
-	sandboxUpdatedEvent              = "sandbox.updated"
-	agentInstanceRoomPrefix          = "agent_instance:"
-	instanceInboxRoomPrefix          = "instance_inbox:"
-	sandboxOrgRoomPrefix             = "sandbox_org:"
-	identityMetadataKey              = "x-identity-id"
+	messageCreatedEvent     = "message.created"
+	instanceUpdatedEvent    = "instance.updated"
+	sandboxUpdatedEvent     = "sandbox.updated"
+	agentInstanceRoomPrefix = "agent_instance:"
+	instanceInboxRoomPrefix = "instance_inbox:"
+	sandboxOrgRoomPrefix    = "sandbox_org:"
+	identityMetadataKey     = "x-identity-id"
+	// Notifications settles an instance's own rooms by identity, and reads the
+	// type as well: only an agent_instance may subscribe to an instance inbox.
+	// The Gateway attaches this for callers that arrive through it; this
+	// subscriber reaches Notifications over the mesh and has to say so itself.
+	identityTypeMetadataKey          = "x-identity-type"
+	agentInstanceIdentityType        = "agent_instance"
 	listInstancesPageSize      int32 = 100
 	defaultRoomRefreshInterval       = 30 * time.Second
 )
@@ -131,7 +137,10 @@ func (s *Subscriber) runSubscriptions(ctx context.Context, subscriptions []roomS
 }
 
 func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubscription) error {
-	streamCtx := metadata.AppendToOutgoingContext(ctx, identityMetadataKey, subscription.identityID.String())
+	streamCtx := metadata.AppendToOutgoingContext(ctx,
+		identityMetadataKey, subscription.identityID.String(),
+		identityTypeMetadataKey, agentInstanceIdentityType,
+	)
 	stream, err := s.client.Subscribe(streamCtx, &notificationsv1.SubscribeRequest{Rooms: subscription.rooms})
 	if err != nil {
 		return fmt.Errorf("subscribe as agent instance %s: %w", subscription.identityID.String(), err)
