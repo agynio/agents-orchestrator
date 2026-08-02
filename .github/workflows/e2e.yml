@@ -422,23 +422,6 @@ jobs:
             kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
           }
           trap dump_identity_source_diagnostics ERR
-          node <<'NODE'
-          const fs = require('fs');
-          const path = 'devspace.yaml';
-          let text = fs.readFileSync(path, 'utf8');
-          const marker = '  restore_argocd_sync: &restore_argocd_sync |-\n';
-          if (!text.includes(marker)) {
-            throw new Error('identity DevSpace restore function not found');
-          }
-          if (!text.includes('Skipping ArgoCD auto-sync restore in CI.')) {
-            text = text.replace(marker, `${marker}    if [ -n "\${CI:-}" ]; then\n      echo "Skipping ArgoCD auto-sync restore in CI."\n      exit 0\n    fi\n`);
-          }
-          text = text.replace(
-            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout" >&2; exit 1; }',
-            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source binary" >&2; ls -la /opt/app/data/dist >&2 || true; exit 1; }',
-          );
-          fs.writeFileSync(path, text);
-          NODE
           mkdir -p dist
           buf generate buf.build/agynio/api --path agynio/api/identity/v1 --path agynio/api/authorization/v1
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/identity-devspace ./cmd/identity-service
@@ -599,64 +582,6 @@ jobs:
             kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
           }
           trap dump_threads_source_diagnostics ERR
-          node <<'NODE'
-          const fs = require('fs');
-          const path = 'devspace.yaml';
-          let text = fs.readFileSync(path, 'utf8');
-          const marker = '  restore_argocd_sync: &restore_argocd_sync |-\n';
-          if (!text.includes(marker)) {
-            throw new Error('threads DevSpace restore function not found');
-          }
-          if (!text.includes('Skipping ArgoCD auto-sync restore in CI.')) {
-            text = text.replace(marker, `${marker}    if [ -n "\${CI:-}" ]; then\n      echo "Skipping ArgoCD auto-sync restore in CI."\n      exit 0\n    fi\n`);
-          }
-          if (text.includes('  test:e2e:')) {
-            text = text.replaceAll('  test:e2e:', '  test-e2e:');
-            text = text.replaceAll('devspace run-pipeline test:e2e', 'devspace run-pipeline test-e2e');
-          }
-          text = text.replace(
-            'kubectl patch deployment threads-threads -n ${THREADS_NAMESPACE} --type strategic --patch',
-            'kubectl patch deployment "$(kubectl get deployment threads-threads -n ${THREADS_NAMESPACE} >/dev/null 2>&1 && echo threads-threads || echo threads)" -n ${THREADS_NAMESPACE} --type strategic --patch',
-          );
-          text = text.replace(
-            '              workingDir: /opt/app/data\n              command:',
-            '              workingDir: /opt/app/data\n              livenessProbe: null\n              readinessProbe: null\n              startupProbe: null\n              command:',
-          );
-          text = text.replace(
-            '[ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }',
-            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source files" >&2; ls -la /opt/app/data >&2 || true; exit 1; }',
-          );
-          text = text.replace(
-            '                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1\n                  exec go run ./cmd/threads',
-            '                  echo "Files synced, starting buf generate..."\n                  ls -la /opt/app/data/\n                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1\n                  echo "buf generate complete, starting go run..."\n                  exec go run ./cmd/threads',
-          );
-          text = text.replace(
-            `                  elapsed=0
-                  while [ ! -f /opt/app/data/go.mod ]; do
-                    sleep 1; elapsed=$((elapsed + 1))
-                    [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
-                  done
-                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1`,
-            `                  start=$(date +%s)
-                  while [ ! -f /opt/app/data/go.mod ] \
-                    || [ ! -f /opt/app/data/go.sum ] \
-                    || [ ! -f /opt/app/data/buf.gen.yaml ] \
-                    || [ ! -f /opt/app/data/buf.yaml ] \
-                    || [ ! -f /opt/app/data/cmd/threads/main.go ] \
-                    || [ ! -f /opt/app/data/internal/config/config.go ] \
-                    || [ ! -f /opt/app/data/internal/db/migrate.go ] \
-                    || [ ! -f /opt/app/data/internal/server/server.go ]; do
-                    sleep 1
-                    elapsed=$(( $(date +%s) - start ))
-                    [ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source files" >&2; ls -la /opt/app/data >&2 || true; exit 1; }
-                  done
-                  echo "Files synced, starting buf generate..."
-                  ls -la /opt/app/data/
-                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1
-                  echo "buf generate complete, starting go run..."`,
-          );
-          fs.writeFileSync(path, text);
-          NODE
           buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1
           CGO_ENABLED=0 go test ./internal/server -run 'TestCreateThreadStoresAgentInstanceForAgentClassParticipant' -count=1
           devspace dev
@@ -733,17 +658,6 @@ jobs:
             --path agynio/api/notifications/v1
           gofmt -w internal/server/workloads.go internal/server/workloads_test.go internal/server/runners_test.go
           CGO_ENABLED=0 go test ./internal/server -run 'TestCreateWorkload.*Authorization|TestCreateWorkloadMapsAgentInstanceIDToOwnerID' -count=1
-          node <<'NODE'
-          const fs = require('fs');
-          const path = 'devspace.yaml';
-          let text = fs.readFileSync(path, 'utf8');
-          const trap = "      trap 'echo \"Restoring ArgoCD sync...\"; restore_argocd_sync' EXIT\n";
-          if (!text.includes(trap)) {
-            throw new Error('runners DevSpace restore trap not found');
-          }
-          text = text.replace(trap, '');
-          fs.writeFileSync(path, text);
-          NODE
           devspace dev
 
       - name: Verify runners source deployment
@@ -861,34 +775,6 @@ jobs:
             kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
           }
           trap dump_k8s_runner_source_diagnostics ERR
-          node <<'NODE'
-          const fs = require('fs');
-          const path = 'devspace.yaml';
-          let text = fs.readFileSync(path, 'utf8');
-          const replacement = `  deploy:
-            run: |-
-              disable_argocd_sync
-              LABEL_SELECTOR="app.kubernetes.io/name=k8s-runner"
-              echo "Scaling k8s-runner down before source patch..."
-              kubectl scale deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --replicas=0
-              if [ -n "$(kubectl get pods -n \${K8S_RUNNER_NAMESPACE} -l "\${LABEL_SELECTOR}" -o name)" ]; then
-                kubectl wait --for=delete pod -n \${K8S_RUNNER_NAMESPACE} -l "\${LABEL_SELECTOR}" --timeout=240s
-              fi
-              patch_deployment
-              kubectl patch deployment k8s-runner -n \${K8S_RUNNER_NAMESPACE} --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
-              kubectl scale deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --replicas=1
-              kubectl rollout status deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --timeout=240s
-              start_dev --disable-pod-replace k8s-runner-deploy
-              wait_for_k8s_runner
-              echo "Deploy complete. k8s-runner is running from source."
-          `;
-          const deployPipelinePattern = /(\n  deploy:\n    run: \|-\n)([\s\S]*?)(\n  restore-argocd:\n    run: \|-)/;
-          if (!deployPipelinePattern.test(text)) {
-            throw new Error('k8s-runner deploy pipeline block not found');
-          }
-          text = text.replace(deployPipelinePattern, `\n${replacement}$3`);
-          fs.writeFileSync(path, text);
-          NODE
           devspace run deploy
 
       # Validation shim only: source-of-truth workload egress belongs in k8s-runner.
@@ -1471,11 +1357,10 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.llm_proxy_ref || env.LLM_PROXY_REF }}
           path: .e2e-deps/llm-proxy
 
-      - name: Deploy llm-proxy diagnostics from source
+      - name: Deploy llm-proxy from source
         working-directory: .e2e-deps/llm-proxy
         run: |-
           set -euo pipefail
-          node "${GITHUB_WORKSPACE}/.github/scripts/patch-llm-proxy-agyn-wait-diagnostics.js"
           protoc_bin="${RUNNER_TEMP}/llm-proxy-protoc-gen"
           proto_input="${GITHUB_WORKSPACE}/api/proto"
           proto_template="${RUNNER_TEMP}/llm-proxy-local-buf.gen.yaml"
