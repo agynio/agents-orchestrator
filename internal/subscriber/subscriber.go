@@ -236,7 +236,8 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 	if len(roomsByIdentity) == 0 {
 		return nil, "", fmt.Errorf("no agent instance rooms available")
 	}
-	if err := s.applySandboxOrgRooms(roomsByIdentity, sandboxOrgIdentities); err != nil {
+	sandboxOrgRooms, err := s.sandboxOrgRooms(roomsByIdentity, sandboxOrgIdentities)
+	if err != nil {
 		return nil, "", err
 	}
 
@@ -257,17 +258,42 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 		})
 		fingerprints = append(fingerprints, fingerprint)
 	}
+	// Kept out of the subscriptions above rather than folded into them.
+	// Notifications refuses a whole Subscribe when any one room is
+	// unauthorized, and an instance identity cannot hold can_list_sandboxes --
+	// it is a member of its organization, and that room wants the owner. Bundled
+	// together, the sandbox room took the instance's own inbox down with it and
+	// no delivery ever woke the reconciler.
+	for _, identityID := range sortedIdentities(sandboxOrgRooms) {
+		rooms := sortedRooms(sandboxOrgRooms[identityID])
+		subscriptions = append(subscriptions, roomSubscription{
+			identityID: identityID,
+			rooms:      rooms,
+		})
+		fingerprints = append(fingerprints, identityID.String()+":"+strings.Join(rooms, ","))
+	}
 	return subscriptions, strings.Join(fingerprints, "|"), nil
 }
 
-// applySandboxOrgRooms attaches the org-level sandbox room of every organization
-// the reconciler covers to one subscription per organization, so sandbox status
-// changes wake the sandbox loop without waiting for the next poll tick.
-func (s *Subscriber) applySandboxOrgRooms(roomsByIdentity map[uuid.UUID]map[string]struct{}, sandboxOrgIdentities map[string]uuid.UUID) error {
+func sortedIdentities(roomsByIdentity map[uuid.UUID]map[string]struct{}) []uuid.UUID {
+	identityIDs := make([]uuid.UUID, 0, len(roomsByIdentity))
+	for identityID := range roomsByIdentity {
+		identityIDs = append(identityIDs, identityID)
+	}
+	sort.Slice(identityIDs, func(i, j int) bool { return identityIDs[i].String() < identityIDs[j].String() })
+	return identityIDs
+}
+
+// sandboxOrgRooms elects one identity per organization to watch its org-level
+// sandbox room, so sandbox status changes wake the sandbox loop without waiting
+// for the next poll tick. The result is subscribed separately from the instance
+// rooms; see the caller.
+func (s *Subscriber) sandboxOrgRooms(roomsByIdentity map[uuid.UUID]map[string]struct{}, sandboxOrgIdentities map[string]uuid.UUID) (map[uuid.UUID]map[string]struct{}, error) {
+	roomsByElected := map[uuid.UUID]map[string]struct{}{}
 	for _, configuredOrgID := range s.sandboxOrgIDs {
 		parsedOrgID, err := uuidutil.ParseUUID(strings.TrimSpace(configuredOrgID), "sandbox_reconcile.organization_id")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; ok {
 			continue
@@ -277,13 +303,17 @@ func (s *Subscriber) applySandboxOrgRooms(roomsByIdentity map[uuid.UUID]map[stri
 		sandboxOrgIdentities[parsedOrgID.String()] = lowestIdentity(roomsByIdentity)
 	}
 	for orgID, identityID := range sandboxOrgIdentities {
-		rooms, ok := roomsByIdentity[identityID]
-		if !ok {
+		if _, ok := roomsByIdentity[identityID]; !ok {
 			continue
+		}
+		rooms, ok := roomsByElected[identityID]
+		if !ok {
+			rooms = map[string]struct{}{}
+			roomsByElected[identityID] = rooms
 		}
 		rooms[sandboxOrgRoomPrefix+orgID] = struct{}{}
 	}
-	return nil
+	return roomsByElected, nil
 }
 
 func lowestIdentity(roomsByIdentity map[uuid.UUID]map[string]struct{}) uuid.UUID {
