@@ -239,6 +239,22 @@ func waitForSubscribeRequests(t *testing.T, subscribeReqs <-chan subscribeCall, 
 	return reqs
 }
 
+// assertSubscribeRooms finds the one subscription whose rooms match exactly.
+// Subscriptions run concurrently, so arrival order says nothing.
+func assertSubscribeRooms(t *testing.T, reqs []subscribeCall, expected []string) {
+	t.Helper()
+	for _, req := range reqs {
+		if reflect.DeepEqual(req.req.GetRooms(), expected) {
+			return
+		}
+	}
+	got := make([][]string, 0, len(reqs))
+	for _, req := range reqs {
+		got = append(got, req.req.GetRooms())
+	}
+	t.Fatalf("expected a subscription for rooms %v, got %v", expected, got)
+}
+
 func assertSubscribeRequestForIdentity(t *testing.T, reqs []subscribeCall, instanceID string) {
 	t.Helper()
 	expected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID}
@@ -363,11 +379,13 @@ func TestSubscriberWakesSandboxOnSandboxUpdated(t *testing.T) {
 	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceInOrgFixture(instanceID, orgID)}, time.Hour)
 	defer harness.cancel()
 
-	req := waitForSubscribe(t, harness.subscribeReqs, 1)
-	expected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID, "sandbox_org:" + orgID}
-	if !reflect.DeepEqual(req.req.GetRooms(), expected) {
-		t.Fatalf("expected rooms %v, got %v", expected, req.req.GetRooms())
-	}
+	// Two subscriptions, not one: an instance identity cannot hold
+	// can_list_sandboxes, and Notifications refuses a whole Subscribe when any
+	// room in it is unauthorized. Bundled, the sandbox room took the instance's
+	// own inbox down with it.
+	reqs := waitForSubscribeRequests(t, harness.subscribeReqs, 2)
+	assertSubscribeRequestForIdentity(t, reqs, instanceID)
+	assertSubscribeRooms(t, reqs, []string{"sandbox_org:" + orgID})
 
 	responses <- messageEnvelope("sandbox.updated")
 	waitForAck(t, ack, 1)
@@ -397,11 +415,9 @@ func TestSubscriberSubscribesConfiguredSandboxOrganizations(t *testing.T) {
 	harness := newSubscriberHarnessWithSandboxOrgs(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour, []string{configuredOrgID})
 	defer harness.cancel()
 
-	req := waitForSubscribe(t, harness.subscribeReqs, 1)
-	expected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID, "sandbox_org:" + configuredOrgID}
-	if !reflect.DeepEqual(req.req.GetRooms(), expected) {
-		t.Fatalf("expected rooms %v, got %v", expected, req.req.GetRooms())
-	}
+	reqs := waitForSubscribeRequests(t, harness.subscribeReqs, 2)
+	assertSubscribeRequestForIdentity(t, reqs, instanceID)
+	assertSubscribeRooms(t, reqs, []string{"sandbox_org:" + configuredOrgID})
 
 	harness.cancel()
 	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
