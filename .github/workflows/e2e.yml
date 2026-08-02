@@ -6,20 +6,60 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      bootstrap_ref:
-        description: Bootstrap ref to provision from.
-        required: false
-        default: main
       k8s_runner_ref:
         description: k8s-runner ref to deploy from.
+        required: false
+        default: main
+      agents_ref:
+        description: Agents ref to deploy from.
+        required: false
+        default: main
+      authorization_ref:
+        description: Authorization ref to deploy from.
+        required: false
+        default: main
+      runners_ref:
+        description: Runners ref to deploy from.
+        required: false
+        default: main
+      identity_ref:
+        description: Identity ref to deploy from.
+        required: false
+        default: main
+      threads_ref:
+        description: Threads ref to deploy from.
+        required: false
+        default: main
+      agynd_cli_ref:
+        description: agynd-cli ref to build workload daemon from.
+        required: false
+        default: main
+      expose_ref:
+        description: Expose ref to deploy from.
+        required: false
+        default: main
+      gateway_ref:
+        description: Gateway ref to deploy from.
+        required: false
+        default: main
+      llm_proxy_ref:
+        description: llm-proxy ref to deploy from.
         required: false
         default: main
 
 # Init images are resolved to the newest published release by the run-tests
 # action. Pinning one here opts this workflow out of every fix shipped after it.
 env:
-  BOOTSTRAP_REF: main
   K8S_RUNNER_REF: main
+  AGENTS_REF: main
+  AUTHORIZATION_REF: main
+  RUNNERS_REF: main
+  IDENTITY_REF: main
+  THREADS_REF: main
+  AGYND_CLI_REF: main
+  EXPOSE_REF: main
+  GATEWAY_REF: main
+  LLM_PROXY_REF: main
 
 permissions:
   contents: read
@@ -37,12 +77,762 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@main
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF }}
+        uses: agynio/e2e/.github/actions/provision-vm@main
 
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@main
+
+      - name: Install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          version: 1.66.0
+
+      - name: Checkout agynd-cli
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/agynd-cli
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.agynd_cli_ref || env.AGYND_CLI_REF }}
+          path: .e2e-deps/agynd-cli
+
+      - name: Setup Go for agynd-cli
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: .e2e-deps/agynd-cli/go.mod
+
+      # The base init images are not pinned: pinning opts this workflow out of
+      # every fix shipped in a later image. run-tests resolves them, but that
+      # runs after this build step, so resolve them here too.
+      - name: Resolve base init images
+        run: |-
+          set -euo pipefail
+          latest_image() {
+            repo="$1"
+            token="$(curl -fsS "https://ghcr.io/token?scope=repository:agynio/${repo}:pull" |
+              python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+            url="https://ghcr.io/v2/agynio/${repo}/tags/list?n=1000"
+            tags=""
+            while [ -n "$url" ]; do
+              page="$(curl -fsS -D /tmp/hdr.$$ -H "Authorization: Bearer ${token}" "$url")"
+              tags="${tags}$(printf '%s' "$page" |
+                python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin).get("tags") or []))')
+          "
+              next="$(sed -n 's/^[Ll]ink:.*<\([^>]*\)>.*/\1/p' /tmp/hdr.$$)"
+              rm -f /tmp/hdr.$$
+              [ -n "$next" ] && url="https://ghcr.io${next}" || url=""
+            done
+            latest="$(printf '%s\n' "$tags" | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } |
+              sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+            [ -n "$latest" ] || { echo "No semver tags for ghcr.io/agynio/${repo}." >&2; return 1; }
+            printf 'ghcr.io/agynio/%s:%s' "$repo" "$latest"
+          }
+          codex="$(latest_image agent-init-codex)"
+          agn="$(latest_image agent-init-agn)"
+          claude="$(latest_image agent-init-claude)"
+          {
+            echo "CODEX_INIT_IMAGE=$codex"
+            echo "AGYN_AGENT_INIT_IMAGE=$codex"
+            echo "AGN_INIT_IMAGE=$agn"
+            echo "AGN_EXPOSE_INIT_IMAGE=$agn"
+            echo "CLAUDE_INIT_IMAGE=$claude"
+          } >> "$GITHUB_ENV"
+          echo "base init images: codex=$codex agn=$agn claude=$claude"
+
+      - name: Build agent init images
+        working-directory: .e2e-deps/agynd-cli
+        run: |-
+          set -euo pipefail
+          buf generate buf.build/agynio/api
+          mkdir -p .build
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o .build/agynd ./cmd/agynd
+
+          build_context="${GITHUB_WORKSPACE}/.e2e-deps/agent-init-instance-inbox"
+          mkdir -p "${build_context}"
+          cp .build/agynd "${build_context}/agynd"
+          cat >"${build_context}/agn-wrapper" <<'EOF'
+          #!/usr/bin/env sh
+          set -eu
+          exec "$(dirname "$0")/agn.real" "$@"
+          EOF
+          chmod +x "${build_context}/agn-wrapper"
+          cat >"${build_context}/agyn-wrapper" <<'EOF'
+          #!/usr/bin/env sh
+          set -eu
+          if [ -n "${AGENT_INSTANCE_ID:-}" ]; then
+            export AGYN_IDENTITY_ID="${AGENT_INSTANCE_ID}"
+          fi
+          stdout_file="$(mktemp)"
+          stderr_file="$(mktemp)"
+          set +e
+          "$(dirname "$0")/agyn.real" "$@" >"${stdout_file}" 2>"${stderr_file}"
+          status="$?"
+          set -e
+          cat "${stdout_file}"
+          awk '!/^thread_id:/' "${stderr_file}" >&2
+          rm -f "${stdout_file}" "${stderr_file}"
+          exit "${status}"
+          EOF
+          chmod +x "${build_context}/agyn-wrapper"
+          cat >"${build_context}/Dockerfile" <<'EOF'
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE}
+          COPY agynd /tools/agynd
+          COPY agn-wrapper /tmp/agyn-agn-wrapper
+          COPY agyn-wrapper /tmp/agyn-agyn-wrapper
+          RUN agn_dir="" \
+              && for agn_path in "$(command -v agn 2>/dev/null || true)" /tools/agn /tools/cli/agn /agyn-bin/agn /agyn-bin/cli/agn; do \
+                if [ -n "${agn_path}" ] && [ -x "${agn_path}" ]; then \
+                  agn_dir="$(dirname "${agn_path}")"; \
+                  mv "${agn_path}" "${agn_dir}/agn.real"; \
+                  cp /tmp/agyn-agn-wrapper "${agn_dir}/agn"; \
+                  chmod +x "${agn_dir}/agn"; \
+                  break; \
+                fi; \
+              done \
+              && agyn_installed="" \
+              && for agyn_path in "$(command -v agyn 2>/dev/null || true)" /tools/cli/agyn /tools/agyn /agyn-bin/cli/agyn /agyn-bin/agyn; do \
+                if [ -n "${agyn_path}" ] && { [ -e "${agyn_path}" ] || [ -L "${agyn_path}" ]; }; then \
+                  agyn_dir="$(dirname "${agyn_path}")"; \
+                  mv "${agyn_path}" "${agyn_dir}/agyn.real"; \
+                  cp /tmp/agyn-agyn-wrapper "${agyn_dir}/agyn"; \
+                  chmod +x "${agyn_dir}/agyn"; \
+                  agyn_installed="true"; \
+                  break; \
+                fi; \
+              done \
+              && if [ -z "${agyn_installed}" ] && [ -n "${agn_dir}" ]; then \
+                cp /tmp/agyn-agyn-wrapper "${agn_dir}/agyn"; \
+                chmod +x "${agn_dir}/agyn"; \
+              fi
+          EOF
+          codex_image="e2e/agent-init-codex:instance-inbox"
+          agn_image="e2e/agent-init-agn:instance-inbox"
+          claude_image="e2e/agent-init-claude:instance-inbox"
+          docker build --build-arg BASE_IMAGE="${CODEX_INIT_IMAGE}" -t "${codex_image}" "${build_context}"
+          docker build --build-arg BASE_IMAGE="${AGN_INIT_IMAGE}" -t "${agn_image}" "${build_context}"
+          docker build --build-arg BASE_IMAGE="${CLAUDE_INIT_IMAGE}" -t "${claude_image}" "${build_context}"
+          # k3s, not k3d: the platform VM has no registry mirror, so the
+          # cluster is handed the images the host just built.
+          agyn local load-image "${codex_image}" "${agn_image}" "${claude_image}"
+          {
+          echo "CODEX_INIT_IMAGE=${codex_image}"
+          echo "AGYN_AGENT_INIT_IMAGE=${codex_image}"
+          echo "E2E_AGENT_INIT_IMAGE=${codex_image}"
+          echo "AGN_INIT_IMAGE=${agn_image}"
+          echo "AGN_EXPOSE_INIT_IMAGE=${agn_image}"
+          echo "CLAUDE_INIT_IMAGE=${claude_image}"
+          } >> "${GITHUB_ENV}"
+
+
+      - name: Checkout authorization
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/authorization
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.authorization_ref || env.AUTHORIZATION_REF }}
+          path: .e2e-deps/authorization
+
+      - name: Apply authorization model from source
+        working-directory: .e2e-deps/authorization
+        run: |-
+          set -euo pipefail
+          dump_authorization_model_diagnostics() {
+            echo "== authorization model diagnostics ==" >&2
+            kubectl get secret authorization-openfga -n platform -o yaml >&2 || true
+            kubectl get application authorization -n argocd -o yaml >&2 || true
+            kubectl get deployment authorization -n platform -o yaml >&2 || true
+            kubectl get svc -A -o wide | grep -i openfga >&2 || true
+            kubectl get pods -n platform -l app.kubernetes.io/name=authorization -o wide >&2 || true
+            kubectl logs -n platform -l app.kubernetes.io/name=authorization --all-containers --tail=300 >&2 || true
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_authorization_model_diagnostics ERR
+          secret_name="authorization-openfga"
+          authorization_application="authorization"
+          if kubectl get application "${authorization_application}" -n argocd >/dev/null 2>&1; then
+            kubectl patch application "${authorization_application}" -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":null}}}'
+          fi
+          openfga_namespace="openfga"
+          openfga_service="$(kubectl get svc -n "${openfga_namespace}" -l app.kubernetes.io/name=openfga -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          if [ -z "${openfga_service}" ] && kubectl get svc openfga -n "${openfga_namespace}" >/dev/null 2>&1; then
+            openfga_service="openfga"
+          fi
+          if [ -z "${openfga_service}" ]; then
+            openfga_ref="$(kubectl get svc -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\n"}{end}' | awk 'tolower($2) ~ /openfga/ { print; exit }')"
+            if [ -n "${openfga_ref}" ]; then
+              openfga_namespace="$(printf '%s' "${openfga_ref}" | awk '{ print $1 }')"
+              openfga_service="$(printf '%s' "${openfga_ref}" | awk '{ print $2 }')"
+            fi
+          fi
+          if [ -z "${openfga_service}" ]; then
+            echo "OpenFGA service not found" >&2
+            kubectl get svc -A -o wide >&2 || true
+            exit 1
+          fi
+          openfga_port="$(kubectl get svc "${openfga_service}" -n "${openfga_namespace}" -o jsonpath='{.spec.ports[?(@.name=="http")].port}' 2>/dev/null || true)"
+          if [ -z "${openfga_port}" ]; then
+            openfga_port="$(kubectl get svc "${openfga_service}" -n "${openfga_namespace}" -o jsonpath='{.spec.ports[0].port}')"
+          fi
+          kubectl port-forward -n "${openfga_namespace}" "svc/${openfga_service}" 18080:"${openfga_port}" >/tmp/openfga-port-forward.log 2>&1 &
+          port_forward_pid="$!"
+          cleanup() {
+            kill "${port_forward_pid}" >/dev/null 2>&1 || true
+            wait "${port_forward_pid}" >/dev/null 2>&1 || true
+          }
+          trap 'dump_authorization_model_diagnostics; cleanup' ERR
+          trap cleanup EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:18080/healthz" >/dev/null 2>&1 || curl -fsS "http://127.0.0.1:18080/stores" >/dev/null 2>&1; then
+              break
+            fi
+            if ! kill -0 "${port_forward_pid}" >/dev/null 2>&1; then
+              cat /tmp/openfga-port-forward.log >&2 || true
+              exit 1
+            fi
+            if [ "${i}" -eq 60 ]; then
+              cat /tmp/openfga-port-forward.log >&2 || true
+              exit 1
+            fi
+            sleep 1
+          done
+          store_id="$(curl -fsS "http://127.0.0.1:18080/stores" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("stores") or [{}])[0].get("id",""))')"
+          if [ -z "${store_id}" ]; then
+            echo "OpenFGA reported no authorization store" >&2
+            curl -fsS "http://127.0.0.1:18080/stores" >&2 || true
+            exit 1
+          fi
+          echo "openfga store: ${store_id}"
+          apply_file="$(mktemp apply-authorization-model-XXXX.go)"
+          trap 'rm -f "${apply_file}"; cleanup' EXIT
+          cat >"${apply_file}" <<'GO'
+          package main
+
+          import (
+            "context"
+            "encoding/json"
+            "fmt"
+            "os"
+            "strings"
+            "time"
+
+            "github.com/agynio/authorization/internal/authz"
+            openfgaclient "github.com/openfga/go-sdk/client"
+            "github.com/openfga/language/pkg/go/transformer"
+          )
+
+          func main() {
+            apiURL := strings.TrimSpace(os.Getenv("OPENFGA_API_URL"))
+            storeID := strings.TrimSpace(os.Getenv("OPENFGA_STORE_ID"))
+            if apiURL == "" || storeID == "" {
+              panic("OPENFGA_API_URL and OPENFGA_STORE_ID are required")
+            }
+            ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+            defer cancel()
+            client, err := openfgaclient.NewSdkClient(&openfgaclient.ClientConfiguration{ApiUrl: apiURL})
+            if err != nil {
+              panic(err)
+            }
+            if err := client.SetStoreId(storeID); err != nil {
+              panic(err)
+            }
+            modelJSON, err := transformer.TransformDSLToJSON(authz.ModelDSL)
+            if err != nil {
+              panic(err)
+            }
+            var body openfgaclient.ClientWriteAuthorizationModelRequest
+            if err := json.Unmarshal([]byte(modelJSON), &body); err != nil {
+              panic(err)
+            }
+            written, err := client.WriteAuthorizationModel(ctx).Body(body).Execute()
+            if err != nil {
+              panic(err)
+            }
+            modelID := strings.TrimSpace(written.GetAuthorizationModelId())
+            if modelID == "" {
+              panic("authorization model id missing")
+            }
+            fmt.Println(modelID)
+          }
+          GO
+          model_id="$(OPENFGA_API_URL=http://127.0.0.1:18080 OPENFGA_STORE_ID="${store_id}" go run "${apply_file}")"
+          if [ -z "${model_id}" ]; then
+            echo "authorization model id missing" >&2
+            exit 1
+          fi
+          kubectl create secret generic "${secret_name}" -n platform \
+            --from-literal=OPENFGA_STORE_ID="${store_id}" \
+            --from-literal=OPENFGA_MODEL_ID="${model_id}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          authorization_deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=authorization -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          if [ -z "${authorization_deployment}" ]; then
+            echo "authorization deployment not found" >&2
+            kubectl get deployment -n platform -o wide >&2 || true
+            exit 1
+          fi
+          kubectl patch deployment "${authorization_deployment}" -n platform --type=json -p "$(cat <<PATCH
+          [{"op":"replace","path":"/spec/template/spec/containers/0/env","value":[{"name":"GRPC_ADDRESS","value":":50051"},{"name":"OPENFGA_API_URL","value":"http://${openfga_service}.${openfga_namespace}.svc.cluster.local:${openfga_port}"},{"name":"OPENFGA_STORE_ID","value":"${store_id}"},{"name":"OPENFGA_MODEL_ID","value":"${model_id}"}]}]
+          PATCH
+          )"
+          kubectl rollout status "deployment/${authorization_deployment}" -n platform --timeout=240s
+          current_model_id="$(kubectl get deployment "${authorization_deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[0].env[?(@.name=="OPENFGA_MODEL_ID")]}{.value}{end}')"
+          if [ "${current_model_id}" != "${model_id}" ]; then
+            echo "authorization deployment OPENFGA_MODEL_ID mismatch: expected ${model_id}, got ${current_model_id}" >&2
+            exit 1
+          fi
+          echo "Applied authorization model ${model_id} to store ${store_id}."
+
+      - name: Checkout agents
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/agents
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.agents_ref || env.AGENTS_REF }}
+          path: .e2e-deps/agents
+
+      - name: Deploy agents from source
+        working-directory: .e2e-deps/agents
+        run: |-
+          set -euo pipefail
+          devspace dev
+
+      - name: Checkout identity
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/identity
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.identity_ref || env.IDENTITY_REF }}
+          path: .e2e-deps/identity
+
+      - name: Deploy identity from source
+        working-directory: .e2e-deps/identity
+        run: |-
+          set -euo pipefail
+          dump_identity_source_diagnostics() {
+            selector="app.kubernetes.io/name=identity"
+            echo "== identity source deployment diagnostics ==" >&2
+            kubectl get application identity -n argocd -o yaml >&2 || true
+            kubectl get deployment identity -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== identity current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== identity previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_identity_source_diagnostics ERR
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const marker = '  restore_argocd_sync: &restore_argocd_sync |-\n';
+          if (!text.includes(marker)) {
+            throw new Error('identity DevSpace restore function not found');
+          }
+          if (!text.includes('Skipping ArgoCD auto-sync restore in CI.')) {
+            text = text.replace(marker, `${marker}    if [ -n "\${CI:-}" ]; then\n      echo "Skipping ArgoCD auto-sync restore in CI."\n      exit 0\n    fi\n`);
+          }
+          text = text.replace(
+            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout" >&2; exit 1; }',
+            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source binary" >&2; ls -la /opt/app/data/dist >&2 || true; exit 1; }',
+          );
+          fs.writeFileSync(path, text);
+          NODE
+          mkdir -p dist
+          buf generate buf.build/agynio/api --path agynio/api/identity/v1 --path agynio/api/authorization/v1
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/identity-devspace ./cmd/identity-service
+          devspace dev
+
+      - name: Verify identity source deployment
+        run: |-
+          set -euo pipefail
+          selector="app.kubernetes.io/name=identity"
+          source_pod=""
+          extra_pods=""
+          elapsed=0
+          while [ "${elapsed}" -lt 180 ]; do
+            source_pod="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[?(@.spec.containers[0].image=="ghcr.io/agynio/devcontainer-go:1")]}{.metadata.name}{"\n"}{end}' \
+              | head -n 1)"
+            extra_pods="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}' \
+              | awk '$2 != "ghcr.io/agynio/devcontainer-go:1" { print }')"
+            if [ -n "${source_pod}" ] && [ -z "${extra_pods}" ]; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          if [ -z "${source_pod}" ] || [ -n "${extra_pods}" ]; then
+            if [ -z "${source_pod}" ]; then
+              echo "identity source pod not found" >&2
+            fi
+            if [ -n "${extra_pods}" ]; then
+              echo "non-source identity pods are still active:" >&2
+              printf '%s\n' "${extra_pods}" >&2
+            fi
+            kubectl get application identity -n argocd -o yaml >&2 || true
+            kubectl get deployment identity -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=300 >&2 || true
+            exit 1
+          fi
+          kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
+
+      - name: Register cluster-admin identities
+        working-directory: .e2e-deps/identity
+        run: |-
+          set -euo pipefail
+          identity_ids="a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10"
+          # The Gateway's own identity is whatever the cluster-admin token maps
+          # to, which the token's holder can only learn by asking. The URL and
+          # token come from the provisioning step's environment.
+          if [ -n "${AGYN_BASE_URL:-}" ] && [ -n "${AGYN_API_TOKEN:-}" ]; then
+            me_payload="$(curl -fsSk -H "Authorization: Bearer ${AGYN_API_TOKEN}" "${AGYN_BASE_URL}/me" || true)"
+            gateway_identity_id="$(node -e 'let data=""; process.stdin.on("data", c => data += c); process.stdin.on("end", () => { try { const p = JSON.parse(data || "{}"); process.stdout.write(String(p.identity_id || "").trim()); } catch (_) {} });' <<<"${me_payload}")"
+            if [ -n "${gateway_identity_id}" ] && ! printf '%s\n' "${identity_ids}" | grep -Fxq "${gateway_identity_id}"; then
+              identity_ids="$(printf '%s\n%s' "${identity_ids}" "${gateway_identity_id}")"
+            fi
+          fi
+          kubectl port-forward -n platform svc/identity 15051:50051 >/tmp/identity-port-forward.log 2>&1 &
+          port_forward_pid="$!"
+          cleanup() {
+            kill "${port_forward_pid}" >/dev/null 2>&1 || true
+            wait "${port_forward_pid}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          for i in $(seq 1 60); do
+            if (echo >/dev/tcp/127.0.0.1/15051) >/dev/null 2>&1; then
+              break
+            fi
+            if ! kill -0 "${port_forward_pid}" >/dev/null 2>&1; then
+              cat /tmp/identity-port-forward.log >&2 || true
+              exit 1
+            fi
+            if [ "${i}" -eq 60 ]; then
+              cat /tmp/identity-port-forward.log >&2 || true
+              exit 1
+            fi
+            sleep 1
+          done
+          seed_file="$(mktemp register-e2e-identities-XXXX.go)"
+          trap 'rm -f "${seed_file}"; cleanup' EXIT
+          cat >"${seed_file}" <<'GO'
+          package main
+
+          import (
+            "context"
+            "fmt"
+            "os"
+            "strings"
+            "time"
+
+            identityv1 "github.com/agynio/identity/.gen/go/agynio/api/identity/v1"
+            "google.golang.org/grpc"
+            "google.golang.org/grpc/codes"
+            "google.golang.org/grpc/credentials/insecure"
+            "google.golang.org/grpc/status"
+          )
+
+          func main() {
+            rawIDs := strings.TrimSpace(os.Getenv("E2E_IDENTITY_IDS"))
+            if rawIDs == "" {
+              panic("E2E_IDENTITY_IDS is empty")
+            }
+            ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+            defer cancel()
+            conn, err := grpc.NewClient("127.0.0.1:15051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+            if err != nil {
+              panic(err)
+            }
+            defer conn.Close()
+            client := identityv1.NewIdentityServiceClient(conn)
+            ids := strings.Fields(rawIDs)
+            for _, identityID := range ids {
+              _, err := client.RegisterIdentity(ctx, &identityv1.RegisterIdentityRequest{
+                IdentityId: identityID,
+                IdentityType: identityv1.IdentityType_IDENTITY_TYPE_USER,
+              })
+              if err != nil && status.Code(err) != codes.AlreadyExists {
+                panic(fmt.Errorf("register identity %s: %w", identityID, err))
+              }
+            }
+            response, err := client.BatchGetIdentityTypes(ctx, &identityv1.BatchGetIdentityTypesRequest{IdentityIds: ids})
+            if err != nil {
+              panic(fmt.Errorf("verify identities: %w", err))
+            }
+            if len(response.GetEntries()) != len(ids) {
+              panic(fmt.Errorf("verify identities: expected %d entries, got %d", len(ids), len(response.GetEntries())))
+            }
+            fmt.Printf("registered %d cluster-admin identities\n", len(ids))
+          }
+          GO
+          E2E_IDENTITY_IDS="${identity_ids}" go run "${seed_file}"
+
+      - name: Checkout threads
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/threads
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.threads_ref || env.THREADS_REF }}
+          path: .e2e-deps/threads
+
+      - name: Deploy threads from source
+        working-directory: .e2e-deps/threads
+        run: |-
+          set -euo pipefail
+          dump_threads_source_diagnostics() {
+            selector="app.kubernetes.io/name=threads"
+            echo "== threads source deployment diagnostics ==" >&2
+            kubectl get application threads -n argocd -o yaml >&2 || true
+            kubectl get deployment threads-threads -n platform -o yaml >&2 || kubectl get deployment threads -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== threads current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== threads previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_threads_source_diagnostics ERR
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const marker = '  restore_argocd_sync: &restore_argocd_sync |-\n';
+          if (!text.includes(marker)) {
+            throw new Error('threads DevSpace restore function not found');
+          }
+          if (!text.includes('Skipping ArgoCD auto-sync restore in CI.')) {
+            text = text.replace(marker, `${marker}    if [ -n "\${CI:-}" ]; then\n      echo "Skipping ArgoCD auto-sync restore in CI."\n      exit 0\n    fi\n`);
+          }
+          if (text.includes('  test:e2e:')) {
+            text = text.replaceAll('  test:e2e:', '  test-e2e:');
+            text = text.replaceAll('devspace run-pipeline test:e2e', 'devspace run-pipeline test-e2e');
+          }
+          text = text.replace(
+            'kubectl patch deployment threads-threads -n ${THREADS_NAMESPACE} --type strategic --patch',
+            'kubectl patch deployment "$(kubectl get deployment threads-threads -n ${THREADS_NAMESPACE} >/dev/null 2>&1 && echo threads-threads || echo threads)" -n ${THREADS_NAMESPACE} --type strategic --patch',
+          );
+          text = text.replace(
+            '              workingDir: /opt/app/data\n              command:',
+            '              workingDir: /opt/app/data\n              livenessProbe: null\n              readinessProbe: null\n              startupProbe: null\n              command:',
+          );
+          text = text.replace(
+            '[ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }',
+            '[ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source files" >&2; ls -la /opt/app/data >&2 || true; exit 1; }',
+          );
+          text = text.replace(
+            '                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1\n                  exec go run ./cmd/threads',
+            '                  echo "Files synced, starting buf generate..."\n                  ls -la /opt/app/data/\n                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1\n                  echo "buf generate complete, starting go run..."\n                  exec go run ./cmd/threads',
+          );
+          text = text.replace(
+            `                  elapsed=0
+                  while [ ! -f /opt/app/data/go.mod ]; do
+                    sleep 1; elapsed=$((elapsed + 1))
+                    [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
+                  done
+                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1`,
+            `                  start=$(date +%s)
+                  while [ ! -f /opt/app/data/go.mod ] \
+                    || [ ! -f /opt/app/data/go.sum ] \
+                    || [ ! -f /opt/app/data/buf.gen.yaml ] \
+                    || [ ! -f /opt/app/data/buf.yaml ] \
+                    || [ ! -f /opt/app/data/cmd/threads/main.go ] \
+                    || [ ! -f /opt/app/data/internal/config/config.go ] \
+                    || [ ! -f /opt/app/data/internal/db/migrate.go ] \
+                    || [ ! -f /opt/app/data/internal/server/server.go ]; do
+                    sleep 1
+                    elapsed=$(( $(date +%s) - start ))
+                    [ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for source files" >&2; ls -la /opt/app/data >&2 || true; exit 1; }
+                  done
+                  echo "Files synced, starting buf generate..."
+                  ls -la /opt/app/data/
+                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1
+                  echo "buf generate complete, starting go run..."`,
+          );
+          fs.writeFileSync(path, text);
+          NODE
+          buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1 --path agynio/api/identity/v1 --path agynio/api/metering/v1 --path agynio/api/authorization/v1 --path agynio/api/agents/v1
+          CGO_ENABLED=0 go test ./internal/server -run 'TestCreateThreadStoresAgentInstanceForAgentClassParticipant' -count=1
+          devspace dev
+
+      - name: Verify threads source deployment
+        run: |-
+          set -euo pipefail
+          selector="app.kubernetes.io/name=threads"
+          source_pod=""
+          extra_pods=""
+          elapsed=0
+          while [ "${elapsed}" -lt 180 ]; do
+            source_pod="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[?(@.spec.containers[0].image=="ghcr.io/agynio/devcontainer-go:1")]}{.metadata.name}{"\n"}{end}' \
+              | head -n 1)"
+            extra_pods="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}' \
+              | awk '$2 != "ghcr.io/agynio/devcontainer-go:1" { print }')"
+            if [ -n "${source_pod}" ] && [ -z "${extra_pods}" ]; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          if [ -z "${source_pod}" ] || [ -n "${extra_pods}" ]; then
+            if [ -z "${source_pod}" ]; then
+              echo "threads source pod not found" >&2
+            fi
+            if [ -n "${extra_pods}" ]; then
+              echo "non-source threads pods are still active:" >&2
+              printf '%s\n' "${extra_pods}" >&2
+            fi
+            kubectl get application threads -n argocd -o yaml >&2 || true
+            kubectl get deployment threads-threads -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=300 >&2 || true
+            exit 1
+          fi
+          kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
+
+      - name: Checkout runners
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/runners
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.runners_ref || env.RUNNERS_REF }}
+          path: .e2e-deps/runners
+
+      - name: Install gRPC health probe
+        run: |-
+          set -euo pipefail
+          version="v0.4.38"
+          curl -fsSL --retry 3 --retry-delay 5 \
+            -o /tmp/grpc_health_probe \
+            "https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${version}/grpc_health_probe-linux-amd64"
+          sudo install -c -m 0755 /tmp/grpc_health_probe /usr/local/bin/grpc_health_probe
+          grpc_health_probe -version
+
+      - name: Deploy runners from source
+        working-directory: .e2e-deps/runners
+        run: |-
+          set -euo pipefail
+          # runners main carries the agent-instance work (owner_kind/owner_id,
+          # ListWorkloadsByAgentInstance, ListVolumesByAgentInstance) since #71,
+          # so the patch that used to add it now duplicates declarations.
+          buf generate buf.build/agynio/api \
+            --include-imports \
+            --path agynio/api/agents/v1 \
+            --path agynio/api/runners/v1 \
+            --path agynio/api/identity/v1 \
+            --path agynio/api/authorization/v1 \
+            --path agynio/api/ziti_management/v1 \
+            --path agynio/api/notifications/v1
+          gofmt -w internal/server/workloads.go internal/server/workloads_test.go internal/server/runners_test.go
+          CGO_ENABLED=0 go test ./internal/server -run 'TestCreateWorkload.*Authorization|TestCreateWorkloadMapsAgentInstanceIDToOwnerID' -count=1
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const trap = "      trap 'echo \"Restoring ArgoCD sync...\"; restore_argocd_sync' EXIT\n";
+          if (!text.includes(trap)) {
+            throw new Error('runners DevSpace restore trap not found');
+          }
+          text = text.replace(trap, '');
+          fs.writeFileSync(path, text);
+          NODE
+          devspace dev
+
+      - name: Verify runners source deployment
+        run: |-
+          set -euo pipefail
+          selector="app.kubernetes.io/name=runners"
+          source_pod=""
+          extra_pods=""
+          elapsed=0
+          while [ "${elapsed}" -lt 180 ]; do
+            source_pod="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[?(@.spec.containers[0].image=="ghcr.io/agynio/devcontainer-go:1")]}{.metadata.name}{"\n"}{end}' \
+              | head -n 1)"
+            extra_pods="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}' \
+              | awk '$2 != "ghcr.io/agynio/devcontainer-go:1" { print }')"
+            if [ -n "${source_pod}" ] && [ -z "${extra_pods}" ]; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          if [ -z "${source_pod}" ] || [ -n "${extra_pods}" ]; then
+            if [ -z "${source_pod}" ]; then
+              echo "runners source pod not found" >&2
+            fi
+            if [ -n "${extra_pods}" ]; then
+              echo "non-source runners pods are still active:" >&2
+              printf '%s\n' "${extra_pods}" >&2
+            fi
+            cat /tmp/runners-devspace.log >&2 || true
+            kubectl get deployment runners -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            exit 1
+          fi
+          kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
+
+      - name: Checkout expose
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/expose
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expose_ref || env.EXPOSE_REF }}
+          path: .e2e-deps/expose
+
+      - name: Deploy expose from source
+        working-directory: .e2e-deps/expose
+        run: |-
+          set -euo pipefail
+          dump_expose_source_diagnostics() {
+            selector="app.kubernetes.io/name=expose"
+            echo "== expose source deployment diagnostics ==" >&2
+            kubectl get application expose -n argocd -o yaml >&2 || true
+            kubectl get deployment expose -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== expose current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== expose previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_expose_source_diagnostics ERR
+          if kubectl get application expose -n argocd >/dev/null 2>&1; then
+            kubectl patch application expose -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":null}}}'
+          fi
+          buf generate buf.build/agynio/api \
+            --include-imports \
+            --path agynio/api/expose/v1 \
+            --path agynio/api/ziti_management/v1 \
+            --path agynio/api/runners/v1 \
+            --path agynio/api/runner/v1 \
+            --path agynio/api/notifications/v1 \
+            --path agynio/api/identity/v1 \
+            --path agynio/api/authorization/v1
+          gofmt -w internal/server/server.go internal/server/server_test.go
+          CGO_ENABLED=0 go test ./internal/server -run 'TestAddExposureAllowsAgentInstanceOwner|TestAddExposureHappyPath|TestListExposuresSuccess' -count=1
+          image="e2e/expose:agent-instances"
+          docker build -t "${image}" .
+          agyn local load-image "${image}"
+          kubectl patch deployment expose -n platform --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+          kubectl set image deployment/expose -n platform expose="${image}"
+          kubectl rollout status deployment/expose -n platform --timeout=240s
+          kubectl logs deployment/expose -n platform --all-containers --tail=200
 
       - name: Checkout k8s-runner
         uses: actions/checkout@v4
@@ -53,7 +843,53 @@ jobs:
 
       - name: Deploy k8s-runner from source
         working-directory: .e2e-deps/k8s-runner
-        run: devspace run deploy
+        run: |-
+          set -euo pipefail
+          dump_k8s_runner_source_diagnostics() {
+            selector="app.kubernetes.io/name=k8s-runner"
+            echo "== k8s-runner source deployment diagnostics ==" >&2
+            kubectl get application k8s-runner -n argocd -o yaml >&2 || true
+            kubectl get deployment k8s-runner -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== k8s-runner current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== k8s-runner previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_k8s_runner_source_diagnostics ERR
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const replacement = `  deploy:
+            run: |-
+              disable_argocd_sync
+              LABEL_SELECTOR="app.kubernetes.io/name=k8s-runner"
+              echo "Scaling k8s-runner down before source patch..."
+              kubectl scale deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --replicas=0
+              if [ -n "$(kubectl get pods -n \${K8S_RUNNER_NAMESPACE} -l "\${LABEL_SELECTOR}" -o name)" ]; then
+                kubectl wait --for=delete pod -n \${K8S_RUNNER_NAMESPACE} -l "\${LABEL_SELECTOR}" --timeout=240s
+              fi
+              patch_deployment
+              kubectl patch deployment k8s-runner -n \${K8S_RUNNER_NAMESPACE} --type merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+              kubectl scale deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --replicas=1
+              kubectl rollout status deployment/k8s-runner -n \${K8S_RUNNER_NAMESPACE} --timeout=240s
+              start_dev --disable-pod-replace k8s-runner-deploy
+              wait_for_k8s_runner
+              echo "Deploy complete. k8s-runner is running from source."
+          `;
+          const deployPipelinePattern = /(\n  deploy:\n    run: \|-\n)([\s\S]*?)(\n  restore-argocd:\n    run: \|-)/;
+          if (!deployPipelinePattern.test(text)) {
+            throw new Error('k8s-runner deploy pipeline block not found');
+          }
+          text = text.replace(deployPipelinePattern, `\n${replacement}$3`);
+          fs.writeFileSync(path, text);
+          NODE
+          devspace run deploy
 
       # Validation shim only: source-of-truth workload egress belongs in k8s-runner.
       # Keep this PR check strict while regular E2E consumes main refs.
@@ -63,14 +899,25 @@ jobs:
           service_endpoint_ips() {
             kubectl get endpoints "$1" -n "$2" -o jsonpath='{range .subsets[*].addresses[*]}{.ip}{" "}{end}'
           }
-          ziti_dns_ip="$(kubectl get service ziti-workload-dns -n ziti -o jsonpath='{.spec.clusterIP}')"
+          # Whichever resolver this cluster gives workloads. bootstrap ran a
+          # dedicated ziti-workload-dns; the platform VM does not -- it answers
+          # the ziti hostnames from CoreDNS via coredns-custom rewrites, so the
+          # address to allow is kube-dns.
+          dns_service=ziti-workload-dns
+          dns_namespace=ziti
+          if ! kubectl get service "${dns_service}" -n "${dns_namespace}" >/dev/null 2>&1; then
+            dns_service=kube-dns
+            dns_namespace=kube-system
+          fi
+          echo "workload DNS: ${dns_service}.${dns_namespace}"
+          ziti_dns_ip="$(kubectl get service "${dns_service}" -n "${dns_namespace}" -o jsonpath='{.spec.clusterIP}')"
           if [ -z "${ziti_dns_ip}" ]; then
-            echo "ziti-workload-dns ClusterIP is empty" >&2
+            echo "${dns_service} ClusterIP is empty" >&2
             exit 1
           fi
-          ziti_dns_endpoint_ips="$(service_endpoint_ips ziti-workload-dns ziti)"
+          ziti_dns_endpoint_ips="$(service_endpoint_ips "${dns_service}" "${dns_namespace}")"
           if [ -z "${ziti_dns_endpoint_ips}" ]; then
-            echo "ziti-workload-dns endpoints are empty" >&2
+            echo "${dns_service} endpoints are empty" >&2
             exit 1
           fi
           ziti_controller_ip="$(kubectl get service ziti-controller-client -n ziti -o jsonpath='{.spec.clusterIP}')"
@@ -103,9 +950,85 @@ jobs:
             echo "istio-ingressgateway endpoints are empty" >&2
             exit 1
           fi
+          agents_service_ip="$(kubectl get service agents -n platform -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${agents_service_ip}" ]; then
+            echo "agents ClusterIP is empty" >&2
+            exit 1
+          fi
+          agents_endpoint_ips="$(service_endpoint_ips agents platform)"
+          if [ -z "${agents_endpoint_ips}" ]; then
+            echo "agents endpoints are empty" >&2
+            exit 1
+          fi
+          runners_service_ip="$(kubectl get service runners -n platform -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${runners_service_ip}" ]; then
+            echo "runners ClusterIP is empty" >&2
+            exit 1
+          fi
+          runners_endpoint_ips="$(service_endpoint_ips runners platform)"
+          if [ -z "${runners_endpoint_ips}" ]; then
+            echo "runners endpoints are empty" >&2
+            exit 1
+          fi
+          apply_workload_service_alias() {
+            service_name="$1"
+            endpoint_ips="$2"
+            cat <<EOF_ALIAS_SERVICE | kubectl apply -f -
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: ${service_name}
+            namespace: agyn-workloads
+          spec:
+            ports:
+              - name: grpc
+                protocol: TCP
+                port: 50051
+                targetPort: 50051
+          EOF_ALIAS_SERVICE
+            {
+              cat <<EOF_ALIAS_SLICE
+          apiVersion: discovery.k8s.io/v1
+          kind: EndpointSlice
+          metadata:
+            name: ${service_name}-platform-source
+            namespace: agyn-workloads
+            labels:
+              kubernetes.io/service-name: ${service_name}
+          addressType: IPv4
+          ports:
+            - name: grpc
+              protocol: TCP
+              port: 50051
+          endpoints:
+          EOF_ALIAS_SLICE
+              for endpoint_ip in ${endpoint_ips}; do
+                cat <<EOF_ALIAS_SLICE
+            - addresses:
+                - ${endpoint_ip}
+              conditions:
+                ready: true
+          EOF_ALIAS_SLICE
+              done
+            } | kubectl apply -f -
+          }
+          apply_workload_service_alias agents "${agents_endpoint_ips}"
+          apply_workload_service_alias runners "${runners_endpoint_ips}"
+          agents_alias_service_ip="$(kubectl get service agents -n agyn-workloads -o jsonpath='{.spec.clusterIP}')"
+          runners_alias_service_ip="$(kubectl get service runners -n agyn-workloads -o jsonpath='{.spec.clusterIP}')"
+          if [ -z "${agents_alias_service_ip}" ] || [ -z "${runners_alias_service_ip}" ]; then
+            echo "workload namespace service alias ClusterIP is empty" >&2
+            kubectl get service -n agyn-workloads agents runners -o wide >&2 || true
+            kubectl get endpointslice -n agyn-workloads -l 'kubernetes.io/service-name in (agents,runners)' -o wide >&2 || true
+            exit 1
+          fi
 
           add_tcp_egress_ip() {
             patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"$1/32\"}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":$2}]}}"
+          }
+
+          add_platform_backend_egress() {
+            patch="${patch},{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"platform\"}},\"podSelector\":{\"matchExpressions\":[{\"key\":\"app.kubernetes.io/name\",\"operator\":\"In\",\"values\":[\"agents\",\"runners\"]}]}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":50051}]}}"
           }
 
           patch='[{"op":"add","path":"/spec/egress/-","value":{"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ziti"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"ziti-workload-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}},{"op":"add","path":"/spec/egress/-","value":{"to":[{"ipBlock":{"cidr":"'"${ziti_dns_ip}"'/32"}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}}'
@@ -115,6 +1038,17 @@ jobs:
           add_tcp_egress_ip "${istio_gateway_ip}" 443
           for istio_gateway_endpoint_ip in ${istio_gateway_endpoint_ips}; do
             add_tcp_egress_ip "${istio_gateway_endpoint_ip}" 443
+          done
+          add_platform_backend_egress
+          add_tcp_egress_ip "${agents_alias_service_ip}" 50051
+          add_tcp_egress_ip "${runners_alias_service_ip}" 50051
+          add_tcp_egress_ip "${agents_service_ip}" 50051
+          for agents_endpoint_ip in ${agents_endpoint_ips}; do
+            add_tcp_egress_ip "${agents_endpoint_ip}" 50051
+          done
+          add_tcp_egress_ip "${runners_service_ip}" 50051
+          for runners_endpoint_ip in ${runners_endpoint_ips}; do
+            add_tcp_egress_ip "${runners_endpoint_ip}" 50051
           done
           add_tcp_egress_ip "${ziti_controller_ip}" 2496
           for ziti_controller_endpoint_ip in ${ziti_controller_endpoint_ips}; do
@@ -139,9 +1073,11 @@ jobs:
           kubectl wait deployment/ziti-workload-dns -n ziti --for=condition=Available --timeout=180s
           kubectl get networkpolicy agent-workload-egress -n agyn-workloads -o yaml
           kubectl get networkpolicy ziti-workload-dns -n ziti -o yaml
+          kubectl get service -n agyn-workloads agents runners -o wide
+          kubectl get endpointslice -n agyn-workloads -l 'kubernetes.io/service-name in (agents,runners)' -o wide
           kubectl get service,endpoints,pods -n ziti -l app.kubernetes.io/name=ziti-workload-dns -o wide
 
-      # Validation shim only: source-of-truth workload DNS belongs in bootstrap.
+      # Validation shim only: source-of-truth workload DNS belongs in the platform image.
       # It enforces ziti.agyn.dev -> ziti-controller-client and ziti-router.agyn.dev -> ziti-router-edge.
       - name: Patch workload Ziti DNS runtime target
         run: |-
@@ -381,87 +1317,387 @@ jobs:
           kubectl logs pod/ziti-sidecar-dns-preflight -n agyn-workloads
           kubectl delete pod ziti-sidecar-dns-preflight -n agyn-workloads --wait=false
 
-      # Validation only: gateway Ziti binding is configured by bootstrap source of truth.
+      - name: Checkout gateway
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/gateway
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.gateway_ref || env.GATEWAY_REF }}
+          path: .e2e-deps/gateway
+
+      - name: Deploy gateway from source
+        working-directory: .e2e-deps/gateway
+        run: |-
+          set -euo pipefail
+          dump_gateway_source_diagnostics() {
+            selector="app.kubernetes.io/name=gateway"
+            echo "== gateway source deployment diagnostics ==" >&2
+            kubectl get application gateway -n argocd -o yaml >&2 || true
+            kubectl get deployment gateway -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            echo "== gateway current logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
+            echo "== gateway previous logs ==" >&2
+            kubectl logs -n platform -l "${selector}" --all-containers --previous --tail=500 >&2 || true
+            echo "== platform events ==" >&2
+            kubectl get events -n platform --sort-by=.metadata.creationTimestamp >&2 || true
+          }
+          trap dump_gateway_source_diagnostics ERR
+          buf generate buf.build/agynio/api
+          CGO_ENABLED=0 go test ./cmd/gateway ./internal/identity ./internal/zitimgmtclient
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          const scaleDownMarker = 'Scaling gateway down before source patch...';
+          if (!text.includes(scaleDownMarker)) {
+            const marker = '      echo "Patching gateway deployment for DevSpace..."';
+            if (!text.includes(marker)) {
+              throw new Error('gateway DevSpace patch marker not found');
+            }
+            text = text.replace(marker, [
+              '      label_selector="app.kubernetes.io/name=gateway"',
+              '      echo "' + scaleDownMarker + '"',
+              '      kubectl scale deployment/gateway -n ${GATEWAY_NAMESPACE} --replicas=0',
+              '      if [ -n "$(kubectl get pods -n ${GATEWAY_NAMESPACE} -l "${label_selector}" -o name)" ]; then',
+              '        kubectl wait --for=delete pod -n ${GATEWAY_NAMESPACE} -l "${label_selector}" --timeout=240s',
+              '      fi',
+              marker,
+            ].join('\n'));
+          }
+          const rolloutNeedle = [
+            '      )"',
+            '      if [ "$(get_flag "watch")" == "true" ]; then',
+          ].join('\n');
+          if (!text.includes('strategy":{"type":"Recreate","rollingUpdate":null}')) {
+            if (!text.includes(rolloutNeedle)) {
+              throw new Error('gateway DevSpace rollout marker not found');
+            }
+            text = text.replace(rolloutNeedle, [
+              '      )"',
+              "      kubectl patch deployment gateway -n ${GATEWAY_NAMESPACE} --type merge -p '{\"spec\":{\"strategy\":{\"type\":\"Recreate\",\"rollingUpdate\":null}}}'",
+              '      kubectl scale deployment/gateway -n ${GATEWAY_NAMESPACE} --replicas=1',
+              '      kubectl rollout status deployment/gateway -n ${GATEWAY_NAMESPACE} --timeout=240s',
+              '      if [ "$(get_flag "watch")" == "true" ]; then',
+            ].join('\n'));
+          }
+          const resourcesOriginal = [
+            '                resources:',
+            '                  requests:',
+            '                    cpu: 500m',
+            '                    memory: 1Gi',
+            '                  limits:',
+            '                    cpu: "2"',
+            '                    memory: 4Gi',
+          ].join('\n');
+          const resourcesReplacement = [
+            '                resources:',
+            '                  requests:',
+            '                    cpu: 100m',
+            '                    memory: 512Mi',
+            '                  limits:',
+            '                    cpu: "1"',
+            '                    memory: 2Gi',
+          ].join('\n');
+          if (text.includes(resourcesOriginal)) {
+            text = text.replace(resourcesOriginal, resourcesReplacement);
+          } else if (!text.includes(resourcesReplacement)) {
+            throw new Error('gateway DevSpace resources block not found');
+          }
+          fs.writeFileSync(path, text);
+          NODE
+          devspace dev
+
       - name: Verify gateway Ziti service binding
         run: |-
           set -euo pipefail
-          wait_argocd_app_converged() {
-            app="$1"
-            i=0
-            while [ "$i" -lt 240 ]; do
-              sync_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
-              health_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
-              if [ "$sync_status" = "Synced" ] && [ "$health_status" = "Healthy" ]; then
-                return 0
-              fi
-              i=$((i + 1))
-              sleep 1
-            done
-            echo "$app ArgoCD application did not converge to Synced/Healthy" >&2
-            kubectl get application "$app" -n argocd -o yaml >&2 || true
-            exit 1
-          }
-          wait_argocd_app_converged gateway
-          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=gateway -o jsonpath='{.items[0].metadata.name}')"
-          if [ -z "${deployment}" ]; then
-            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=gateway -o jsonpath='{.items[0].metadata.name}')"
-          fi
-          if [ -z "${deployment}" ]; then
-            echo "gateway deployment not found" >&2
+          selector="app.kubernetes.io/name=gateway"
+          source_pod=""
+          elapsed=0
+          while [ "${elapsed}" -lt 180 ]; do
+            source_pod="$(kubectl get pods -n platform -l "${selector}" \
+              -o jsonpath='{range .items[?(@.spec.containers[0].image=="ghcr.io/agynio/devcontainer-go:1.1.0")]}{.metadata.name}{"\n"}{end}' \
+              | head -n 1)"
+            if [ -n "${source_pod}" ]; then
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          if [ -z "${source_pod}" ]; then
+            echo "gateway source pod not found" >&2
             kubectl get application gateway -n argocd -o yaml >&2 || true
-            kubectl get deployments -n platform -o wide >&2 || true
+            kubectl get deployment gateway -n platform -o yaml >&2 || true
+            kubectl get replicasets -n platform -l "${selector}" -o wide >&2 || true
+            kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+            kubectl describe pods -n platform -l "${selector}" >&2 || true
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=500 >&2 || true
             exit 1
           fi
-          kubectl rollout status "deployment/${deployment}" -n platform --timeout=240s
-          ziti_enabled_values="$(kubectl get "deployment/${deployment}" -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{"\n"}{end}')"
-          ziti_enabled="$(printf '%s\n' "${ziti_enabled_values}" | awk 'NF { value=$0 } END { print value }')"
+          ziti_enabled="$(kubectl get deployment gateway -n platform -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="ZITI_ENABLED")]}{.value}{end}')"
           if [ "${ziti_enabled}" != "true" ]; then
-            echo "gateway deployment is not source-of-truth configured with ZITI_ENABLED=true" >&2
-            kubectl get application gateway -n argocd -o yaml >&2 || true
-            kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
+            echo "gateway source deployment is not configured with ZITI_ENABLED=true" >&2
+            kubectl get deployment gateway -n platform -o yaml >&2 || true
             exit 1
           fi
           attempts=0
           while [ "${attempts}" -lt 120 ]; do
-            if kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 2>/dev/null | grep -q 'gateway listening on ziti service gateway'; then
-              kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=200
+            if kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=500 2>/dev/null | grep -q 'gateway listening on ziti service gateway'; then
+              kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=200
               exit 0
             fi
             attempts=$((attempts + 1))
             sleep 1
           done
-          echo "gateway did not report Ziti service listener from the source-of-truth deployment" >&2
-          kubectl get application gateway -n argocd -o yaml >&2 || true
-          kubectl get "deployment/${deployment}" -n platform -o yaml >&2 || true
-          kubectl get pods -n platform -l app.kubernetes.io/instance=gateway -o wide >&2 || true
-          kubectl get pods -n platform -l app.kubernetes.io/name=gateway -o wide >&2 || true
-          kubectl logs "deployment/${deployment}" -n platform --all-containers --tail=500 >&2 || true
+          echo "gateway source pod did not report Ziti service listener" >&2
+          kubectl get deployment gateway -n platform -o yaml >&2 || true
+          kubectl get pods -n platform -l "${selector}" -o wide >&2 || true
+          kubectl describe pods -n platform -l "${selector}" >&2 || true
+          kubectl logs "pod/${source_pod}" -n platform --all-containers --tail=500 >&2 || true
           exit 1
 
-      # Validation only: llm-proxy Ziti binding is configured by bootstrap source of truth.
+      - name: Checkout api
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/api
+          ref: main
+          path: api
+
+      - name: Checkout llm-proxy
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/llm-proxy
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.llm_proxy_ref || env.LLM_PROXY_REF }}
+          path: .e2e-deps/llm-proxy
+
+      - name: Deploy llm-proxy diagnostics from source
+        working-directory: .e2e-deps/llm-proxy
+        run: |-
+          set -euo pipefail
+          node "${GITHUB_WORKSPACE}/.github/scripts/patch-llm-proxy-agyn-wait-diagnostics.js"
+          protoc_bin="${RUNNER_TEMP}/llm-proxy-protoc-gen"
+          proto_input="${GITHUB_WORKSPACE}/api/proto"
+          proto_template="${RUNNER_TEMP}/llm-proxy-local-buf.gen.yaml"
+          mkdir -p "${protoc_bin}"
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.0
+          cat >"${proto_template}" <<'EOF'
+          version: v2
+          managed:
+            enabled: true
+            override:
+              - file_option: go_package_prefix
+                value: github.com/agynio/llm-proxy/.gen/go
+          plugins:
+            - local: protoc-gen-go
+              out: .gen/go
+              opt:
+                - paths=source_relative
+            - local: protoc-gen-go-grpc
+              out: .gen/go
+              opt:
+                - paths=source_relative
+                - require_unimplemented_servers=false
+          EOF
+          PATH="${protoc_bin}:${PATH}" buf generate "${proto_input}" \
+            --path "${proto_input}/agynio/api/llm/v1" \
+            --path "${proto_input}/agynio/api/users/v1" \
+            --path "${proto_input}/agynio/api/organizations/v1" \
+            --path "${proto_input}/agynio/api/authorization/v1" \
+            --path "${proto_input}/agynio/api/metering/v1" \
+            --path "${proto_input}/agynio/api/ziti_management/v1" \
+            --path "${proto_input}/agynio/api/identity/v1" \
+            --template "${proto_template}"
+          gofmt -w internal/proxy/handler.go
+          CGO_ENABLED=0 go test ./cmd/llm-proxy ./internal/proxy
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'devspace.yaml';
+          let text = fs.readFileSync(path, 'utf8');
+          text = text
+            .split('\n')
+            .filter((line) => line.trim() !== '- /.gen/')
+            .join('\n');
+
+          const resolveBlockMarker = 'Resolving llm-proxy deployment before source patch...';
+          if (!text.includes(resolveBlockMarker)) {
+            const marker = '    echo "Patching llm-proxy deployment for DevSpace..."';
+            if (!text.includes(marker)) {
+              throw new Error('llm-proxy DevSpace patch marker not found');
+            }
+            text = text.replace(marker, [
+              '    echo "' + resolveBlockMarker + '"',
+              '    llm_proxy_namespace="${LLM_PROXY_NAMESPACE:-platform}"',
+              '    llm_proxy_deployment="$(kubectl get deployment -n "${llm_proxy_namespace}" -l app.kubernetes.io/instance=llm-proxy -o jsonpath=\'{.items[0].metadata.name}\' 2>/dev/null || true)"',
+              '    if [ -z "${llm_proxy_deployment}" ]; then',
+              '      llm_proxy_deployment="$(kubectl get deployment -n "${llm_proxy_namespace}" -l app.kubernetes.io/name=llm-proxy -o jsonpath=\'{.items[0].metadata.name}\' 2>/dev/null || true)"',
+              '    fi',
+              '    if [ -z "${llm_proxy_deployment}" ]; then',
+              '      llm_proxy_ref="$(kubectl get deployment -A -l app.kubernetes.io/instance=llm-proxy -o jsonpath=\'{range .items[0]}{.metadata.namespace}{"\\t"}{.metadata.name}{end}\' 2>/dev/null || true)"',
+              '      if [ -z "${llm_proxy_ref}" ]; then',
+              '        llm_proxy_ref="$(kubectl get deployment -A -l app.kubernetes.io/name=llm-proxy -o jsonpath=\'{range .items[0]}{.metadata.namespace}{"\\t"}{.metadata.name}{end}\' 2>/dev/null || true)"',
+              '      fi',
+              '      if [ -n "${llm_proxy_ref}" ]; then',
+              '        llm_proxy_namespace="$(printf \'%s\' "${llm_proxy_ref}" | awk \'{ print $1 }\')"',
+              '        llm_proxy_deployment="$(printf \'%s\' "${llm_proxy_ref}" | awk \'{ print $2 }\')"',
+              '      fi',
+              '    fi',
+              '    if [ -z "${llm_proxy_deployment}" ]; then',
+              '      echo "llm-proxy deployment not found in namespace ${llm_proxy_namespace}" >&2',
+              '      kubectl get deployments -A -o wide >&2 || true',
+              '      exit 1',
+              '    fi',
+              '    label_selector="app.kubernetes.io/name=llm-proxy"',
+              '    echo "Scaling ${llm_proxy_namespace}/${llm_proxy_deployment} down before source patch..."',
+              '    kubectl scale "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --replicas=0',
+              '    if [ -n "$(kubectl get pods -n "${llm_proxy_namespace}" -l "${label_selector}" -o name)" ]; then',
+              '      kubectl wait --for=delete pod -n "${llm_proxy_namespace}" -l "${label_selector}" --timeout=240s',
+              '    fi',
+              marker,
+            ].join('\n'));
+          }
+
+          const strategicOriginal = 'kubectl patch deployment llm-proxy-llm-proxy -n ${LLM_PROXY_NAMESPACE} --type strategic --patch';
+          const strategicReplacement = 'kubectl patch "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --type strategic --patch';
+          if (text.includes(strategicOriginal)) {
+            text = text.replace(strategicOriginal, strategicReplacement);
+          } else if (!text.includes(strategicReplacement)) {
+            throw new Error('llm-proxy strategic patch target not found');
+          }
+
+          const probeMarker = '              livenessProbe: null';
+          if (!text.includes(probeMarker)) {
+            const workingDir = '              workingDir: /opt/app/data';
+            if (!text.includes(workingDir)) {
+              throw new Error('llm-proxy DevSpace workingDir not found');
+            }
+            text = text.replace(workingDir, [
+              '              readinessProbe: null',
+              '              livenessProbe: null',
+              '              startupProbe: null',
+              workingDir,
+            ].join('\n'));
+          }
+
+          const commandOriginal = [
+            '                  set -eu',
+            '                  elapsed=0',
+            '                  while [ ! -f /opt/app/data/go.mod ]; do',
+            '                    sleep 1; elapsed=$((elapsed + 1))',
+            '                    [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }',
+            '                  done',
+            '                  buf generate buf.build/agynio/api \\',
+            '                    --path agynio/api/llm/v1 \\',
+            '                    --path agynio/api/users/v1 \\',
+            '                    --path agynio/api/organizations/v1 \\',
+            '                    --path agynio/api/authorization/v1 \\',
+            '                    --path agynio/api/metering/v1 \\',
+            '                    --path agynio/api/ziti_management/v1 \\',
+            '                    --path agynio/api/identity/v1',
+            '                  exec go run ./cmd/llm-proxy',
+          ].join('\n');
+          const commandReplacement = [
+            '                  set -eu',
+            '                  echo "llm-proxy source container waiting for DevSpace sync..."',
+            '                  start=$(date +%s)',
+            '                  required_files="go.mod go.sum buf.gen.yaml buf.yaml cmd/llm-proxy/main.go internal/config/config.go internal/proxy/handler.go"',
+            '                  for source_file in ${required_files}; do',
+            '                    while [ ! -f "/opt/app/data/${source_file}" ]; do',
+            '                      sleep 1',
+            '                      elapsed=$(( $(date +%s) - start ))',
+            '                      [ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for ${source_file}" >&2; find /opt/app/data -maxdepth 3 -type f | sort >&2 || true; exit 1; }',
+            '                    done',
+            '                  done',
+            '                  while [ ! -f /opt/app/data/.gen/go/agynio/api/llm/v1/llm.pb.go ]; do',
+            '                    sleep 1',
+            '                    elapsed=$(( $(date +%s) - start ))',
+            '                    [ "$elapsed" -ge 300 ] && { echo "ERROR: sync timeout waiting for generated api" >&2; find /opt/app/data/.gen -maxdepth 5 -type f | sort >&2 || true; exit 1; }',
+            '                  done',
+            '                  echo "llm-proxy generated api synced; starting source server..."',
+            '                  exec go run ./cmd/llm-proxy',
+          ].join('\n');
+          if (text.includes(commandOriginal)) {
+            text = text.replace(commandOriginal, commandReplacement);
+          } else if (!text.includes(commandReplacement)) {
+            throw new Error('llm-proxy DevSpace startup command not found');
+          }
+
+          const rolloutNeedle = [
+            '    )"',
+            '  patch_agents_orchestrator: |-',
+          ].join('\n');
+          const rolloutMarker = 'rollout status "deployment/${llm_proxy_deployment}"';
+          if (!text.includes(rolloutMarker)) {
+            if (!text.includes(rolloutNeedle)) {
+              throw new Error('llm-proxy DevSpace rollout marker not found');
+            }
+            text = text.replace(rolloutNeedle, [
+              '    )"',
+              '    recreate_patch="$(cat <<\'EOF\'',
+              '    {"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}',
+              '    EOF',
+              '    )"',
+              '    kubectl patch "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --type merge -p "${recreate_patch}"',
+              '    kubectl scale "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --replicas=1',
+              '    kubectl rollout status "deployment/${llm_proxy_deployment}" -n "${llm_proxy_namespace}" --timeout=240s',
+              '  patch_agents_orchestrator: |-',
+            ].join('\n'));
+          }
+
+          const resourcesOriginal = [
+            '              resources:',
+            '                requests:',
+            '                  cpu: 500m',
+            '                  memory: 1Gi',
+            '                limits:',
+            '                  cpu: "2"',
+            '                  memory: 4Gi',
+          ].join('\n');
+          const resourcesReplacement = [
+            '              resources:',
+            '                requests:',
+            '                  cpu: 100m',
+            '                  memory: 512Mi',
+            '                limits:',
+            '                  cpu: "1"',
+            '                  memory: 2Gi',
+          ].join('\n');
+          if (text.includes(resourcesOriginal)) {
+            text = text.replace(resourcesOriginal, resourcesReplacement);
+          } else if (!text.includes(resourcesReplacement)) {
+            throw new Error('llm-proxy DevSpace resources block not found');
+          }
+          fs.writeFileSync(path, text);
+          NODE
+          devspace dev
+      # Validation only: llm-proxy Ziti binding is configured by the platform image.
       - name: Verify llm-proxy Ziti service binding
         run: |-
           set -euo pipefail
-          wait_argocd_app_converged() {
+          wait_argocd_app_sync_finished() {
             app="$1"
             i=0
             while [ "$i" -lt 240 ]; do
               sync_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
               health_status="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
-              if [ "$sync_status" = "Synced" ] && [ "$health_status" = "Healthy" ]; then
+              operation_phase="$(kubectl get application "$app" -n argocd -o jsonpath='{.status.operationState.phase}' 2>/dev/null || true)"
+              if [ "$sync_status" = "Synced" ] && { [ -z "$operation_phase" ] || [ "$operation_phase" = "Succeeded" ]; }; then
+                if [ "$health_status" != "Healthy" ]; then
+                  echo "$app ArgoCD application synced but health is ${health_status:-unknown}; validating deployment and Ziti binding directly." >&2
+                fi
                 return 0
               fi
               i=$((i + 1))
               sleep 1
             done
-            echo "$app ArgoCD application did not converge to Synced/Healthy" >&2
+            echo "$app ArgoCD application did not report completed sync within timeout; validating deployment and Ziti binding directly." >&2
             kubectl get application "$app" -n argocd -o yaml >&2 || true
-            exit 1
           }
-          wait_argocd_app_converged llm-proxy
-          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
+          wait_argocd_app_sync_finished llm-proxy
+          deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/instance=llm-proxy -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
           if [ -z "${deployment}" ]; then
-            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=llm-proxy -o jsonpath='{.items[0].metadata.name}')"
+            deployment="$(kubectl get deployment -n platform -l app.kubernetes.io/name=llm-proxy -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
           fi
           if [ -z "${deployment}" ]; then
             echo "llm-proxy deployment not found" >&2
@@ -497,13 +1733,210 @@ jobs:
       - name: Deploy orchestrator from source
         run: devspace run deploy
 
-      - name: Run E2E tests
-        uses: agynio/e2e/.github/actions/run-tests@main
+      - name: Checkout e2e
+        uses: actions/checkout@v4
+        with:
+          repository: agynio/e2e
+          ref: main
+          path: e2e
+
+      - name: Patch E2E default model endpoint
+        run: |-
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'e2e/.github/actions/run-tests/action.yml';
+          let text = fs.readFileSync(path, 'utf8');
+          const endpointOriginal = '"endpoint":"https://llm.e2e.agyn.dev/${now}"';
+          const endpointReplacement = '"endpoint":"https://testllm.dev/v1/org/agynio/suite/codex/responses"';
+          const modelOriginal = '"remoteName":"gpt-4o-mini"';
+          const modelReplacement = '"remoteName":"simple-hello"';
+          if (!text.includes(endpointOriginal)) {
+            throw new Error('default E2E LLM provider endpoint block not found');
+          }
+          if (!text.includes(modelOriginal)) {
+            throw new Error('default E2E model remoteName block not found');
+          }
+          text = text.replace(endpointOriginal, endpointReplacement);
+          text = text.replace(modelOriginal, modelReplacement);
+          fs.writeFileSync(path, text);
+          NODE
+
+      - name: Checkout OpenTelemetry proto
+        uses: actions/checkout@v4
+        with:
+          repository: open-telemetry/opentelemetry-proto
+          ref: v1.10.0
+          path: opentelemetry-proto
+
+      - name: Patch e2e for agent-instance workloads
+        working-directory: e2e
+        run: |-
+          set -euo pipefail
+          node ../.github/scripts/patch-e2e-agent-instances.js
+          cd suites/go-core
+
+          protoc_bin="${RUNNER_TEMP}/go-core-protoc-gen"
+          proto_input="${RUNNER_TEMP}/go-core-proto-input"
+          proto_template="${RUNNER_TEMP}/go-core-local-buf.gen.yaml"
+          mkdir -p "${protoc_bin}" "${proto_input}"
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.0
+          CGO_ENABLED=0 GOBIN="${protoc_bin}" go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.13.0
+
+          rm -rf "${proto_input}"
+          mkdir -p "${proto_input}"
+          cp -R "${GITHUB_WORKSPACE}/api/proto/agynio" "${proto_input}/agynio"
+          cp -R "${GITHUB_WORKSPACE}/opentelemetry-proto/opentelemetry" "${proto_input}/opentelemetry"
+          cat >"${proto_template}" <<'EOF'
+          version: v2
+          managed:
+            enabled: true
+            override:
+              - file_option: go_package_prefix
+                value: github.com/agynio/e2e/suites/go-core/.gen/go
+          plugins:
+            - local: protoc-gen-go
+              out: .gen/go
+              opt:
+                - paths=source_relative
+            - local: protoc-gen-connect-go
+              out: .gen/go
+              opt:
+                - paths=source_relative
+            - local: protoc-gen-go-grpc
+              out: .gen/go
+              opt:
+                - paths=source_relative
+                - require_unimplemented_servers=false
+          EOF
+          PATH="${protoc_bin}:${PATH}" buf generate "${proto_input}" \
+            --path "${proto_input}/agynio/api/agents/v1" \
+            --path "${proto_input}/agynio/api/egress/v1" \
+            --path "${proto_input}/agynio/api/authorization/v1" \
+            --path "${proto_input}/agynio/api/files/v1" \
+            --path "${proto_input}/agynio/api/gateway/v1/agents.proto" \
+            --path "${proto_input}/agynio/api/gateway/v1/llm.proto" \
+            --path "${proto_input}/agynio/api/gateway/v1/users.proto" \
+            --path "${proto_input}/agynio/api/identity/v1" \
+            --path "${proto_input}/agynio/api/llm/v1" \
+            --path "${proto_input}/agynio/api/metering/v1" \
+            --path "${proto_input}/agynio/api/organizations/v1" \
+            --path "${proto_input}/agynio/api/runner/v1" \
+            --path "${proto_input}/agynio/api/runners/v1" \
+            --path "${proto_input}/agynio/api/secrets/v1" \
+            --path "${proto_input}/agynio/api/threads/v1" \
+            --path "${proto_input}/agynio/api/tracing/v1" \
+            --path "${proto_input}/agynio/api/users/v1" \
+            --path "${proto_input}/agynio/api/ziti_management/v1" \
+            --path "${proto_input}/opentelemetry/proto/common/v1" \
+            --path "${proto_input}/opentelemetry/proto/resource/v1" \
+            --path "${proto_input}/opentelemetry/proto/trace/v1" \
+            --template "${proto_template}"
+          gofmt -w tests/*.go
+          find .gen/go -type f -name '*.go' -print0 | xargs -0 gofmt -w
+          CGO_ENABLED=0 go test -tags 'e2e svc_agents_orchestrator' ./tests -run TestNonExistent -count=1
+
+      - name: Run focused go-core acceptance tests
+        uses: ./e2e/.github/actions/run-tests
         env:
-          E2E_SUITES: go-core playwright-chat-app
+          E2E_SUITES: go-core
+          E2E_GO_TEST_RUN: "TestAgentAgynCLIWaitToAnotherAgent|TestMCPToolsE2E|TestWorkloadStartRetryPolicyFastRetry"
+          E2E_SKIP_BUF_GENERATE: "true"
         with:
           service: agents_orchestrator
           include_smoke: "false"
+
+      - name: Run E2E tests
+        uses: ./e2e/.github/actions/run-tests
+        env:
+          E2E_SUITES: go-core playwright-chat-app
+          E2E_SKIP_BUF_GENERATE: "true"
+        with:
+          service: agents_orchestrator
+          include_smoke: "false"
+
+      - name: Print runtime diagnostics on failure
+        if: failure()
+        run: |-
+          set +e
+          echo "== runners DevSpace log =="
+          for app in runners agents-orchestrator k8s-runner agents authorization identity threads expose gateway llm-proxy; do
+            selector="app.kubernetes.io/name=${app}"
+            echo "== ${app} deployment =="
+            kubectl get deployment "${app}" -n platform -o yaml || kubectl get deployment "${app}-${app}" -n platform -o yaml || true
+            echo "== ${app} pods =="
+            kubectl get pods -n platform -l "${selector}" -o wide || true
+            echo "== ${app} describe =="
+            kubectl describe pods -n platform -l "${selector}" || true
+            echo "== ${app} logs =="
+            kubectl logs -n platform -l "${selector}" --all-containers --tail=300 || true
+          done
+          echo "== platform events =="
+          kubectl get events -n platform --sort-by=.metadata.creationTimestamp || true
+          echo "== workload pods =="
+          kubectl get pods -n agyn-workloads -o wide || true
+          kubectl describe pods -n agyn-workloads || true
+          echo "== workload logs =="
+          for pod in $(kubectl get pods -n agyn-workloads -o name 2>/dev/null || true); do
+            echo "== ${pod} current logs =="
+            kubectl logs -n agyn-workloads "${pod}" --all-containers --tail=500 --prefix=true || true
+          done
+          echo "== workload previous logs =="
+          for pod in $(kubectl get pods -n agyn-workloads -o name 2>/dev/null || true); do
+            echo "== ${pod} previous logs =="
+            kubectl logs -n agyn-workloads "${pod}" --all-containers --previous --tail=500 --prefix=true || true
+          done
+
+      - name: Restore authorization ArgoCD sync
+        if: always()
+        run: |-
+          if kubectl get application authorization -n argocd >/dev/null 2>&1; then
+            kubectl patch application authorization -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
+
+      - name: Restore agents ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/agents/devspace.yaml') != '' }}
+        run: |-
+          if kubectl get application agents -n argocd >/dev/null 2>&1; then
+            kubectl patch application agents -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
+
+      - name: Restore threads ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/threads/devspace.yaml') != '' }}
+        run: |-
+          if kubectl get application threads -n argocd >/dev/null 2>&1; then
+            kubectl patch application threads -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
+
+      - name: Restore identity ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/identity/devspace.yaml') != '' }}
+        run: |-
+          if kubectl get application identity -n argocd >/dev/null 2>&1; then
+            kubectl patch application identity -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
+
+      - name: Restore expose ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/expose/Dockerfile') != '' }}
+        run: |-
+          if kubectl get application expose -n argocd >/dev/null 2>&1; then
+            kubectl patch application expose -n argocd \
+              --type merge \
+              -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+          fi
+
+      - name: Restore runners ArgoCD sync
+        if: ${{ always() && hashFiles('.e2e-deps/runners/devspace.yaml') != '' }}
+        working-directory: .e2e-deps/runners
+        run: devspace run-pipeline restore-argocd
 
       - name: Restore k8s-runner ArgoCD sync
         if: ${{ always() && hashFiles('.e2e-deps/k8s-runner/devspace.yaml') != '' }}

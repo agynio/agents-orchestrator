@@ -27,9 +27,9 @@ func runnerIdentityForWorkloads(runnerID string, runnerOrganizationID string, or
 	}
 	var identityID string
 	for workloadID, workload := range workloads {
-		workloadIdentityID := strings.TrimSpace(workload.GetAgentId())
+		workloadIdentityID := strings.TrimSpace(workloadAgentInstanceID(workload))
 		if workloadIdentityID == "" {
-			return "", fmt.Errorf("workload %s missing agent id", workloadID)
+			return "", fmt.Errorf("workload %s missing agent instance id", workloadID)
 		}
 		if identityID == "" {
 			identityID = workloadIdentityID
@@ -63,9 +63,9 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			log.Printf("reconciler: warn: workload %s missing runner id", workload.GetMeta().GetId())
 			continue
 		}
-		identityID := strings.TrimSpace(workload.GetAgentId())
+		identityID := strings.TrimSpace(workloadAgentInstanceID(workload))
 		if identityID == "" {
-			return fmt.Errorf("workload %s missing agent id", workload.GetMeta().GetId())
+			return fmt.Errorf("workload %s missing agent instance id", workload.GetMeta().GetId())
 		}
 		workloadID := workload.GetMeta().GetId()
 		if workloadID == "" {
@@ -113,8 +113,6 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		runnerIdentities[runnerID] = identityID
 	}
 
-	degraded := newDegradeTracker()
-
 	for runnerID := range runnerIDs {
 		trackedWorkloads := workloadsByRunner[runnerID]
 		identityID, ok := runnerIdentities[runnerID]
@@ -123,14 +121,14 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
 			for workloadID, workload := range trackedWorkloads {
-				workloadCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
+				workloadCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
 				if err != nil {
 					return err
 				}
 				if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
 					log.Printf("reconciler: warn: handle missing workload %s on unenrolled runner: %v", workloadID, err)
 				}
-				r.degradeThread(workloadCtx, workload.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
+				r.pauseInstance(workloadCtx, workloadAgentInstanceID(workload), pauseReasonRunnerDeprovisioned)
 			}
 			continue
 		}
@@ -142,7 +140,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for workloadID, workload := range trackedWorkloads {
-					workloadCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
+					workloadCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
 					if err != nil {
 						return err
 					}
@@ -159,7 +157,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for workloadID, workload := range trackedWorkloads {
-					workloadCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
+					workloadCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
 					if err != nil {
 						return err
 					}
@@ -190,7 +188,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 
 		for workloadID, workload := range trackedWorkloads {
-			workloadCtx, err := runnerIdentityContext(ctx, workload.GetAgentId())
+			workloadCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
 			if err != nil {
 				return err
 			}

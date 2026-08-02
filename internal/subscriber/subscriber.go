@@ -18,15 +18,15 @@ import (
 )
 
 const (
-	messageCreatedEvent               = "message.created"
-	agentUpdatedEvent                 = "agent.updated"
-	sandboxUpdatedEvent               = "sandbox.updated"
-	agentRoomPrefix                   = "agent:"
-	threadParticipantRoomPrefix       = "thread_participant:"
-	sandboxOrgRoomPrefix              = "sandbox_org:"
-	identityMetadataKey               = "x-identity-id"
-	listAgentsPageSize          int32 = 100
-	defaultRoomRefreshInterval        = 30 * time.Second
+	messageCreatedEvent              = "message.created"
+	instanceUpdatedEvent             = "instance.updated"
+	sandboxUpdatedEvent              = "sandbox.updated"
+	agentInstanceRoomPrefix          = "agent_instance:"
+	instanceInboxRoomPrefix          = "instance_inbox:"
+	sandboxOrgRoomPrefix             = "sandbox_org:"
+	identityMetadataKey              = "x-identity-id"
+	listInstancesPageSize      int32 = 100
+	defaultRoomRefreshInterval       = 30 * time.Second
 )
 
 type roomSubscription struct {
@@ -86,7 +86,7 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 		if errors.Is(err, errRoomsChanged) {
-			log.Printf("subscriber: agent rooms changed, resubscribing")
+			log.Printf("subscriber: agent instance rooms changed, resubscribing")
 			backoff = time.Second
 			continue
 		}
@@ -134,7 +134,7 @@ func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubsc
 	streamCtx := metadata.AppendToOutgoingContext(ctx, identityMetadataKey, subscription.identityID.String())
 	stream, err := s.client.Subscribe(streamCtx, &notificationsv1.SubscribeRequest{Rooms: subscription.rooms})
 	if err != nil {
-		return fmt.Errorf("subscribe as agent %s: %w", subscription.identityID.String(), err)
+		return fmt.Errorf("subscribe as agent instance %s: %w", subscription.identityID.String(), err)
 	}
 
 	for {
@@ -147,14 +147,14 @@ func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubsc
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			return fmt.Errorf("stream recv for agent %s: %w", subscription.identityID.String(), err)
+			return fmt.Errorf("stream recv for agent instance %s: %w", subscription.identityID.String(), err)
 		}
 		envelope := resp.GetEnvelope()
 		if envelope == nil {
 			continue
 		}
 		switch envelope.GetEvent() {
-		case messageCreatedEvent, agentUpdatedEvent:
+		case messageCreatedEvent, instanceUpdatedEvent:
 			select {
 			case s.wake <- struct{}{}:
 			default:
@@ -176,44 +176,47 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 	sandboxOrgIdentities := map[string]uuid.UUID{}
 	pageToken := ""
 	for {
-		resp, err := s.agents.ListAgents(ctx, &agentsv1.ListAgentsRequest{
-			PageSize:  listAgentsPageSize,
+		resp, err := s.agents.ListInstances(ctx, &agentsv1.ListInstancesRequest{
+			PageSize:  listInstancesPageSize,
 			PageToken: pageToken,
+			StateIn:   []agentsv1.AgentInstanceState{agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_ACTIVE},
 		})
 		if err != nil {
-			return nil, "", fmt.Errorf("list agents: %w", err)
+			return nil, "", fmt.Errorf("list agent instances: %w", err)
 		}
-		for _, agent := range resp.GetAgents() {
-			if agent == nil {
-				return nil, "", fmt.Errorf("agent is nil")
+		for _, instance := range resp.GetInstances() {
+			if instance == nil {
+				return nil, "", fmt.Errorf("agent instance is nil")
 			}
-			meta := agent.GetMeta()
+			meta := instance.GetMeta()
 			if meta == nil {
-				return nil, "", fmt.Errorf("agent meta missing")
+				return nil, "", fmt.Errorf("agent instance meta missing")
 			}
-			agentID := strings.TrimSpace(meta.GetId())
-			parsedAgentID, err := uuidutil.ParseUUID(agentID, "agent.meta.id")
+			instanceID := strings.TrimSpace(meta.GetId())
+			parsedInstanceID, err := uuidutil.ParseUUID(instanceID, "agent_instance.meta.id")
 			if err != nil {
 				return nil, "", err
 			}
-			rooms := roomsByIdentity[parsedAgentID]
+			rooms := roomsByIdentity[parsedInstanceID]
 			if rooms == nil {
 				rooms = map[string]struct{}{}
-				roomsByIdentity[parsedAgentID] = rooms
+				roomsByIdentity[parsedInstanceID] = rooms
 			}
-			agentID = parsedAgentID.String()
-			rooms[agentRoomPrefix+agentID] = struct{}{}
-			rooms[threadParticipantRoomPrefix+agentID] = struct{}{}
-			orgID := strings.TrimSpace(agent.GetOrganizationId())
+			instanceID = parsedInstanceID.String()
+			rooms[agentInstanceRoomPrefix+instanceID] = struct{}{}
+			rooms[instanceInboxRoomPrefix+instanceID] = struct{}{}
+			// Sandbox rooms are per organization, so one instance identity per
+			// org is elected to hold the subscription.
+			orgID := strings.TrimSpace(instance.GetOrganizationId())
 			if orgID == "" {
 				continue
 			}
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent.organization_id")
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent_instance.organization_id")
 			if err != nil {
 				return nil, "", err
 			}
 			if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; !ok {
-				sandboxOrgIdentities[parsedOrgID.String()] = parsedAgentID
+				sandboxOrgIdentities[parsedOrgID.String()] = parsedInstanceID
 			}
 		}
 		pageToken = resp.GetNextPageToken()
@@ -222,7 +225,7 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 		}
 	}
 	if len(roomsByIdentity) == 0 {
-		return nil, "", fmt.Errorf("no agent rooms available")
+		return nil, "", fmt.Errorf("no agent instance rooms available")
 	}
 	if err := s.applySandboxOrgRooms(roomsByIdentity, sandboxOrgIdentities); err != nil {
 		return nil, "", err

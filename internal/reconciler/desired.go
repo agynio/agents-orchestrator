@@ -6,35 +6,42 @@ import (
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
-	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
 )
 
 const desiredPageSize int32 = 100
 
-type AgentThread struct {
-	AgentID  uuid.UUID
-	ThreadID uuid.UUID
+type AgentInstanceTarget struct {
+	AgentInstanceID uuid.UUID
+	AgentID         uuid.UUID
+	OrganizationID  uuid.UUID
+	ThreadID        uuid.UUID
 }
 
-func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, map[uuid.UUID]time.Duration, map[uuid.UUID]time.Time, error) {
-	agents, err := r.listAgents(ctx)
+func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, map[uuid.UUID]time.Duration, map[uuid.UUID]time.Time, error) {
+	instances, err := r.listActiveInstancesWithUnackedInbox(ctx)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	unique := make(map[AgentThread]struct{})
-	idleTimeouts := make(map[uuid.UUID]time.Duration, len(agents))
-	agentUpdatedAt := make(map[uuid.UUID]time.Time, len(agents))
-	for _, agent := range agents {
-		if agent == nil {
-			return nil, nil, nil, fmt.Errorf("agent is nil")
+	unique := make(map[AgentInstanceTarget]struct{}, len(instances))
+	agentIDs := make(map[uuid.UUID]struct{})
+	for _, instance := range instances {
+		threadID, err := r.fetchFirstUnackedInboxThreadID(ctx, instance)
+		if err != nil {
+			return nil, nil, nil, err
 		}
-		meta := agent.GetMeta()
-		if meta == nil {
-			return nil, nil, nil, fmt.Errorf("agent meta missing")
+		target, err := agentInstanceTarget(instance, threadID)
+		if err != nil {
+			return nil, nil, nil, err
 		}
-		agentID, err := uuidutil.ParseUUID(meta.GetId(), "agent.meta.id")
+		unique[target] = struct{}{}
+		agentIDs[target.AgentID] = struct{}{}
+	}
+	idleTimeouts := make(map[uuid.UUID]time.Duration, len(agentIDs))
+	agentUpdatedAt := make(map[uuid.UUID]time.Time, len(agentIDs))
+	for agentID := range agentIDs {
+		agent, err := r.fetchAgent(ctx, agentID)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -42,38 +49,80 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentThread, map[uuid.
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		updatedAt := meta.GetUpdatedAt()
+		updatedAt := agent.GetMeta().GetUpdatedAt()
 		if updatedAt == nil {
 			return nil, nil, nil, fmt.Errorf("agent %s updated_at missing", agentID.String())
 		}
 		idleTimeouts[agentID] = idleTimeout
 		agentUpdatedAt[agentID] = updatedAt.AsTime().UTC()
-		threadIDs, err := r.listUnackedThreads(ctx, agentID)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if len(threadIDs) == 0 {
-			continue
-		}
-		passiveThreads, degradedThreads, err := r.fetchThreadParticipation(ctx, agentID)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		for _, threadID := range threadIDs {
-			if _, ok := passiveThreads[threadID]; ok {
-				continue
-			}
-			if _, ok := degradedThreads[threadID]; ok {
-				continue
-			}
-			unique[AgentThread{AgentID: agentID, ThreadID: threadID}] = struct{}{}
-		}
 	}
-	result := make([]AgentThread, 0, len(unique))
+	result := make([]AgentInstanceTarget, 0, len(unique))
 	for key := range unique {
 		result = append(result, key)
 	}
 	return result, idleTimeouts, agentUpdatedAt, nil
+}
+
+func agentInstanceTarget(instance *agentsv1.AgentInstance, threadID uuid.UUID) (AgentInstanceTarget, error) {
+	if instance == nil {
+		return AgentInstanceTarget{}, fmt.Errorf("agent instance is nil")
+	}
+	meta := instance.GetMeta()
+	if meta == nil {
+		return AgentInstanceTarget{}, fmt.Errorf("agent instance meta missing")
+	}
+	agentInstanceID, err := uuidutil.ParseUUID(meta.GetId(), "agent_instance.meta.id")
+	if err != nil {
+		return AgentInstanceTarget{}, err
+	}
+	agentID, err := uuidutil.ParseUUID(instance.GetAgentId(), "agent_instance.agent_id")
+	if err != nil {
+		return AgentInstanceTarget{}, err
+	}
+	organizationID, err := uuidutil.ParseUUID(instance.GetOrganizationId(), "agent_instance.organization_id")
+	if err != nil {
+		return AgentInstanceTarget{}, err
+	}
+	return AgentInstanceTarget{
+		AgentInstanceID: agentInstanceID,
+		AgentID:         agentID,
+		OrganizationID:  organizationID,
+		ThreadID:        threadID,
+	}, nil
+}
+
+func (r *Reconciler) fetchFirstUnackedInboxThreadID(ctx context.Context, instance *agentsv1.AgentInstance) (uuid.UUID, error) {
+	if instance == nil {
+		return uuid.Nil, fmt.Errorf("agent instance is nil")
+	}
+	meta := instance.GetMeta()
+	if meta == nil {
+		return uuid.Nil, fmt.Errorf("agent instance meta missing")
+	}
+	agentInstanceID := meta.GetId()
+	if _, err := uuidutil.ParseUUID(agentInstanceID, "agent_instance.meta.id"); err != nil {
+		return uuid.Nil, err
+	}
+	inboxCtx, err := runnerIdentityContext(ctx, agentInstanceID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	resp, err := r.agents.GetUnackedInboxItems(inboxCtx, &agentsv1.GetUnackedInboxItemsRequest{
+		AgentInstanceId: agentInstanceID,
+		PageSize:        1,
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("get first unacked inbox item for agent instance %s: %w", agentInstanceID, err)
+	}
+	items := resp.GetItems()
+	if len(items) == 0 {
+		return uuid.Nil, fmt.Errorf("agent instance %s has_unacked but returned no inbox items", agentInstanceID)
+	}
+	threadID, err := uuidutil.ParseUUID(items[0].GetThreadId(), "inbox_item.thread_id")
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return threadID, nil
 }
 
 func agentIdleTimeout(agent *agentsv1.Agent, agentID uuid.UUID, fallback time.Duration) (time.Duration, error) {
@@ -89,6 +138,28 @@ func agentIdleTimeout(agent *agentsv1.Agent, agentID uuid.UUID, fallback time.Du
 		return 0, fmt.Errorf("agent %s idle_timeout must be greater than 0", agentID)
 	}
 	return parsed, nil
+}
+
+func (r *Reconciler) listActiveInstancesWithUnackedInbox(ctx context.Context) ([]*agentsv1.AgentInstance, error) {
+	resp := []*agentsv1.AgentInstance{}
+	token := ""
+	hasUnacked := true
+	for {
+		page, err := r.agents.ListInstances(ctx, &agentsv1.ListInstancesRequest{
+			PageSize:   desiredPageSize,
+			PageToken:  token,
+			StateIn:    []agentsv1.AgentInstanceState{agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_ACTIVE},
+			HasUnacked: &hasUnacked,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list agent instances with unacked inbox: %w", err)
+		}
+		resp = append(resp, page.GetInstances()...)
+		token = page.GetNextPageToken()
+		if token == "" {
+			return resp, nil
+		}
+	}
 }
 
 func (r *Reconciler) listAgents(ctx context.Context) ([]*agentsv1.Agent, error) {
@@ -110,96 +181,28 @@ func (r *Reconciler) listAgents(ctx context.Context) ([]*agentsv1.Agent, error) 
 	}
 }
 
-func (r *Reconciler) listUnackedThreads(ctx context.Context, agentID uuid.UUID) ([]uuid.UUID, error) {
-	threadIDs := make([]uuid.UUID, 0)
-	runnerCtx, err := r.runnerIdentityContextForAgent(ctx, agentID)
+func (r *Reconciler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agentsv1.Agent, error) {
+	resp, err := r.agents.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: agentID.String()})
+	if err != nil {
+		return nil, fmt.Errorf("get agent %s: %w", agentID.String(), err)
+	}
+	agent := resp.GetAgent()
+	if agent == nil {
+		return nil, fmt.Errorf("agent %s missing", agentID.String())
+	}
+	meta := agent.GetMeta()
+	if meta == nil {
+		return nil, fmt.Errorf("agent %s meta missing", agentID.String())
+	}
+	parsedAgentID, err := uuidutil.ParseUUID(meta.GetId(), "agent.meta.id")
 	if err != nil {
 		return nil, err
 	}
-	token := ""
-	for {
-		page, err := r.threads.GetUnackedMessages(runnerCtx, &threadsv1.GetUnackedMessagesRequest{
-			ParticipantId: agentID.String(),
-			PageSize:      desiredPageSize,
-			PageToken:     token,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("get unacked messages for agent %s: %w", agentID.String(), err)
-		}
-		for _, message := range page.GetMessages() {
-			threadID, err := uuidutil.ParseUUID(message.GetThreadId(), "message.thread_id")
-			if err != nil {
-				return nil, err
-			}
-			threadIDs = append(threadIDs, threadID)
-		}
-		token = page.GetNextPageToken()
-		if token == "" {
-			return threadIDs, nil
-		}
+	if parsedAgentID != agentID {
+		return nil, fmt.Errorf("agent %s response id mismatch: %s", agentID.String(), parsedAgentID.String())
 	}
-}
-
-func (r *Reconciler) fetchThreadParticipation(ctx context.Context, agentID uuid.UUID) (map[uuid.UUID]struct{}, map[uuid.UUID]struct{}, error) {
-	passiveThreads := make(map[uuid.UUID]struct{})
-	degradedThreads := make(map[uuid.UUID]struct{})
-	runnerCtx, err := r.runnerIdentityContextForAgent(ctx, agentID)
-	if err != nil {
-		return nil, nil, err
+	if _, err := uuidutil.ParseUUID(agent.GetOrganizationId(), "agent.organization_id"); err != nil {
+		return nil, err
 	}
-	token := ""
-	agentIDString := agentID.String()
-	for {
-		page, err := r.threads.GetThreads(runnerCtx, &threadsv1.GetThreadsRequest{
-			ParticipantId: agentIDString,
-			PageSize:      desiredPageSize,
-			PageToken:     token,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("get threads for agent %s: %w", agentIDString, err)
-		}
-		for _, thread := range page.GetThreads() {
-			if thread == nil {
-				return nil, nil, fmt.Errorf("thread is nil")
-			}
-			threadID, err := uuidutil.ParseUUID(thread.GetId(), "thread.id")
-			if err != nil {
-				return nil, nil, err
-			}
-			participant, err := findThreadParticipant(thread, agentID, threadID)
-			if err != nil {
-				return nil, nil, err
-			}
-			if participant.GetPassive() {
-				passiveThreads[threadID] = struct{}{}
-			}
-			if thread.GetStatus() == threadsv1.ThreadStatus_THREAD_STATUS_DEGRADED {
-				degradedThreads[threadID] = struct{}{}
-			}
-		}
-		token = page.GetNextPageToken()
-		if token == "" {
-			return passiveThreads, degradedThreads, nil
-		}
-	}
-}
-
-func findThreadParticipant(thread *threadsv1.Thread, agentID uuid.UUID, threadID uuid.UUID) (*threadsv1.Participant, error) {
-	participants := thread.GetParticipants()
-	if len(participants) == 0 {
-		return nil, fmt.Errorf("thread %s has no participants", threadID.String())
-	}
-	for _, participant := range participants {
-		if participant == nil {
-			return nil, fmt.Errorf("thread %s has nil participant", threadID.String())
-		}
-		participantID, err := uuidutil.ParseUUID(participant.GetId(), "participant.id")
-		if err != nil {
-			return nil, err
-		}
-		if participantID == agentID {
-			return participant, nil
-		}
-	}
-	return nil, fmt.Errorf("thread %s missing participant %s", threadID.String(), agentID.String())
+	return agent, nil
 }

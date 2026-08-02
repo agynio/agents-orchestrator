@@ -322,28 +322,31 @@ exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svc
 )
 
 var reservedEnvNames = map[string]struct{}{
-	"AGENT_ID":                    {},
-	"AGENT_NAME":                  {},
-	"AGENT_ROLE":                  {},
-	"AGENT_MODEL":                 {},
-	"AGENT_CONFIG":                {},
-	"THREAD_ID":                   {},
-	"WORKLOAD_ID":                 {},
-	"GATEWAY_ADDRESS":             {},
-	"AGYN_GATEWAY_URL":            {},
-	"LLM_BASE_URL":                {},
-	"TRACING_ADDRESS":             {},
-	"OTEL_EXPORTER_OTLP_ENDPOINT": {},
-	"SSL_CERT_FILE":               {},
-	"REQUESTS_CA_BUNDLE":          {},
-	"NODE_EXTRA_CA_CERTS":         {},
-	"CURL_CA_BUNDLE":              {},
-	"SSL_CERT_DIR":                {},
-	"AGENT_MCP_SERVERS":           {},
-	"MCP_PORT":                    {},
-	ZitiEnrollmentTokenEnvVar:     {},
-	ZitiIdentityBasenameEnvVar:    {},
-	ZitiIdentityDirEnvVar:         {},
+	"AGENT_ID":                     {},
+	"AGENT_INSTANCE_ID":            {},
+	"AGENT_NAME":                   {},
+	"AGENT_ROLE":                   {},
+	"AGENT_MODEL":                  {},
+	"AGENT_CONFIG":                 {},
+	"WORKLOAD_ID":                  {},
+	"GATEWAY_ADDRESS":              {},
+	"AGYN_GATEWAY_URL":             {},
+	"AGYN_IDENTITY_ID":             {},
+	"LLM_BASE_URL":                 {},
+	"TRACING_ADDRESS":              {},
+	"OTEL_EXPORTER_OTLP_ENDPOINT":  {},
+	"AGYND_AGENTS_DIRECT_ADDRESS":  {},
+	"AGYND_RUNNERS_DIRECT_ADDRESS": {},
+	"SSL_CERT_FILE":                {},
+	"REQUESTS_CA_BUNDLE":           {},
+	"NODE_EXTRA_CA_CERTS":          {},
+	"CURL_CA_BUNDLE":               {},
+	"SSL_CERT_DIR":                 {},
+	"AGENT_MCP_SERVERS":            {},
+	"MCP_PORT":                     {},
+	ZitiEnrollmentTokenEnvVar:      {},
+	ZitiIdentityBasenameEnvVar:     {},
+	ZitiIdentityDirEnvVar:          {},
 }
 
 type Assembler struct {
@@ -371,14 +374,14 @@ type AssembleResult struct {
 }
 
 type PersistentVolumeInfo struct {
-	ID     uuid.UUID
-	Thread uuid.UUID
-	Volume *agentsv1.Volume
-	Spec   *runnerv1.VolumeSpec
+	ID              uuid.UUID
+	AgentInstanceID uuid.UUID
+	Volume          *agentsv1.Volume
+	Spec            *runnerv1.VolumeSpec
 }
 
 func (i PersistentVolumeInfo) Key() string {
-	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%s:%s", i.Thread.String(), i.ID.String()))).String()
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%s:%s", i.AgentInstanceID.String(), i.ID.String()))).String()
 }
 
 func New(agents agentsClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
@@ -397,7 +400,7 @@ func NewWithRunnersAndEgressCA(agents agentsClient, runners runnersClient, secre
 	return &Assembler{agents: agents, runners: runners, secrets: secrets, cfg: cfg, egressCACert: append([]byte(nil), egressCACert...)}
 }
 
-func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (*AssembleResult, error) {
+func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, threadID uuid.UUID) (*AssembleResult, error) {
 	agent, err := a.fetchAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
@@ -405,7 +408,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	runnerLabels := agentRunnerLabels(agent)
 
 	resolver := newEnvResolver(a.secrets)
-	volumeResolver := newVolumeResolver(a.agents, threadID)
+	volumeResolver := newVolumeResolver(a.agents, agentInstanceID)
 	imagePullResolver := newImagePullResolver(a.secrets)
 
 	environment, flavor, err := a.resolveAgentEnvironment(ctx, agent)
@@ -460,7 +463,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		}
 	}
 
-	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, threadID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
+	mainEnv := mergeEnvVars(a.baseAgentEnvVars(agent, agentID, agentInstanceID), agentEnvVars, fmt.Sprintf("agent %s", agentID.String()))
 	if len(environmentEnvVars) > 0 {
 		// mergeEnvVars keeps the first occurrence of a name, so layering the
 		// environment's envs onto the agent's leaves the agent's own value in
@@ -478,7 +481,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 	mainMounts = append(mainMounts, &runnerv1.VolumeMount{Volume: agynBinVolumeName, MountPath: agynBinMountPath})
 	main := &runnerv1.ContainerSpec{
 		Image:            mainImage,
-		Name:             fmt.Sprintf("agent-%s-%s", agentID.String()[:8], threadID.String()[:8]),
+		Name:             fmt.Sprintf("agent-%s-%s", agentID.String()[:8], agentInstanceID.String()[:8]),
 		Cmd:              []string{agynBinBinaryPath},
 		Env:              mainEnv,
 		Mounts:           mainMounts,
@@ -629,9 +632,10 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, threadID uuid.UUID) (
 		Capabilities:         append([]string(nil), agent.GetCapabilities()...),
 		InlineFiles:          a.inlineFiles(),
 		AdditionalProperties: map[string]string{
-			LabelKeyPrefix + LabelManagedBy: ManagedByValue,
-			LabelKeyPrefix + LabelAgentID:   agentID.String(),
-			LabelKeyPrefix + LabelThreadID:  threadID.String(),
+			LabelKeyPrefix + LabelManagedBy:  ManagedByValue,
+			LabelKeyPrefix + LabelAgentID:    agentID.String(),
+			LabelKeyPrefix + LabelInstanceID: agentInstanceID.String(),
+			LabelKeyPrefix + LabelThreadID:   threadID.String(),
 		},
 	}
 	if a.cfg.ZitiEnabled {
@@ -1167,18 +1171,29 @@ func appendPlatformEnvVar(envs []*runnerv1.EnvVar, env *runnerv1.EnvVar) []*runn
 	return result
 }
 
-func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uuid.UUID) []*runnerv1.EnvVar {
+// No THREAD_ID: an instance serves every thread that reaches its inbox, so
+// there is no one thread to name at startup. Pinning it here would scope the
+// daemon to whichever thread happened to be first unacked when it launched.
+func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstanceID uuid.UUID) []*runnerv1.EnvVar {
 	gatewayURL := buildGatewayURL(a.cfg.AgentGatewayAddress)
 	vars := []*runnerv1.EnvVar{
+		{Name: "AGENT_INSTANCE_ID", Value: agentInstanceID.String()},
 		{Name: "AGENT_ID", Value: agentID.String()},
 		{Name: "AGENT_NAME", Value: agent.GetName()},
 		{Name: "AGENT_ROLE", Value: agent.GetRole()},
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
 		{Name: "AGENT_CONFIG", Value: agent.GetConfiguration()},
-		{Name: "THREAD_ID", Value: threadID.String()},
+		{Name: "AGYN_ORGANIZATION_ID", Value: agent.GetOrganizationId()},
+		{Name: "AGYN_IDENTITY_ID", Value: agentInstanceID.String()},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
+	}
+	if a.cfg.AgyndAgentsDirectAddress != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "AGYND_AGENTS_DIRECT_ADDRESS", Value: a.cfg.AgyndAgentsDirectAddress})
+	}
+	if a.cfg.AgyndRunnersDirectAddress != "" {
+		vars = append(vars, &runnerv1.EnvVar{Name: "AGYND_RUNNERS_DIRECT_ADDRESS", Value: a.cfg.AgyndRunnersDirectAddress})
 	}
 	if a.cfg.AgentTracingAddress != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})
@@ -1188,18 +1203,18 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, threadID uu
 }
 
 type volumeResolver struct {
-	agents   agentsClient
-	threadID uuid.UUID
-	cache    map[string]*agentsv1.Volume
-	specs    map[string]*runnerv1.VolumeSpec
+	agents          agentsClient
+	agentInstanceID uuid.UUID
+	cache           map[string]*agentsv1.Volume
+	specs           map[string]*runnerv1.VolumeSpec
 }
 
-func newVolumeResolver(agents agentsClient, threadID uuid.UUID) *volumeResolver {
+func newVolumeResolver(agents agentsClient, agentInstanceID uuid.UUID) *volumeResolver {
 	return &volumeResolver{
-		agents:   agents,
-		threadID: threadID,
-		cache:    map[string]*agentsv1.Volume{},
-		specs:    map[string]*runnerv1.VolumeSpec{},
+		agents:          agents,
+		agentInstanceID: agentInstanceID,
+		cache:           map[string]*agentsv1.Volume{},
+		specs:           map[string]*runnerv1.VolumeSpec{},
 	}
 }
 
@@ -1260,7 +1275,7 @@ func (v *volumeResolver) PersistentVolumes() ([]PersistentVolumeInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		volumes = append(volumes, PersistentVolumeInfo{ID: parsedID, Thread: v.threadID, Volume: volume, Spec: spec})
+		volumes = append(volumes, PersistentVolumeInfo{ID: parsedID, AgentInstanceID: v.agentInstanceID, Volume: volume, Spec: spec})
 	}
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].ID.String() < volumes[j].ID.String() })
 	return volumes, nil
@@ -1317,9 +1332,9 @@ func (v *volumeResolver) ensureSpec(volumeID uuid.UUID, volume *agentsv1.Volume)
 	}
 	if volume.GetPersistent() {
 		spec.Kind = runnerv1.VolumeKind_VOLUME_KIND_NAMED
-		threadPrefix := v.threadID.String()[:12]
+		instancePrefix := v.agentInstanceID.String()[:12]
 		volumePrefix := key[:12]
-		spec.PersistentName = fmt.Sprintf("pv-%s-%s", threadPrefix, volumePrefix)
+		spec.PersistentName = fmt.Sprintf("pv-%s-%s", instancePrefix, volumePrefix)
 	}
 	v.specs[key] = spec
 	return spec

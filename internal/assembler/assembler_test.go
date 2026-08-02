@@ -74,13 +74,15 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentTracingAddress: "tracing:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
+		AgentGatewayAddress:       "gateway:50051",
+		AgentTracingAddress:       "tracing:50051",
+		AgentLLMBaseURL:           "http://llm:8080/v1",
+		AgyndAgentsDirectAddress:  "10.42.0.10:50051",
+		AgyndRunnersDirectAddress: "10.42.0.11:50051",
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -152,9 +154,10 @@ func TestAssemblerMainContainer(t *testing.T) {
 		t.Fatal("expected labels in request additional properties")
 	}
 	expectedLabels := map[string]string{
-		LabelKeyPrefix + LabelManagedBy: ManagedByValue,
-		LabelKeyPrefix + LabelAgentID:   agentID.String(),
-		LabelKeyPrefix + LabelThreadID:  threadID.String(),
+		LabelKeyPrefix + LabelManagedBy:  ManagedByValue,
+		LabelKeyPrefix + LabelAgentID:    agentID.String(),
+		LabelKeyPrefix + LabelInstanceID: threadID.String(),
+		LabelKeyPrefix + LabelThreadID:   threadID.String(),
 	}
 	if !equalStringMap(labels, expectedLabels) {
 		t.Fatalf("expected labels %+v, got %+v", expectedLabels, labels)
@@ -168,10 +171,19 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGENT_ROLE", agent.GetRole())
 	assertEnv(t, envs, "AGENT_MODEL", agent.GetModel())
 	assertEnv(t, envs, "AGENT_CONFIG", agent.GetConfiguration())
-	assertEnv(t, envs, "THREAD_ID", threadID.String())
+	assertEnv(t, envs, "AGYN_ORGANIZATION_ID", agent.GetOrganizationId())
+	assertEnv(t, envs, "AGENT_INSTANCE_ID", threadID.String())
+	assertEnv(t, envs, "AGYN_IDENTITY_ID", threadID.String())
+	// An instance serves every thread in its inbox, so naming one at startup
+	// would scope it to whichever happened to be first unacked.
+	if _, ok := envs["THREAD_ID"]; ok {
+		t.Fatalf("expected no THREAD_ID, got %q", envs["THREAD_ID"])
+	}
 	assertEnv(t, envs, "GATEWAY_ADDRESS", cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://"+cfg.AgentGatewayAddress)
 	assertEnv(t, envs, "LLM_BASE_URL", cfg.AgentLLMBaseURL)
+	assertEnv(t, envs, "AGYND_AGENTS_DIRECT_ADDRESS", cfg.AgyndAgentsDirectAddress)
+	assertEnv(t, envs, "AGYND_RUNNERS_DIRECT_ADDRESS", cfg.AgyndRunnersDirectAddress)
 	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
 	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	assertEnv(t, envs, "WORKSPACE_DIR", "/override")
@@ -243,7 +255,7 @@ func TestAssemblerReusesWorkspaceMount(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -330,7 +342,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -650,7 +662,7 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 	}
 
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -714,7 +726,7 @@ func TestAssemblerErrorsOnEmptyInitImage(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
-	_, err := assembler.Assemble(ctx, agentID, threadID)
+	_, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err == nil {
 		t.Fatal("expected error for empty init image")
 	}
@@ -776,7 +788,7 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -852,7 +864,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -970,7 +982,7 @@ func TestAssemblerSharesPersistentVolumeAcrossContainers(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
 
-	resultA, err := assembler.Assemble(ctx, agentID, threadA)
+	resultA, err := assembler.Assemble(ctx, agentID, threadA, threadA)
 	if err != nil {
 		t.Fatalf("assemble thread A: %v", err)
 	}
@@ -1004,7 +1016,7 @@ func TestAssemblerSharesPersistentVolumeAcrossContainers(t *testing.T) {
 		t.Fatalf("expected sidecar mount path /data, got %q", sidecarMount.MountPath)
 	}
 
-	resultB, err := assembler.Assemble(ctx, agentID, threadB)
+	resultB, err := assembler.Assemble(ctx, agentID, threadB, threadB)
 	if err != nil {
 		t.Fatalf("assemble thread B: %v", err)
 	}
@@ -1063,7 +1075,7 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
 	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -1134,7 +1146,7 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -1208,7 +1220,7 @@ func TestAssemblerImagePullCredentials(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -1289,7 +1301,7 @@ func TestAssemblerImagePullCredentialsCaching(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -1359,7 +1371,7 @@ func TestAssemblerImagePullCredentialsRegistryConflict(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	_, err := assembler.Assemble(ctx, agentID, threadID)
+	_, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err == nil {
 		t.Fatal("expected registry conflict error")
 	}
@@ -1405,7 +1417,7 @@ func TestAssemblerNoImagePullSecretAttachments(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -1465,7 +1477,7 @@ func TestAssemblerImagePullCredentialsHookOnly(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	})
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -1623,7 +1635,7 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 		ZitiRuntimeControllerResolveHost: "istio-ingressgateway.istio-gateway.svc.cluster.local",
 		ZitiRuntimeControllerPort:        "443",
 	}, cert)
-	result, err := assembler.Assemble(ctx, agentID, threadID)
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -1682,6 +1694,18 @@ func TestLoadEgressCACertificate(t *testing.T) {
 	if string(cert) != "cert" {
 		t.Fatalf("expected cert bytes, got %q", string(cert))
 	}
+}
+
+// hostBash resolves bash on whatever runs the test. zitiEnrollEntrypoint is the
+// path inside the sidecar image, where bash is at /usr/bin/bash; macOS keeps it
+// at /bin/bash, so running the script through the constant fails there.
+func hostBash(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash not available: %v", err)
+	}
+	return path
 }
 
 func TestZitiEnrollScriptRemovesOnlyJwtControllerLoopbackAlias(t *testing.T) {
@@ -1782,16 +1806,22 @@ case "$filter" in
   *) echo "unexpected jq filter: $filter" >&2; exit 1 ;;
 esac
 `)
+	// The stub shadows cat on PATH, so it has to exec the real one by absolute
+	// path -- which is /bin/cat on macOS and /usr/bin/cat on Linux.
+	realCat, err := exec.LookPath("cat")
+	if err != nil {
+		t.Skipf("cat not available: %v", err)
+	}
 	_ = writeExecutable(t, workDir, "cat", fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
-real_cat=/usr/bin/cat
+real_cat=%q
 if [[ "$#" -ge 1 && "$1" == %q ]]; then
   printf 'nameserver 127.0.0.1\n' > %q
 fi
 exec "${real_cat}" "$@"
-`, hostsPath+".tmp", resolvPath))
+`, realCat, hostsPath+".tmp", resolvPath))
 
-	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10", "", "", "", "")...)
+	cmd := exec.Command(hostBash(t), buildZitiEnrollCommand("10.43.0.10", "", "", "", "")...)
 	cmd.Env = append(os.Environ(),
 		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		ZitiEnrollmentTokenEnvVar+"="+jwt,
@@ -1961,7 +1991,7 @@ case "$filter" in
 esac
 `)
 
-	cmd := exec.Command(zitiEnrollEntrypoint, buildZitiEnrollCommand("10.43.0.10", enrollmentResolveHost, "2496", runtimeResolveHost, "443")...)
+	cmd := exec.Command(hostBash(t), buildZitiEnrollCommand("10.43.0.10", enrollmentResolveHost, "2496", runtimeResolveHost, "443")...)
 	cmd.Env = append(os.Environ(),
 		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		ZitiEnrollmentTokenEnvVar+"="+jwt,
@@ -2312,7 +2342,7 @@ func newAgentEnvironmentFixture() *agentEnvironmentFixture {
 func (f *agentEnvironmentFixture) assemble(t *testing.T) *AssembleResult {
 	t.Helper()
 	assembler := NewWithRunners(f.agents, f.runners, f.secrets, f.cfg)
-	result, err := assembler.Assemble(context.Background(), f.agentID, f.threadID)
+	result, err := assembler.Assemble(context.Background(), f.agentID, f.threadID, f.threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}

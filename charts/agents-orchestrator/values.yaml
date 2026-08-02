@@ -123,6 +123,10 @@ env:
     value: ""
   - name: AGENT_TRACING_ADDRESS
     value: ""
+  - name: AGYND_AGENTS_DIRECT_ADDRESS
+    value: ""
+  - name: AGYND_RUNNERS_DIRECT_ADDRESS
+    value: ""
   - name: SANDBOX_INIT_IMAGE
     value: "ghcr.io/agynio/agent-init-codex:latest"
   - name: SANDBOX_WORKSPACE_SIZE_GB

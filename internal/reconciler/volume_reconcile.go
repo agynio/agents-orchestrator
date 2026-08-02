@@ -19,7 +19,7 @@ import (
 const activeVolumePageSize int32 = 100
 const workloadHistoryPageSize int32 = 100
 
-type threadActivity struct {
+type instanceActivity struct {
 	hasActive       bool
 	latestRemovedAt *time.Time
 }
@@ -29,12 +29,19 @@ type volumeTTLInfo struct {
 	ttl        *time.Duration
 }
 
-// volumeIdentityID resolves the identity used to talk to the runner about a
-// volume. Sandbox-owned volumes carry no agent id; they are addressed by the
-// sandbox that owns them, matching the sandbox workload path.
+// volumeIdentityID is the identity a volume pins its runner to: the sandbox for
+// a sandbox volume, the agent instance for an agent volume.
+//
+// owner_id carries both and is preferred. agent_instance_id covers rows written
+// before owner_kind existed but after instances did. agent_id is the last
+// resort, and only that: it names the class, so pinning on it would tie every
+// instance of an agent to a single runner.
 func volumeIdentityID(volume *runnersv1.Volume) string {
-	if volume.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
-		return strings.TrimSpace(volume.GetOwnerId())
+	if ownerID := strings.TrimSpace(volume.GetOwnerId()); ownerID != "" {
+		return ownerID
+	}
+	if instanceID := strings.TrimSpace(volume.GetAgentInstanceId()); instanceID != "" {
+		return instanceID
 	}
 	return strings.TrimSpace(volume.GetAgentId())
 }
@@ -143,9 +150,8 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		runnerIdentities[runnerID] = identityID
 	}
 
-	degraded := newDegradeTracker()
 	volumeInfoCache := map[string]volumeTTLInfo{}
-	threadCache := map[string]threadActivity{}
+	instanceCache := map[string]instanceActivity{}
 	for runnerID := range runnerIDs {
 		trackedVolumes := volumesByRunner[runnerID]
 		identityID, ok := runnerIdentities[runnerID]
@@ -161,10 +167,12 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 				if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s on unenrolled runner: %v", volumeID, err)
 				}
+				// A sandbox has no instance to pause; its own reconciler owns
+				// what happens when the runner goes away.
 				if isSandboxVolume(volume) {
 					continue
 				}
-				r.degradeThread(volumeCtx, volume.GetThreadId(), degradeReasonRunnerDeprovisioned, degraded)
+				r.pauseInstance(volumeCtx, volumeIdentityID(volume), pauseReasonRunnerDeprovisioned)
 			}
 			continue
 		}
@@ -175,7 +183,15 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
-				log.Printf("reconciler: warn: runner %s unavailable during volume reconciliation", runnerID)
+				for volumeID, volume := range trackedVolumes {
+					volumeCtx, err := runnerIdentityContext(ctx, volumeIdentityID(volume))
+					if err != nil {
+						return err
+					}
+					if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
+						log.Printf("reconciler: warn: handle missing volume %s after runner dial failure: %v", volumeID, err)
+					}
+				}
 				continue
 			}
 			log.Printf("reconciler: warn: dial runner %s for volume reconciliation: %v", runnerID, err)
@@ -184,7 +200,15 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		resp, err := runnerClient.ListVolumes(runnerCtx, &runnerv1.ListVolumesRequest{})
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
-				log.Printf("reconciler: warn: runner %s unavailable while listing volumes", runnerID)
+				for volumeID, volume := range trackedVolumes {
+					volumeCtx, err := runnerIdentityContext(ctx, volumeIdentityID(volume))
+					if err != nil {
+						return err
+					}
+					if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
+						log.Printf("reconciler: warn: handle missing volume %s after runner list failure: %v", volumeID, err)
+					}
+				}
 				continue
 			}
 			log.Printf("reconciler: warn: list volumes for runner %s: %v", runnerID, err)
@@ -228,13 +252,13 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 							log.Printf("reconciler: warn: fail sandbox %s after lost workspace volume %s: %v", volume.GetOwnerId(), volumeID, err)
 						}
 					} else {
-						r.degradeThread(volumeCtx, volume.GetThreadId(), degradeReasonVolumeLost, degraded)
+						r.pauseInstance(volumeCtx, volumeIdentityID(volume), pauseReasonVolumeLost)
 					}
 				}
 				continue
 			}
 			delete(runnerVolumes, volumeID)
-			if err := r.handlePresentRunnerVolume(volumeCtx, runnerClient, volume, item, volumeInfoCache, threadCache); err != nil {
+			if err := r.handlePresentRunnerVolume(volumeCtx, runnerClient, volume, item, volumeInfoCache, instanceCache); err != nil {
 				log.Printf("reconciler: warn: handle volume %s on runner %s: %v", volumeID, runnerID, err)
 			}
 		}
@@ -331,7 +355,7 @@ func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runn
 	}
 }
 
-func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, volume *runnersv1.Volume, item *runnerv1.VolumeListItem, volumeInfoCache map[string]volumeTTLInfo, threadCache map[string]threadActivity) error {
+func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, volume *runnersv1.Volume, item *runnerv1.VolumeListItem, volumeInfoCache map[string]volumeTTLInfo, instanceCache map[string]instanceActivity) error {
 	volumeID := volume.GetMeta().GetId()
 	if volumeID == "" {
 		return nil
@@ -363,7 +387,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 			// idle stops and reconnects, so it has no independent TTL.
 			return nil
 		}
-		expired, err := r.volumeTTLExpired(ctx, volume, volumeInfoCache, threadCache)
+		expired, err := r.volumeTTLExpired(ctx, volume, volumeInfoCache, instanceCache)
 		if err != nil {
 			return err
 		}
@@ -390,7 +414,7 @@ func (r *Reconciler) removeRunnerVolume(ctx context.Context, runnerClient runner
 	return err
 }
 
-func (r *Reconciler) volumeTTLExpired(ctx context.Context, volume *runnersv1.Volume, volumeInfoCache map[string]volumeTTLInfo, threadCache map[string]threadActivity) (bool, error) {
+func (r *Reconciler) volumeTTLExpired(ctx context.Context, volume *runnersv1.Volume, volumeInfoCache map[string]volumeTTLInfo, instanceCache map[string]instanceActivity) (bool, error) {
 	volumeID := volume.GetVolumeId()
 	if volumeID == "" {
 		return false, fmt.Errorf("volume %s missing volume_id", volume.GetMeta().GetId())
@@ -402,11 +426,11 @@ func (r *Reconciler) volumeTTLExpired(ctx context.Context, volume *runnersv1.Vol
 	if !info.persistent || info.ttl == nil {
 		return false, nil
 	}
-	threadID := volume.GetThreadId()
-	if threadID == "" {
-		return false, fmt.Errorf("volume %s missing thread_id", volume.GetMeta().GetId())
+	agentInstanceID := volumeIdentityID(volume)
+	if agentInstanceID == "" {
+		return false, fmt.Errorf("volume %s missing agent_instance_id", volume.GetMeta().GetId())
 	}
-	activity, err := r.threadActivity(ctx, threadID, threadCache)
+	activity, err := r.agentInstanceActivity(ctx, agentInstanceID, instanceCache)
 	if err != nil {
 		return false, err
 	}
@@ -443,15 +467,15 @@ func (r *Reconciler) volumeTTLInfo(ctx context.Context, volumeID string, cache m
 	return info, nil
 }
 
-func (r *Reconciler) threadActivity(ctx context.Context, threadID string, cache map[string]threadActivity) (threadActivity, error) {
-	if cached, ok := cache[threadID]; ok {
+func (r *Reconciler) agentInstanceActivity(ctx context.Context, agentInstanceID string, cache map[string]instanceActivity) (instanceActivity, error) {
+	if cached, ok := cache[agentInstanceID]; ok {
 		return cached, nil
 	}
-	workloads, err := r.listWorkloadsByThread(ctx, threadID, nil, nil, 0)
+	workloads, err := r.listWorkloadsByAgentInstance(ctx, agentInstanceID, nil, 0)
 	if err != nil {
-		return threadActivity{}, err
+		return instanceActivity{}, err
 	}
-	activity := threadActivity{}
+	activity := instanceActivity{}
 	for _, workload := range workloads {
 		switch workload.GetStatus() {
 		case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
@@ -469,7 +493,7 @@ func (r *Reconciler) threadActivity(ctx context.Context, threadID string, cache 
 			activity.latestRemovedAt = &copy
 		}
 	}
-	cache[threadID] = activity
+	cache[agentInstanceID] = activity
 	return activity, nil
 }
 

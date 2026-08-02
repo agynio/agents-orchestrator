@@ -39,7 +39,7 @@ func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -177,7 +177,7 @@ func TestReconcileWorkloadsTransitionsStartingToRunningWithoutContainers(t *test
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -252,7 +252,7 @@ func TestReconcileWorkloadsDoesNotPromoteStartingWhenNotRunning(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, InstanceId: stringPtr(rawInstanceID)},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, InstanceId: stringPtr(rawInstanceID)},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -318,7 +318,7 @@ func TestReconcileWorkloadsRefreshesContainersOnRunning(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, InstanceId: stringPtr(rawInstanceID)},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, InstanceId: stringPtr(rawInstanceID)},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -414,7 +414,7 @@ func TestReconcileWorkloadsFailsCrashloop(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, InstanceId: stringPtr(rawInstanceID), ZitiIdentityId: zitiID},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, InstanceId: stringPtr(rawInstanceID), ZitiIdentityId: zitiID},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -524,7 +524,7 @@ func TestReconcileWorkloadsDoesNotPromoteStartingOnInspectError(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey, CreatedAt: createdAt}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -598,7 +598,7 @@ func TestReconcileWorkloadsStopsStoppingOnInspectError(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -732,7 +732,7 @@ func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminators(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -786,7 +786,7 @@ func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminatorsListError(t *testing
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -846,7 +846,7 @@ func TestReconcileWorkloadsMarksMissingRunnerOnMissingWorkload(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, InstanceId: stringPtr(instanceID)},
+				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING, InstanceId: stringPtr(instanceID)},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -904,8 +904,8 @@ func TestReconcileWorkloadsDegradesUnenrolledRunner(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
-				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, ThreadId: threadID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
-				{Meta: &runnersv1.EntityMeta{Id: secondWorkloadID}, RunnerId: runnerID, ThreadId: threadID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
+				{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, ThreadId: threadID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(threadID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
+				{Meta: &runnersv1.EntityMeta{Id: secondWorkloadID}, RunnerId: runnerID, ThreadId: threadID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(threadID), OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -960,8 +960,8 @@ func TestReconcileWorkloadsDegradesUnenrolledRunner(t *testing.T) {
 	if updateCount != 2 {
 		t.Fatalf("expected 2 workload updates, got %d", updateCount)
 	}
-	if degradeCalls != 1 {
-		t.Fatalf("expected 1 degrade call, got %d", degradeCalls)
+	if degradeCalls != 0 {
+		t.Fatalf("expected 0 degrade calls, got %d", degradeCalls)
 	}
 }
 
@@ -977,7 +977,7 @@ func TestReconcileVolumesActivatesProvisioning(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
-				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: threadID, VolumeId: volumeID},
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: threadID, VolumeId: volumeID},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -1037,7 +1037,7 @@ func TestReconcileVolumesLeavesPersistentVolumeOnNoTerminatorsListError(t *testi
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
-				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(threadID), OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -1089,7 +1089,7 @@ func TestReconcileVolumesLeavesPersistentVolumeOnMissingPVC(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
-				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(threadID), OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -1143,8 +1143,8 @@ func TestReconcileVolumesLeavesPersistentVolumeOnMissingPVC(t *testing.T) {
 	if updateCount != 0 {
 		t.Fatalf("expected no volume updates, got %d", updateCount)
 	}
-	if degradeCalls != 1 {
-		t.Fatalf("expected 1 degrade call, got %d", degradeCalls)
+	if degradeCalls != 0 {
+		t.Fatalf("expected 0 degrade calls, got %d", degradeCalls)
 	}
 }
 
@@ -1159,7 +1159,7 @@ func TestReconcileVolumesDegradesUnenrolledRunner(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
-				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(threadID), OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -1211,8 +1211,8 @@ func TestReconcileVolumesDegradesUnenrolledRunner(t *testing.T) {
 	if updateCount != 0 {
 		t.Fatalf("expected no volume updates, got %d", updateCount)
 	}
-	if degradeCalls != 1 {
-		t.Fatalf("expected 1 degrade call, got %d", degradeCalls)
+	if degradeCalls != 0 {
+		t.Fatalf("expected 0 degrade calls, got %d", degradeCalls)
 	}
 }
 
@@ -1228,7 +1228,7 @@ func TestReconcileVolumesTTLExpires(t *testing.T) {
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
-				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(threadID), OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, ThreadId: threadID, VolumeId: volumeID},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -1306,16 +1306,16 @@ func TestReconcileVolumesTTLExpires(t *testing.T) {
 func TestReconcileVolumesKeepsReusedPersistentVolume(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
-	threadID := uuid.New().String()
+	agentInstanceID := uuid.New().String()
 	volumeID := uuid.New().String()
-	volumeKey := uuid.NewSHA1(uuid.NameSpaceOID, []byte(threadID+":"+volumeID)).String()
-	instanceID := "pv-" + threadID[:12] + "-" + volumeID[:12]
+	volumeKey := uuid.NewSHA1(uuid.NameSpaceOID, []byte(agentInstanceID+":"+volumeID)).String()
+	instanceID := "pv-" + agentInstanceID[:12] + "-" + volumeID[:12]
 
 	var updateReq *runnersv1.UpdateVolumeRequest
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
-				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: threadID, VolumeId: volumeID},
+				{Meta: &runnersv1.EntityMeta{Id: volumeKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(agentInstanceID), OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: agentInstanceID, VolumeId: volumeID},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
@@ -1368,7 +1368,7 @@ func TestReconcileVolumesKeepsReusedPersistentVolume(t *testing.T) {
 
 func TestRunnerIdentityForWorkloadsUsesTrackedWorkloadForClusterRunner(t *testing.T) {
 	workloads := map[string]*runnersv1.Workload{
-		"workload-1": {AgentId: testAgentID},
+		"workload-1": {AgentId: testAgentID, AgentInstanceId: stringPtr(testAgentID)},
 	}
 	identityID, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, workloads)
 	if err != nil {
@@ -1392,8 +1392,8 @@ func TestRunnerIdentityForWorkloadsIgnoresUntrackedClusterRunner(t *testing.T) {
 func TestRunnerIdentityForWorkloadsRejectsAmbiguousClusterRunner(t *testing.T) {
 	otherAgentID := uuid.New().String()
 	workloads := map[string]*runnersv1.Workload{
-		"workload-1": {AgentId: testAgentID},
-		"workload-2": {AgentId: otherAgentID},
+		"workload-1": {AgentId: testAgentID, AgentInstanceId: stringPtr(testAgentID)},
+		"workload-2": {AgentId: otherAgentID, AgentInstanceId: stringPtr(otherAgentID)},
 	}
 	if _, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, workloads); err == nil {
 		t.Fatal("expected multiple identities error")
@@ -1409,19 +1409,22 @@ func TestReconcileVolumesSkipsSandboxOwnedVolumes(t *testing.T) {
 	threadID := uuid.New().String()
 	sandboxID := uuid.New().String()
 
-	var updateReq *runnersv1.UpdateVolumeRequest
+	// Keyed by volume: reconcileVolumes walks a map, so the order two volumes
+	// are updated in is not fixed and a single captured request would make the
+	// assertions depend on it.
+	updates := map[string][]*runnersv1.UpdateVolumeRequest{}
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
 				{Meta: &runnersv1.EntityMeta{Id: sandboxVolumeKey}, RunnerId: runnerID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE, OwnerKind: runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX, OwnerId: sandboxID},
-				{Meta: &runnersv1.EntityMeta{Id: agentVolumeKey}, RunnerId: runnerID, AgentId: testAgentID, OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: threadID, VolumeId: uuid.NewString()},
+				{Meta: &runnersv1.EntityMeta{Id: agentVolumeKey}, RunnerId: runnerID, AgentId: testAgentID, AgentClassId: stringPtr(testAgentID), AgentInstanceId: stringPtr(testAgentID), OrganizationId: testOrganizationID, Status: runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING, ThreadId: threadID, VolumeId: uuid.NewString()},
 			}}, nil
 		},
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
 			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
 		},
 		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			updateReq = req
+			updates[req.GetId()] = append(updates[req.GetId()], req)
 			return &runnersv1.UpdateVolumeResponse{}, nil
 		},
 	}
@@ -1455,14 +1458,22 @@ func TestReconcileVolumesSkipsSandboxOwnedVolumes(t *testing.T) {
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
 		t.Fatalf("reconcile volumes: %v", err)
 	}
-	if updateReq == nil {
-		t.Fatal("expected agent volume update")
+	agentUpdates := updates[agentVolumeKey]
+	if len(agentUpdates) != 1 {
+		t.Fatalf("expected one agent volume update, got %d", len(agentUpdates))
 	}
-	if updateReq.GetId() != agentVolumeKey {
-		t.Fatalf("unexpected volume update: %v", updateReq.GetId())
+	if agentUpdates[0].GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
+		t.Fatalf("unexpected status: %v", agentUpdates[0].GetStatus())
 	}
-	if updateReq.GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
-		t.Fatalf("unexpected status: %v", updateReq.GetStatus())
+
+	// The sandbox volume is still linked to the instance the runner reports --
+	// sandbox teardown needs that id to find the runner-side volume. What it
+	// must never pick up is a status change: its lifetime is the sandbox's, so
+	// no TTL may deprovision it.
+	for _, update := range updates[sandboxVolumeKey] {
+		if update.Status != nil {
+			t.Fatalf("sandbox volume status changed to %v", update.GetStatus())
+		}
 	}
 }
 

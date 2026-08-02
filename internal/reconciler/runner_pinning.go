@@ -9,22 +9,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const volumesByThreadPageSize int32 = 100
+const volumesByAgentInstancePageSize int32 = 100
 
-func (r *Reconciler) pinnedRunnerForThread(ctx context.Context, threadID string) (string, error) {
-	if threadID == "" {
-		return "", fmt.Errorf("thread id missing")
+func (r *Reconciler) pinnedRunnerForAgentInstance(ctx context.Context, agentInstanceID string) (string, error) {
+	if agentInstanceID == "" {
+		return "", fmt.Errorf("agent instance id missing")
 	}
 	pageToken := ""
 	runnerID := ""
 	for {
-		resp, err := r.runners.ListVolumesByThread(runnersContext(ctx), &runnersv1.ListVolumesByThreadRequest{
-			ThreadId:  threadID,
-			PageSize:  volumesByThreadPageSize,
-			PageToken: pageToken,
+		resp, err := r.runners.ListVolumesByAgentInstance(runnersContext(ctx), &runnersv1.ListVolumesByAgentInstanceRequest{
+			AgentInstanceId: agentInstanceID,
+			PageSize:        volumesByAgentInstancePageSize,
+			PageToken:       pageToken,
 		})
 		if err != nil {
-			return "", fmt.Errorf("list volumes for thread %s: %w", threadID, err)
+			return "", fmt.Errorf("list volumes for agent instance %s: %w", agentInstanceID, err)
 		}
 		for _, volume := range resp.GetVolumes() {
 			if volume == nil {
@@ -46,7 +46,7 @@ func (r *Reconciler) pinnedRunnerForThread(ctx context.Context, threadID string)
 				continue
 			}
 			if runnerID != volumeRunnerID {
-				return "", fmt.Errorf("thread %s volumes span runners %s and %s", threadID, runnerID, volumeRunnerID)
+				return "", fmt.Errorf("agent instance %s volumes span runners %s and %s", agentInstanceID, runnerID, volumeRunnerID)
 			}
 		}
 		pageToken = resp.GetNextPageToken()

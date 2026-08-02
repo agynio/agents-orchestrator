@@ -89,9 +89,10 @@ func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
 	}
 	e2eWorkflow := string(e2e)
 	for _, expected := range []string{
-		"BOOTSTRAP_REF: main",
+		// Bootstrap no longer provisions this workflow: the VM does, and it
+		// carries its own platform version rather than a ref to build from.
+		"agynio/e2e/.github/actions/provision-vm@main",
 		"K8S_RUNNER_REF: main",
-		"github.event_name == 'workflow_dispatch' && inputs.bootstrap_ref || env.BOOTSTRAP_REF",
 		"github.event_name == 'workflow_dispatch' && inputs.k8s_runner_ref || env.K8S_RUNNER_REF",
 		"name: Patch workload Ziti DNS runtime target",
 		"current_router_target=",
@@ -115,8 +116,9 @@ func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"BOOTSTRAP_REF: noa/issue-577",
 		"K8S_RUNNER_REF: noa/issue-73",
+		// Bootstrap is deprecated; provisioning must not come back to it.
+		"agynio/bootstrap/.github/actions/provision",
 		"name: Build Ziti sidecar image",
 		"build/ziti-tunnel-x509/Dockerfile",
 		"k3d image import",
@@ -296,6 +298,8 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("AGENT_GATEWAY_ADDRESS", "")
 	t.Setenv("AGENT_TRACING_ADDRESS", "")
 	t.Setenv("AGENT_LLM_BASE_URL", "")
+	t.Setenv("AGYND_AGENTS_DIRECT_ADDRESS", "")
+	t.Setenv("AGYND_RUNNERS_DIRECT_ADDRESS", "")
 	t.Setenv("SANDBOX_INIT_IMAGE", "")
 	t.Setenv("SANDBOX_WORKSPACE_SIZE_GB", "")
 	t.Setenv("SANDBOX_RECONCILE_ORGANIZATION_IDS", "")
@@ -306,6 +310,23 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("LEASE_NAME", "")
 	t.Setenv("LEASE_NAMESPACE", "")
 	t.Setenv("EGRESS_CA_NAMESPACE", "")
+}
+
+func TestFromEnvAgyndDirectAddresses(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("AGYND_AGENTS_DIRECT_ADDRESS", "10.42.0.10:50051")
+	t.Setenv("AGYND_RUNNERS_DIRECT_ADDRESS", "10.42.0.11:50051")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.AgyndAgentsDirectAddress != "10.42.0.10:50051" {
+		t.Fatalf("expected agents direct address, got %q", cfg.AgyndAgentsDirectAddress)
+	}
+	if cfg.AgyndRunnersDirectAddress != "10.42.0.11:50051" {
+		t.Fatalf("expected runners direct address, got %q", cfg.AgyndRunnersDirectAddress)
+	}
 }
 
 func TestFromEnvGroupSyncConfig(t *testing.T) {

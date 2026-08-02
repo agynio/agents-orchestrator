@@ -3,8 +3,10 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
+	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/google/uuid"
 )
@@ -19,14 +21,12 @@ var startBackoffSchedule = []time.Duration{
 	15 * time.Minute,
 }
 
-func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread, now time.Time, agentUpdatedAt map[uuid.UUID]time.Time, degraded *degradeTracker) (bool, error) {
-	runnerCtx, err := r.runnerIdentityContextForAgent(ctx, target.AgentID)
+func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentInstanceTarget, now time.Time, agentUpdatedAt map[uuid.UUID]time.Time) (bool, error) {
+	runnerCtx, err := runnerIdentityContext(ctx, target.AgentInstanceID.String())
 	if err != nil {
 		return false, err
 	}
-	threadID := target.ThreadID.String()
-	agentID := target.AgentID.String()
-	active, err := r.listWorkloadsByThread(runnerCtx, threadID, &agentID, []runnersv1.WorkloadStatus{
+	active, err := r.listWorkloadsByAgentInstance(runnerCtx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
@@ -37,7 +37,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 	if len(active) > 0 {
 		return false, nil
 	}
-	latest, err := r.latestWorkloadByThread(runnerCtx, threadID, &agentID, []runnersv1.WorkloadStatus{
+	latest, err := r.latestWorkloadByAgentInstance(runnerCtx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 	})
@@ -58,7 +58,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 	if updatedAt.After(latestRemovedAt) {
 		return true, nil
 	}
-	lastStopped, err := r.latestWorkloadByThread(runnerCtx, threadID, &agentID, []runnersv1.WorkloadStatus{
+	lastStopped, err := r.latestWorkloadByAgentInstance(runnerCtx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
 	})
 	if err != nil {
@@ -74,7 +74,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 			resetFloor = stoppedAt
 		}
 	}
-	recentFailures, err := r.listWorkloadsByThread(runnerCtx, threadID, &agentID, []runnersv1.WorkloadStatus{
+	recentFailures, err := r.listWorkloadsByAgentInstance(runnerCtx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 	}, maxStartAttempts+1)
 	if err != nil {
@@ -92,7 +92,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 		consecutiveFailures++
 	}
 	if consecutiveFailures >= maxStartAttempts {
-		r.degradeThread(runnerCtx, threadID, degradeReasonStartFailures, degraded)
+		r.pauseInstance(runnerCtx, target.AgentInstanceID.String(), pauseReasonStartFailuresExhausted)
 		return false, nil
 	}
 	if consecutiveFailures == 0 {
@@ -109,8 +109,8 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentThread
 	return true, nil
 }
 
-func (r *Reconciler) latestWorkloadByThread(ctx context.Context, threadID string, agentID *string, statuses []runnersv1.WorkloadStatus) (*runnersv1.Workload, error) {
-	workloads, err := r.listWorkloadsByThread(ctx, threadID, agentID, statuses, 1)
+func (r *Reconciler) latestWorkloadByAgentInstance(ctx context.Context, agentInstanceID string, statuses []runnersv1.WorkloadStatus) (*runnersv1.Workload, error) {
+	workloads, err := r.listWorkloadsByAgentInstance(ctx, agentInstanceID, statuses, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -120,9 +120,9 @@ func (r *Reconciler) latestWorkloadByThread(ctx context.Context, threadID string
 	return workloads[0], nil
 }
 
-func (r *Reconciler) listWorkloadsByThread(ctx context.Context, threadID string, agentID *string, statuses []runnersv1.WorkloadStatus, limit int) ([]*runnersv1.Workload, error) {
-	if threadID == "" {
-		return nil, fmt.Errorf("thread id missing")
+func (r *Reconciler) listWorkloadsByAgentInstance(ctx context.Context, agentInstanceID string, statuses []runnersv1.WorkloadStatus, limit int) ([]*runnersv1.Workload, error) {
+	if agentInstanceID == "" {
+		return nil, fmt.Errorf("agent instance id missing")
 	}
 	workloads := []*runnersv1.Workload{}
 	pageToken := ""
@@ -137,20 +137,14 @@ func (r *Reconciler) listWorkloadsByThread(ctx context.Context, threadID string,
 				pageSize = int32(remaining)
 			}
 		}
-		req := &runnersv1.ListWorkloadsByThreadRequest{
-			ThreadId:  threadID,
-			PageSize:  pageSize,
-			PageToken: pageToken,
-		}
-		if agentID != nil {
-			req.AgentId = agentID
-		}
-		if len(statuses) > 0 {
-			req.Statuses = statuses
-		}
-		resp, err := r.runners.ListWorkloadsByThread(runnersContext(ctx), req)
+		resp, err := r.runners.ListWorkloadsByAgentInstance(runnersContext(ctx), &runnersv1.ListWorkloadsByAgentInstanceRequest{
+			AgentInstanceId: agentInstanceID,
+			Statuses:        statuses,
+			PageSize:        pageSize,
+			PageToken:       pageToken,
+		})
 		if err != nil {
-			return nil, fmt.Errorf("list workloads for thread %s: %w", threadID, err)
+			return nil, fmt.Errorf("list workloads for agent instance %s: %w", agentInstanceID, err)
 		}
 		for _, workload := range resp.GetWorkloads() {
 			if workload == nil {
@@ -177,6 +171,15 @@ func (r *Reconciler) listWorkloadsByThread(ctx context.Context, threadID string,
 		}
 	}
 	return workloads, nil
+}
+
+func (r *Reconciler) pauseInstance(ctx context.Context, agentInstanceID, reason string) {
+	if agentInstanceID == "" {
+		return
+	}
+	if _, err := r.agents.PauseInstance(ctx, &agentsv1.PauseInstanceRequest{Id: agentInstanceID, PauseReason: reason}); err != nil {
+		log.Printf("reconciler: pause agent instance %s: %v", agentInstanceID, err)
+	}
 }
 
 func workloadCreatedAt(workload *runnersv1.Workload) (time.Time, error) {
