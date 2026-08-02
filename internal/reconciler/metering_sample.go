@@ -117,12 +117,12 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 		}
 	}
 	if len(workloadUpdates) > 0 {
-		if _, err := r.runners.BatchUpdateWorkloadSampledAt(runnersContext(ctx), &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: workloadUpdates}); err != nil {
+		if _, err := r.runners.BatchUpdateWorkloadSampledAt(internalContext(ctx), &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: workloadUpdates}); err != nil {
 			return fmt.Errorf("update workloads sampled_at: %w", err)
 		}
 	}
 	if len(volumeUpdates) > 0 {
-		if _, err := r.runners.BatchUpdateVolumeSampledAt(runnersContext(ctx), &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: volumeUpdates}); err != nil {
+		if _, err := r.runners.BatchUpdateVolumeSampledAt(internalContext(ctx), &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: volumeUpdates}); err != nil {
 			return fmt.Errorf("update volumes sampled_at: %w", err)
 		}
 	}
@@ -136,7 +136,7 @@ func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, orgIdentiti
 	}
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListWorkloads(runnersContext(ctx), &runnersv1.ListWorkloadsRequest{
+		resp, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
 			PageSize:  meteringSamplePageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
@@ -185,7 +185,7 @@ func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities
 	}
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListVolumes(runnersContext(ctx), &runnersv1.ListVolumesRequest{
+		resp, err := r.runners.ListVolumes(internalContext(ctx), &runnersv1.ListVolumesRequest{
 			PageSize:  meteringSamplePageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListVolumesFilter{

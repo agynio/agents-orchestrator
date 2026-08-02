@@ -257,7 +257,7 @@ func (r *Reconciler) handleMissingRunnerWorkload(ctx context.Context, workload *
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
 		missingAt := timestamppb.New(time.Now().UTC())
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
-		_, err := r.runners.UpdateWorkload(runnersContext(ctx), &runnersv1.UpdateWorkloadRequest{
+		_, err := r.runners.UpdateWorkload(internalContext(ctx), &runnersv1.UpdateWorkloadRequest{
 			Id:        workloadID,
 			Status:    &status,
 			RemovedAt: missingAt,
@@ -339,7 +339,7 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	default:
 	}
 	if shouldUpdate {
-		if _, err := r.runners.UpdateWorkload(runnersContext(ctx), updateReq); err != nil {
+		if _, err := r.runners.UpdateWorkload(internalContext(ctx), updateReq); err != nil {
 			return err
 		}
 		if updateReq.Status != nil {

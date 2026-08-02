@@ -137,7 +137,7 @@ func (r *Reconciler) listWorkloadsByAgentInstance(ctx context.Context, agentInst
 				pageSize = int32(remaining)
 			}
 		}
-		resp, err := r.runners.ListWorkloadsByAgentInstance(runnersContext(ctx), &runnersv1.ListWorkloadsByAgentInstanceRequest{
+		resp, err := r.runners.ListWorkloadsByAgentInstance(internalContext(ctx), &runnersv1.ListWorkloadsByAgentInstanceRequest{
 			AgentInstanceId: agentInstanceID,
 			Statuses:        statuses,
 			PageSize:        pageSize,
@@ -173,10 +173,17 @@ func (r *Reconciler) listWorkloadsByAgentInstance(ctx context.Context, agentInst
 	return workloads, nil
 }
 
+// pauseInstance records that the platform can no longer run an instance. The
+// callers hold a runner context carrying the instance's own identity, which is
+// right for the runner reads around them and wrong here: pausing is not the
+// instance acting, and an instance holds no rights over its own class, so
+// presenting it got every one of these refused. Agents serves the reconciler as
+// an internal caller, so the identity is dropped.
 func (r *Reconciler) pauseInstance(ctx context.Context, agentInstanceID, reason string) {
 	if agentInstanceID == "" {
 		return
 	}
+	ctx = internalContext(ctx)
 	if _, err := r.agents.PauseInstance(ctx, &agentsv1.PauseInstanceRequest{Id: agentInstanceID, PauseReason: reason}); err != nil {
 		log.Printf("reconciler: pause agent instance %s: %v", agentInstanceID, err)
 	}

@@ -143,7 +143,7 @@ func (r *Reconciler) listLiveAgentWorkloads(ctx context.Context, agentID uuid.UU
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
 	}
 	for {
-		response, err := r.runners.ListWorkloads(runnersContext(ctx), &runnersv1.ListWorkloadsRequest{
+		response, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
 			PageSize:  groupWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{

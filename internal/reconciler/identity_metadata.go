@@ -25,7 +25,12 @@ func (r *Reconciler) runnerIdentityContextForAgent(ctx context.Context, agentID 
 	return runnerIdentityContext(ctx, agentID.String())
 }
 
-func runnersContext(ctx context.Context) context.Context {
+// internalContext drops the caller identity so the callee serves this as a
+// platform call rather than one made on some principal's behalf. Runners and
+// Agents both read an absent x-identity-id that way; the reconciler acts for
+// the platform, and the identities it does carry elsewhere belong to the agent
+// instance whose workload it is placing, not to it.
+func internalContext(ctx context.Context) context.Context {
 	md, ok := metadata.FromOutgoingContext(ctx)
 	if !ok {
 		return ctx

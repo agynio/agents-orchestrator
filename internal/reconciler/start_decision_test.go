@@ -215,9 +215,13 @@ func TestShouldStartWorkloadPausesAfterMaxFailures(t *testing.T) {
 	agentInstanceID := uuid.New()
 
 	var pauseRequest *agentsv1.PauseInstanceRequest
+	var pauseIdentities []string
 	agents := &fakeAgentsClient{
-		pauseInstance: func(_ context.Context, req *agentsv1.PauseInstanceRequest, _ ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error) {
+		pauseInstance: func(ctx context.Context, req *agentsv1.PauseInstanceRequest, _ ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error) {
 			pauseRequest = req
+			if md, ok := metadata.FromOutgoingContext(ctx); ok {
+				pauseIdentities = md.Get(identityMetadataKey)
+			}
 			return &agentsv1.PauseInstanceResponse{}, nil
 		},
 	}
@@ -248,6 +252,12 @@ func TestShouldStartWorkloadPausesAfterMaxFailures(t *testing.T) {
 	}
 	if pauseRequest.GetPauseReason() != pauseReasonStartFailuresExhausted {
 		t.Fatalf("unexpected pause reason: %s", pauseRequest.GetPauseReason())
+	}
+	// The surrounding runner reads carry the instance's identity, and carrying
+	// it here too got the pause refused: an instance holds no rights over its
+	// own class. Agents serves the reconciler as an internal caller instead.
+	if len(pauseIdentities) != 0 {
+		t.Fatalf("expected no caller identity on the pause, got %v", pauseIdentities)
 	}
 }
 

@@ -65,7 +65,7 @@ func (r *Reconciler) listActiveSandboxWorkloads(ctx context.Context) ([]*runners
 	pageToken := ""
 	var workloads []*runnersv1.Workload
 	for {
-		resp, err := r.runners.ListWorkloads(runnersContext(ctx), &runnersv1.ListWorkloadsRequest{
+		resp, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
