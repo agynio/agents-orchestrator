@@ -5,26 +5,6 @@ vars:
   DEV_IMAGE: ghcr.io/agynio/devcontainer-go:1
 
 functions:
-  disable_argocd_sync: |-
-    if kubectl get application agents-orchestrator -n argocd >/dev/null 2>&1; then
-      echo "Disabling ArgoCD auto-sync for agents-orchestrator..."
-      kubectl patch application agents-orchestrator -n argocd \
-        --type merge \
-        -p '{"spec":{"syncPolicy":{"automated":null}}}'
-      echo "ArgoCD auto-sync disabled."
-    else
-      echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
-    fi
-  restore_argocd_sync: &restore_argocd_sync |-
-    if kubectl get application agents-orchestrator -n argocd >/dev/null 2>&1; then
-      echo "Re-enabling ArgoCD auto-sync for agents-orchestrator..."
-      kubectl patch application agents-orchestrator -n argocd \
-        --type merge \
-        -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
-      echo "ArgoCD auto-sync restored."
-    else
-      echo "WARNING: ArgoCD Application 'agents-orchestrator' not found in argocd namespace."
-    fi
   egress_ca_namespace: |-
     if kubectl get secret egress-ca -n ${ORCHESTRATOR_NAMESPACE} >/dev/null 2>&1; then
       echo "${ORCHESTRATOR_NAMESPACE}"
@@ -232,8 +212,6 @@ functions:
 commands:
   deploy: |-
     devspace run-pipeline deploy -n ${DEVSPACE_NAMESPACE} $@
-  restore-argocd: |-
-    devspace run-pipeline restore-argocd -n ${DEVSPACE_NAMESPACE} $@
 
 pipelines:
   dev:
@@ -242,8 +220,6 @@ pipelines:
         short: w
         description: "Keep DevSpace running and stream logs"
     run: |-
-      trap 'echo "Restoring ArgoCD sync..."; restore_argocd_sync' EXIT
-      disable_argocd_sync
       ensure_egress_ca_rbac
       patch_deployment
       if [ "$(get_flag "watch")" == "true" ]; then
@@ -257,7 +233,6 @@ pipelines:
 
   deploy:
     run: |-
-      disable_argocd_sync
       ensure_egress_ca_rbac
       patch_deployment
       if ! start_dev --disable-pod-replace agents-orchestrator-deploy; then
@@ -266,9 +241,6 @@ pipelines:
       wait_for_orchestrator
       echo "Deploy complete. Orchestrator is running from source."
 
-  restore-argocd:
-    run: |-
-      restore_argocd_sync
 
 dev:
   # CI counterpart: agents-orchestrator-deploy (one-shot sync)
