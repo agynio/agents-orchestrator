@@ -3,9 +3,11 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
 )
@@ -205,4 +207,39 @@ func (r *Reconciler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agents
 		return nil, err
 	}
 	return agent, nil
+}
+
+// addIdleTimeoutsForWorkloads fills in the idle timeout of every agent that has
+// a workload running, so the stop decision knows what the agent asked for even
+// after it has dropped out of the desired set. Timeouts already resolved are
+// left alone, and an agent that cannot be read is skipped rather than failing
+// the cycle: the fallback still applies, which is what it did before.
+func (r *Reconciler) addIdleTimeoutsForWorkloads(ctx context.Context, workloads []*runnersv1.Workload, idleTimeouts map[uuid.UUID]time.Duration) error {
+	if idleTimeouts == nil {
+		return fmt.Errorf("idle timeouts map is nil")
+	}
+	for _, workload := range workloads {
+		if workload == nil {
+			continue
+		}
+		agentID, err := uuidutil.ParseUUID(workloadAgentClassID(workload), "workload.agent_class_id")
+		if err != nil {
+			return err
+		}
+		if _, ok := idleTimeouts[agentID]; ok {
+			continue
+		}
+		agent, err := r.fetchAgent(ctx, agentID)
+		if err != nil {
+			log.Printf("reconciler: read idle timeout for agent %s: %v; using the default", agentID, err)
+			continue
+		}
+		idleTimeout, err := agentIdleTimeout(agent, agentID, r.idle)
+		if err != nil {
+			log.Printf("reconciler: %v; using the default", err)
+			continue
+		}
+		idleTimeouts[agentID] = idleTimeout
+	}
+	return nil
 }
