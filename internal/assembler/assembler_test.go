@@ -1640,8 +1640,11 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 		t.Fatalf("assemble: %v", err)
 	}
 	request := result.Request
-	if string(request.GetInlineFiles()[egressCACertPath]) != string(cert) {
-		t.Fatalf("expected egress CA inline file bytes")
+	// Contains, not equals: the file is a bundle -- the public roots with the
+	// egress CA appended -- because installing the CA as the whole trust store
+	// broke every connection egress does not intercept.
+	if !strings.Contains(string(request.GetInlineFiles()[egressCACertPath]), string(cert)) {
+		t.Fatalf("expected the egress CA in the inline bundle")
 	}
 	containers := []*runnerv1.ContainerSpec{request.Main}
 	containers = append(containers, request.GetSidecars()...)
