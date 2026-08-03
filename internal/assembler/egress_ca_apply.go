@@ -19,11 +19,15 @@ func egressCAEnvVars() []*runnerv1.EnvVar {
 	}
 }
 
+// egressCAInlineFiles writes the bundle, not the bare certificate: the env vars
+// above name it as the trust store, and a store containing only the egress CA
+// vouches for nothing the egress gateway does not terminate.
 func egressCAInlineFiles(cert []byte) map[string][]byte {
-	if len(cert) == 0 {
+	bundle := EgressCABundle(cert)
+	if len(bundle) == 0 {
 		return nil
 	}
-	return map[string][]byte{egressCACertPath: append([]byte(nil), cert...)}
+	return map[string][]byte{egressCACertPath: bundle}
 }
 
 func egressCAInlineFileMounts(cert []byte) []*runnerv1.InlineFileMount {
