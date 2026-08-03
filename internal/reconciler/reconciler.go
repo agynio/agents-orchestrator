@@ -129,6 +129,14 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The agents behind running workloads, not just the ones with work waiting.
+	// An idle timeout only decides anything once an agent has gone idle, and by
+	// then it has dropped out of the desired set -- so reading the timeout from
+	// the desired set alone meant a workload was stopped on the platform
+	// fallback the moment it finished answering, whatever the agent asked for.
+	if err := r.addIdleTimeoutsForWorkloads(ctx, actual, idleTimeouts); err != nil {
+		return err
+	}
 	actions, err := ComputeActions(desired, actual, idleTimeouts, r.idle, time.Now().UTC())
 	if err != nil {
 		return err
