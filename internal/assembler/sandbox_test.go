@@ -341,7 +341,9 @@ func TestAssembleSandboxDistributesEgressCA(t *testing.T) {
 	result := fixture.assemble(t)
 
 	inlineFiles := result.Request.GetInlineFiles()
-	if string(inlineFiles[egressCACertPath]) != "egress-ca-cert" {
+	// Contains, not equals: the inline file is the public roots with the egress
+	// CA appended; see EgressCABundle.
+	if !strings.Contains(string(inlineFiles[egressCACertPath]), "egress-ca-cert") {
 		t.Fatalf("expected the egress CA inline file, got %v", inlineFiles)
 	}
 	main := result.Request.GetMain()
