@@ -53,3 +53,24 @@ func (r *Reconciler) revokePullCredential(ctx context.Context, workloadID string
 		log.Printf("reconciler: revoke pull credential for workload %s: %v", workloadID, err)
 	}
 }
+
+// mintSandboxPullCredential is the sandbox counterpart: same grant, same
+// scoping, different assemble result.
+func (r *Reconciler) mintSandboxPullCredential(ctx context.Context, workloadID string, assembled *assembler.SandboxAssembleResult) ([]*runnerv1.ImagePullCredential, error) {
+	if r.imageProxy == nil || r.imageProxyHost == "" || len(assembled.GrantedImageIDs) == 0 {
+		return nil, nil
+	}
+	minted, err := r.imageProxy.MintPullCredential(ctx, &imageproxyv1.MintPullCredentialRequest{
+		WorkloadId:     workloadID,
+		ImageIds:       assembled.GrantedImageIDs,
+		OrganizationId: assembled.OrganizationID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("mint pull credential for sandbox workload %s: %w", workloadID, err)
+	}
+	return []*runnerv1.ImagePullCredential{{
+		Registry: r.imageProxyHost,
+		Username: minted.GetUsername(),
+		Password: minted.GetPassword(),
+	}}, nil
+}

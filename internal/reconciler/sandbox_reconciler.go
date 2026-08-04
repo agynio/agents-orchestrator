@@ -355,6 +355,14 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		request.AdditionalProperties = map[string]string{}
 	}
 	request.AdditionalProperties[assembler.LabelKeyPrefix+assembler.LabelWorkloadKey] = workloadID
+	// A sandbox pulls the same catalog images an agent does, so it needs the
+	// same per-workload credential.
+	if credentials, err := r.mintSandboxPullCredential(ctx, workloadID, assembled); err != nil {
+		log.Printf("reconciler: %v", err)
+		return err
+	} else if len(credentials) > 0 {
+		request.ImagePullCredentials = credentials
+	}
 	identity, err := r.createSandboxIdentity(ctx, plan.sandboxID, assembled.EnvironmentID, assembled.OwnerID, uuid.MustParse(workloadID), assembled.OrganizationID)
 	if err != nil {
 		return err

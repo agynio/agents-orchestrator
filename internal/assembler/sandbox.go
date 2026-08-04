@@ -29,7 +29,10 @@ type SandboxAssembleResult struct {
 	RunnerID       string
 	// Flavor names the catalog entry the workload is allocated from, and is
 	// what compute is billed by.
-	Flavor                 string
+	Flavor string
+	// GrantedImageIDs are the catalog images this sandbox may pull. The
+	// credential is minted against them once the workload id exists.
+	GrantedImageIDs        []string
 	WorkspaceVolumeID      string
 	WorkspaceSizeGB        string
 	AllocatedCPUMillicores int32
@@ -213,6 +216,7 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		OwnerID:                ownerID,
 		RunnerID:               flavor.GetRunnerId(),
 		Flavor:                 flavor.GetName(),
+		GrantedImageIDs:        rewriter.GrantedImageIDs(),
 		WorkspaceVolumeID:      workspaceVolumeID,
 		WorkspaceSizeGB:        a.cfg.SandboxWorkspaceSizeGB,
 		AllocatedCPUMillicores: allocatedCPU,
