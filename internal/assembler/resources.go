@@ -14,7 +14,7 @@ type resourceTotals struct {
 	ramBytes      int64
 }
 
-func sumAllocatedResources(agent *agentsv1.Agent, mcps []mcpAssignment, hooks []hookAssignment) (int32, int64, error) {
+func sumAllocatedResources(agent *agentsv1.Agent, mcps []mcpAssignment) (int32, int64, error) {
 	if agent == nil {
 		return 0, 0, fmt.Errorf("agent missing")
 	}
@@ -33,15 +33,6 @@ func sumAllocatedResources(agent *agentsv1.Agent, mcps []mcpAssignment, hooks []
 		}
 		mcpLabel := fmt.Sprintf("mcp %s", mcp.id)
 		if err := totals.add(mcp.mcp.GetResources(), mcpLabel); err != nil {
-			return 0, 0, err
-		}
-	}
-	for _, hook := range hooks {
-		if hook.hook == nil {
-			return 0, 0, fmt.Errorf("hook %s missing", hook.id.String())
-		}
-		hookLabel := fmt.Sprintf("hook %s", hook.id.String())
-		if err := totals.add(hook.hook.GetResources(), hookLabel); err != nil {
 			return 0, 0, err
 		}
 	}
