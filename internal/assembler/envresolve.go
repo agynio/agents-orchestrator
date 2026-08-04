@@ -10,11 +10,11 @@ import (
 )
 
 type envResolver struct {
-	secrets secretsv1.SecretsServiceClient
+	secrets secretsClient
 	cache   map[string]string
 }
 
-func newEnvResolver(secrets secretsv1.SecretsServiceClient) *envResolver {
+func newEnvResolver(secrets secretsClient) *envResolver {
 	return &envResolver{secrets: secrets, cache: map[string]string{}}
 }
 

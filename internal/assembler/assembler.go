@@ -14,7 +14,6 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
-	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	"github.com/agynio/agents-orchestrator/internal/config"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
@@ -352,7 +351,7 @@ var reservedEnvNames = map[string]struct{}{
 type Assembler struct {
 	agents       agentsClient
 	runners      runnersClient
-	secrets      secretsv1.SecretsServiceClient
+	secrets      secretsClient
 	cfg          *config.Config
 	egressCACert []byte
 	// Optional. Without them the spec keeps whatever image reference it
@@ -402,19 +401,19 @@ func (i PersistentVolumeInfo) Key() string {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%s:%s", i.AgentInstanceID.String(), i.ID.String()))).String()
 }
 
-func New(agents agentsClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
+func New(agents agentsClient, secrets secretsClient, cfg *config.Config) *Assembler {
 	return NewWithEgressCA(agents, secrets, cfg, nil)
 }
 
-func NewWithRunners(agents agentsClient, runners runnersClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config) *Assembler {
+func NewWithRunners(agents agentsClient, runners runnersClient, secrets secretsClient, cfg *config.Config) *Assembler {
 	return NewWithRunnersAndEgressCA(agents, runners, secrets, cfg, nil)
 }
 
-func NewWithEgressCA(agents agentsClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config, egressCACert []byte) *Assembler {
+func NewWithEgressCA(agents agentsClient, secrets secretsClient, cfg *config.Config, egressCACert []byte) *Assembler {
 	return NewWithRunnersAndEgressCA(agents, nil, secrets, cfg, egressCACert)
 }
 
-func NewWithRunnersAndEgressCA(agents agentsClient, runners runnersClient, secrets secretsv1.SecretsServiceClient, cfg *config.Config, egressCACert []byte) *Assembler {
+func NewWithRunnersAndEgressCA(agents agentsClient, runners runnersClient, secrets secretsClient, cfg *config.Config, egressCACert []byte) *Assembler {
 	return &Assembler{agents: agents, runners: runners, secrets: secrets, cfg: cfg, egressCACert: append([]byte(nil), egressCACert...)}
 }
 
