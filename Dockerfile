@@ -34,12 +34,12 @@ RUN buf generate buf.build/agynio/api \
     --path agynio/api/llm/v1 \
     --path agynio/api/users/v1 \
     --path agynio/api/tracing/v1 \
-    --path agynio/api/metering/v1
-
-# agents/v1, organizations/v1, images/v1 and image_proxy/v1 come from the
-# vendored copies under proto/ until they land in buf.build/agynio/api.
-COPY proto ./proto
-RUN buf generate proto --template buf.gen.yaml
+    --path agynio/api/metering/v1 \
+    --path agynio/api/agents/v1 \
+    --path agynio/api/image_proxy/v1 \
+    --path agynio/api/images/v1 \
+    --path agynio/api/organizations/v1 \
+    --path agynio/api/secrets/v1
 
 COPY . .
 

@@ -124,10 +124,12 @@ functions:
                     --path agynio/api/identity/v1 \
                     --path agynio/api/llm/v1 \
                     --path agynio/api/users/v1 \
-                                    --path agynio/api/tracing/v1
-                  # agents/v1, organizations/v1, images/v1 and image_proxy/v1 are vendored
-                  # under proto/ until they land upstream
-                  buf generate proto --template buf.gen.yaml
+                    --path agynio/api/tracing/v1 \
+                    --path agynio/api/agents/v1 \
+                    --path agynio/api/image_proxy/v1 \
+                    --path agynio/api/images/v1 \
+                    --path agynio/api/organizations/v1 \
+                    --path agynio/api/secrets/v1
                   exec go run ./cmd/orchestrator
               volumeMounts:
                 - name: data
