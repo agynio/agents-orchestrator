@@ -40,14 +40,27 @@ type Config struct {
 	AgyndAgentsDirectAddress            string
 	AgyndRunnersDirectAddress           string
 	SandboxInitImage                    string
-	SandboxWorkspaceSizeGB              string
-	PollInterval                        time.Duration
-	WorkloadReconcileInterval           time.Duration
-	IdleTimeout                         time.Duration
-	StopTimeoutSec                      uint32
-	LeaseName                           string
-	LeaseNamespace                      string
-	EgressCANamespace                   string
+	// The two platform init images, injected into every workload. They are not
+	// a configuration surface: an agent's behaviour is configured through the
+	// agent, and the platform's own binaries are not a choice anyone makes.
+	AgyndCLIInitImage string
+	AgynCLIInitImage  string
+	// Where catalog image references are rewritten to. Empty leaves references
+	// as the catalog resolves them, which is the pre-proxy behaviour.
+	ImageProxyHost string
+	// Optional service addresses for the catalog path. Empty leaves the
+	// pre-catalog behaviour in place.
+	ImagesAddress             string
+	OrganizationsAddress      string
+	ImageProxyAddress         string
+	SandboxWorkspaceSizeGB    string
+	PollInterval              time.Duration
+	WorkloadReconcileInterval time.Duration
+	IdleTimeout               time.Duration
+	StopTimeoutSec            uint32
+	LeaseName                 string
+	LeaseNamespace            string
+	EgressCANamespace         string
 }
 
 func FromEnv() (Config, error) {
@@ -127,6 +140,12 @@ func FromEnv() (Config, error) {
 	}
 	cfg.AgyndAgentsDirectAddress = os.Getenv("AGYND_AGENTS_DIRECT_ADDRESS")
 	cfg.AgyndRunnersDirectAddress = os.Getenv("AGYND_RUNNERS_DIRECT_ADDRESS")
+	cfg.AgyndCLIInitImage = os.Getenv("AGYND_CLI_INIT_IMAGE")
+	cfg.AgynCLIInitImage = os.Getenv("AGYN_CLI_INIT_IMAGE")
+	cfg.ImageProxyHost = os.Getenv("IMAGE_PROXY_HOST")
+	cfg.ImagesAddress = os.Getenv("IMAGES_ADDRESS")
+	cfg.OrganizationsAddress = os.Getenv("ORGANIZATIONS_ADDRESS")
+	cfg.ImageProxyAddress = os.Getenv("IMAGE_PROXY_ADDRESS")
 	cfg.SandboxInitImage = os.Getenv("SANDBOX_INIT_IMAGE")
 	if cfg.SandboxInitImage == "" {
 		cfg.SandboxInitImage = "ghcr.io/agynio/agent-init-codex:latest"

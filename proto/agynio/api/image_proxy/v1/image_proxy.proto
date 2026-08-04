@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package agynio.api.image_proxy.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/agynio/api/gen/agynio/api/image_proxy/v1;imageproxyv1";
+
+// ImageProxyService is the credential lifecycle behind the image proxy. The
+// pull surface itself is OCI Distribution over HTTPS, not gRPC.
+//
+// Every image reference in a workload spec is rewritten to the proxy, which
+// authenticates upstream using the credential stored on the Image record. That
+// is what keeps registry credentials inside the platform: handing them to a
+// runner would mean writing an organization registry password into the cluster
+// its workloads run in.
+service ImageProxyService {
+  // Issue a credential scoped to one workload and the images it may pull.
+  // Called at workload spec assembly.
+  rpc MintPullCredential(MintPullCredentialRequest) returns (MintPullCredentialResponse);
+  // Revoke a workload's credential. Called on workload stop, alongside the
+  // OpenZiti identity delete. A missed revocation is bounded by the TTL.
+  rpc RevokePullCredential(RevokePullCredentialRequest) returns (RevokePullCredentialResponse);
+}
+
+message MintPullCredentialRequest {
+  string workload_id = 1; // UUID
+  // Images this workload may pull. A pod pulling a workspace image, an agent
+  // runtime and several MCP sidecars issues several requests with the same
+  // credential; the request path identifies which image.
+  repeated string image_ids = 2;
+  // Optional. The organization the workload runs in, so visibility is enforced
+  // on every pull rather than only at assembly.
+  string organization_id = 3;
+}
+
+message MintPullCredentialResponse {
+  string username = 1;
+  // Generated password, returned once. Only its hash is stored.
+  string password = 2;
+  // TTL backstop, so a credential minted for a workload that never started
+  // cannot outlive it.
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message RevokePullCredentialRequest {
+  string workload_id = 1; // UUID
+}
+
+message RevokePullCredentialResponse {
+  // False when no credential was outstanding, which makes revocation safe to
+  // repeat.
+  bool revoked = 1;
+}

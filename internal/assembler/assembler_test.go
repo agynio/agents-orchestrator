@@ -730,8 +730,10 @@ func TestAssemblerErrorsOnEmptyInitImage(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty init image")
 	}
-	if !strings.Contains(err.Error(), "init_image is required") {
-		t.Fatalf("expected init_image required error, got %q", err.Error())
+	// An agent whose environment names no agent runtime still needs its own
+	// init image, since that is where its agent CLI comes from.
+	if !strings.Contains(err.Error(), "init image is required") {
+		t.Fatalf("expected an init image required error, got %q", err.Error())
 	}
 }
 

@@ -11,8 +11,11 @@ import (
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	groupsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/groups/v1"
+	imageproxyv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/image_proxy/v1"
+	imagesv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/images/v1"
 	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
+	organizationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/organizations/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
@@ -166,7 +169,38 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	assembler := assembler.NewWithRunnersAndEgressCA(agentsClient, runnersClient, secretsClient, &cfg, egressCACert)
+	assembledWorkloads := assembler.NewWithRunnersAndEgressCA(agentsClient, runnersClient, secretsClient, &cfg, egressCACert)
+
+	// The catalog path is optional: without it, references stay as the agents
+	// service stored them and no credential is minted, which is the
+	// pre-catalog behaviour.
+	var imageProxyClient reconciler.ImageProxyClient
+	if cfg.ImagesAddress != "" && cfg.OrganizationsAddress != "" && cfg.ImageProxyAddress != "" {
+		imagesConn, err := grpc.DialContext(ctx, cfg.ImagesAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial images: %w", err)
+		}
+		defer closeConn(imagesConn)
+		organizationsConn, err := grpc.DialContext(ctx, cfg.OrganizationsAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial organizations: %w", err)
+		}
+		defer closeConn(organizationsConn)
+		proxyConn, err := grpc.DialContext(ctx, cfg.ImageProxyAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial image proxy: %w", err)
+		}
+		defer closeConn(proxyConn)
+
+		proxy := imageproxyv1.NewImageProxyServiceClient(proxyConn)
+		imageProxyClient = proxy
+		assembledWorkloads.WithCatalog(
+			imagesv1.NewImagesServiceClient(imagesConn),
+			organizationsv1.NewOrganizationsServiceClient(organizationsConn),
+			proxy,
+		)
+	}
+	assembler := assembledWorkloads
 	reconciler := reconciler.New(reconciler.Config{
 		Threads:                         threadsClient,
 		Agents:                          agentsClient,
@@ -185,6 +219,9 @@ func run() error {
 		MeteringSampleInterval:          cfg.MeteringSampleInterval,
 		SandboxReconcileOrganizationIDs: append([]string(nil), cfg.SandboxReconcileOrganizationIDs...),
 	})
+	if imageProxyClient != nil {
+		reconciler.WithImageProxy(imageProxyClient, cfg.ImageProxyHost)
+	}
 
 	start := func(leadCtx context.Context) {
 		group, groupCtx := errgroup.WithContext(leadCtx)

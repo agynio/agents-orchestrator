@@ -355,6 +355,20 @@ type Assembler struct {
 	secrets      secretsv1.SecretsServiceClient
 	cfg          *config.Config
 	egressCACert []byte
+	// Optional. Without them the spec keeps whatever image reference it
+	// already carried, which is the pre-catalog behaviour.
+	images        ImagesClient
+	organizations OrganizationsClient
+	imageProxy    ImageProxyClient
+}
+
+// WithCatalog enables rewriting catalog references to the image proxy and
+// minting the workload's pull credential.
+func (a *Assembler) WithCatalog(images ImagesClient, organizations OrganizationsClient, proxy ImageProxyClient) *Assembler {
+	a.images = images
+	a.organizations = organizations
+	a.imageProxy = proxy
+	return a
 }
 
 type AssembleResult struct {
@@ -365,6 +379,10 @@ type AssembleResult struct {
 	// Empty for an agent without an environment, which is still placed by
 	// labels and capabilities.
 	RunnerID string
+	// GrantedImageIDs are the catalog images this workload may pull. The
+	// pull credential is minted against them once the workload id exists,
+	// which is after assembly.
+	GrantedImageIDs []string
 	// Flavor names the catalog entry the workload is allocated from, and is
 	// what compute is billed by. Empty for an agent without an environment.
 	Flavor                 string
@@ -410,6 +428,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 	resolver := newEnvResolver(a.secrets)
 	volumeResolver := newVolumeResolver(a.agents, agentInstanceID)
 	imagePullResolver := newImagePullResolver(a.secrets)
+	rewriter := newImageRewriter(a.images, a.organizations, a.cfg.ImageProxyHost)
 
 	environment, flavor, err := a.resolveAgentEnvironment(ctx, agent)
 	if err != nil {
@@ -442,10 +461,25 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 	}
 
 	mainImage := agent.GetImage()
+	// The agent runtime init container, when the environment names one. Empty
+	// leaves the workload on the agent's own init image.
+	agentRuntimeImage := ""
 	var environmentEnvVars []*runnerv1.EnvVar
 	if environment != nil {
 		environmentID := environment.GetMeta().GetId()
 		mainImage = environment.GetImage()
+		if rewriter.enabled() && environment.GetWorkspaceImageId() != "" {
+			mainImage, err = rewriter.Rewrite(ctx, environment.GetWorkspaceImageId(), environment.GetWorkspaceImageTag())
+			if err != nil {
+				return nil, fmt.Errorf("environment %s workspace image: %w", environmentID, err)
+			}
+		}
+		if rewriter.enabled() && environment.GetAgentRuntimeImageId() != "" {
+			agentRuntimeImage, err = rewriter.Rewrite(ctx, environment.GetAgentRuntimeImageId(), environment.GetAgentRuntimeImageTag())
+			if err != nil {
+				return nil, fmt.Errorf("environment %s agent runtime image: %w", environmentID, err)
+			}
+		}
 		environmentEnvs, err := a.listEnvs(ctx, &agentsv1.ListEnvsRequest{EnvironmentId: environmentID})
 		if err != nil {
 			return nil, fmt.Errorf("list environment envs: %w", err)
@@ -472,11 +506,6 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 	}
 	mainEnv = appendEgressCAEnvVars(mainEnv)
 
-	initImage := agent.GetInitImage()
-	if initImage == "" {
-		return nil, fmt.Errorf("agent %s: init_image is required", agentID)
-	}
-
 	mainMounts := append([]*runnerv1.VolumeMount{}, agentMounts...)
 	mainMounts = append(mainMounts, &runnerv1.VolumeMount{Volume: agynBinVolumeName, MountPath: agynBinMountPath})
 	main := &runnerv1.ContainerSpec{
@@ -487,15 +516,22 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		Mounts:           mainMounts,
 		InlineFileMounts: egressCAInlineFileMounts(a.egressCACert),
 	}
-	initContainer := &runnerv1.ContainerSpec{
-		Image: initImage,
-		Name:  "agent-init",
-		Mounts: []*runnerv1.VolumeMount{
-			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
-		},
+	// Two chart-pinned platform init containers, then the environment's agent
+	// runtime. A workload whose environment names no runtime falls back to the
+	// agent's own init image, which carries all three today.
+	initContainers, err := a.platformInitContainers()
+	if err != nil {
+		return nil, err
 	}
-	applyEgressCA(initContainer, a.egressCACert)
-	initContainers := []*runnerv1.ContainerSpec{initContainer}
+	if runtimeInit := a.agentRuntimeInitContainer(agentRuntimeImage); runtimeInit != nil {
+		initContainers = append(initContainers, runtimeInit)
+	} else {
+		legacy, err := a.legacyInitContainer(agent.GetInitImage())
+		if err != nil {
+			return nil, fmt.Errorf("agent %s: %w", agentID, err)
+		}
+		initContainers = append(initContainers, legacy)
+	}
 	if a.cfg.ZitiEnabled {
 		if _, err := gatewayHost(a.cfg.AgentGatewayAddress); err != nil {
 			return nil, err
@@ -541,7 +577,9 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		applyEgressCA(zitiSidecar, a.egressCACert)
 		applyEgressCA(zitiGatewayWait, a.egressCACert)
 		applyEgressCA(zitiServiceWait, a.egressCACert)
-		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, zitiServiceWait, initContainer}
+		// Ziti runs before the binaries land, so the agyn-bin init containers
+		// follow it rather than being replaced by it.
+		initContainers = append([]*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, zitiServiceWait}, initContainers...)
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -588,7 +626,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 	sidecars := make([]*runnerv1.ContainerSpec, 0, sidecarCapacity)
 	mcpServers := make([]string, 0, len(mcpAssignments))
 	for _, assignment := range mcpAssignments {
-		sidecar, err := a.buildMcpSidecar(ctx, resolver, volumeResolver, assignment.mcp, assignment.port)
+		sidecar, err := a.buildMcpSidecar(ctx, resolver, volumeResolver, rewriter, assignment.mcp, assignment.port)
 		if err != nil {
 			return nil, err
 		}
@@ -651,6 +689,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 	return &AssembleResult{
 		Request:                request,
 		OrganizationID:         agent.GetOrganizationId(),
+		GrantedImageIDs:        rewriter.GrantedImageIDs(),
 		RunnerLabels:           runnerLabels,
 		RunnerID:               flavor.GetRunnerId(),
 		Flavor:                 flavor.GetName(),
@@ -947,7 +986,7 @@ func assignHooks(hooks []*agentsv1.Hook) ([]hookAssignment, error) {
 	return assignments, nil
 }
 
-func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, mcp *agentsv1.Mcp, port int) (*runnerv1.ContainerSpec, error) {
+func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, rewriter *imageRewriter, mcp *agentsv1.Mcp, port int) (*runnerv1.ContainerSpec, error) {
 	if mcp == nil {
 		return nil, fmt.Errorf("mcp is nil")
 	}
@@ -977,8 +1016,16 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 	}, envVars, fmt.Sprintf("mcp %s", mcpID.String()))
 	envVars = applyMcpResolverEnvVars(envVars)
 	envVars = appendEgressCAEnvVars(envVars)
+
+	image := mcp.GetImage()
+	if rewriter.enabled() && mcp.GetImageId() != "" {
+		image, err = rewriter.Rewrite(ctx, mcp.GetImageId(), mcp.GetImageTag())
+		if err != nil {
+			return nil, fmt.Errorf("mcp %s image: %w", mcpID, err)
+		}
+	}
 	return &runnerv1.ContainerSpec{
-		Image:            mcp.GetImage(),
+		Image:            image,
 		Name:             fmt.Sprintf("mcp-%s", mcpID.String()[:8]),
 		Cmd:              []string{"/bin/sh", "-c", mcp.GetCommand()},
 		Env:              envVars,

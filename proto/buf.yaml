@@ -1,0 +1,14 @@
+version: v2
+
+# Vendored copies of the protos this service needs ahead of
+# buf.build/agynio/api. Delete this directory and the `buf generate proto` step
+# from the Dockerfile and devspace.yaml once they are published there.
+modules:
+  - path: .
+
+lint:
+  use:
+    - STANDARD
+  except:
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - SERVICE_SUFFIX
