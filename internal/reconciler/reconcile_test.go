@@ -1556,9 +1556,6 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			runtimeReq = req
 			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
@@ -1800,9 +1797,6 @@ func TestStartSandboxWorkloadWritesRuntimeRunning(t *testing.T) {
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			runtimeReq = req
 			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
@@ -1925,9 +1919,6 @@ func TestStartSandboxWorkloadFailureWritesRuntimeFailed(t *testing.T) {
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			runtimeReq = req
 			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
@@ -1994,9 +1985,6 @@ func TestReconcileSandboxStartsFromStartingRuntimeState(t *testing.T) {
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
-		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
 		},
 		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			runtimeReq = req

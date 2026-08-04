@@ -65,7 +65,6 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		return nil, err
 	}
 	resolver := newEnvResolver(a.secrets)
-	imagePullResolver := newImagePullResolver(a.secrets)
 	environmentEnvs, err := a.listEnvs(ctx, &agentsv1.ListEnvsRequest{EnvironmentId: environmentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list environment envs: %w", err)
@@ -73,17 +72,6 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 	environmentEnvVars, err := resolver.ResolveEnvVars(ctx, environmentEnvs)
 	if err != nil {
 		return nil, fmt.Errorf("resolve environment envs: %w", err)
-	}
-	environmentImagePullAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{EnvironmentId: environmentID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("list environment image pull secret attachments: %w", err)
-	}
-	if err := imagePullResolver.Resolve(ctx, environmentImagePullAttachments); err != nil {
-		return nil, fmt.Errorf("resolve environment image pull secrets: %w", err)
-	}
-	imagePullCredentials, err := imagePullResolver.Credentials()
-	if err != nil {
-		return nil, fmt.Errorf("image pull credentials: %w", err)
 	}
 	allocatedCPU, allocatedRAM, err := flavorAllocatedResources(flavor)
 	if err != nil {
@@ -201,11 +189,10 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 	}
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
 	request := &runnerv1.StartWorkloadRequest{
-		Main:                 main,
-		Volumes:              volumes,
-		InitContainers:       initContainers,
-		ImagePullCredentials: imagePullCredentials,
-		InlineFiles:          a.inlineFiles(),
+		Main:           main,
+		Volumes:        volumes,
+		InitContainers: initContainers,
+		InlineFiles:    a.inlineFiles(),
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy:      ManagedByValue,
 			LabelKeyPrefix + LabelSandboxID:      sandboxID.String(),

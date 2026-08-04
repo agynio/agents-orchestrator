@@ -1770,14 +1770,8 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 		ListVolumeAttachmentsFunc: func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 		ListMcpsFunc: func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
-		},
-		ListHooksFunc: func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
-			return &agentsv1.ListHooksResponse{}, nil
 		},
 	}
 
@@ -1841,14 +1835,8 @@ func newTestEnvironmentAssembler(agentID, environmentID uuid.UUID, runnerID stri
 		ListVolumeAttachmentsFunc: func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 		ListMcpsFunc: func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
-		},
-		ListHooksFunc: func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
-			return &agentsv1.ListHooksResponse{}, nil
 		},
 	}
 
