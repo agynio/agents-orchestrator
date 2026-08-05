@@ -6,6 +6,7 @@ toolchain go1.25.7
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/nats-io/nats.go v1.47.0
 	github.com/openziti/edge-api v0.27.5
 	github.com/openziti/metrics v1.4.5
 	github.com/openziti/sdk-golang v1.6.0
@@ -79,7 +80,6 @@ require (
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
-	github.com/nats-io/nats.go v1.47.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/oklog/ulid/v2 v2.1.1 // indirect

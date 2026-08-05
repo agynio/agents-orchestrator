@@ -95,9 +95,6 @@ func newSandboxFixture() *sandboxFixture {
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 	}
 	fixture.runners = &fakeRunnersClient{
 		listFlavors: func(_ context.Context, req *runnersv1.ListFlavorsRequest, _ ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
@@ -305,34 +302,6 @@ func TestAssembleSandboxInjectsEnvironmentEnvsAndSecrets(t *testing.T) {
 	envs := envMap(result.Request.GetMain().GetEnv())
 	assertEnv(t, envs, "PLAIN_ENV", "plain")
 	assertEnv(t, envs, "SECRET_ENV", "resolved-secret")
-}
-
-func TestAssembleSandboxResolvesImagePullSecrets(t *testing.T) {
-	fixture := newSandboxFixture()
-	imagePullSecretID := uuid.NewString()
-	fixture.agents.ListImagePullSecretAttachmentsFunc = func(_ context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-		if req.GetEnvironmentId() != fixture.environmentID.String() {
-			return nil, errors.New("expected environment-scoped image pull secret listing")
-		}
-		return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: []*agentsv1.ImagePullSecretAttachment{
-			{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, ImagePullSecretId: imagePullSecretID},
-		}}, nil
-	}
-	fixture.secrets.ResolveImagePullSecretFunc = func(_ context.Context, req *secretsv1.ResolveImagePullSecretRequest, _ ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
-		if req.GetId() != imagePullSecretID {
-			return nil, errors.New("unexpected image pull secret id")
-		}
-		return &secretsv1.ResolveImagePullSecretResponse{Registry: "registry.example.com", Username: "robot", Password: "token"}, nil
-	}
-
-	result := fixture.assemble(t)
-	credentials := result.Request.GetImagePullCredentials()
-	if len(credentials) != 1 {
-		t.Fatalf("expected 1 image pull credential, got %d", len(credentials))
-	}
-	if credentials[0].GetRegistry() != "registry.example.com" || credentials[0].GetUsername() != "robot" || credentials[0].GetPassword() != "token" {
-		t.Fatalf("unexpected image pull credential: %v", credentials[0])
-	}
 }
 
 func TestAssembleSandboxDistributesEgressCA(t *testing.T) {

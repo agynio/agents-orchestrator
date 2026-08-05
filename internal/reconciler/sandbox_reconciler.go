@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
 	"strings"
 	"time"
 
@@ -40,64 +39,33 @@ func (r *Reconciler) reconcileSandboxes(ctx context.Context) error {
 	return nil
 }
 
+// listTrackedSandboxes reads every sandbox on the platform.
+//
+// Naming no organization asks the Agents service for all of them. Deriving the
+// set instead - from configuration, or from which organizations have agents -
+// leaves a sandbox in an organization the Orchestrator has not heard of never
+// reconciled, with no pod and no error to say why.
 func (r *Reconciler) listTrackedSandboxes(ctx context.Context) ([]*agentsv1.Sandbox, error) {
-	orgIDs, err := r.listKnownSandboxOrgIDs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var sandboxes []*agentsv1.Sandbox
-	for _, orgID := range orgIDs {
-		pageToken := ""
-		for {
-			resp, err := r.agents.ListSandboxes(ctx, &agentsv1.ListSandboxesRequest{
-				OrganizationId:    orgID,
-				IncludeTerminated: true,
-				PageSize:          sandboxPageSize,
-				PageToken:         pageToken,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list sandboxes for org %s: %w", orgID, err)
-			}
-			sandboxes = append(sandboxes, resp.GetSandboxes()...)
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
-			}
+	var (
+		sandboxes []*agentsv1.Sandbox
+		pageToken string
+	)
+	for {
+		resp, err := r.agents.ListSandboxes(ctx, &agentsv1.ListSandboxesRequest{
+			IncludeTerminated: true,
+			PageSize:          sandboxPageSize,
+			PageToken:         pageToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list sandboxes: %w", err)
+		}
+		sandboxes = append(sandboxes, resp.GetSandboxes()...)
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
 		}
 	}
 	return sandboxes, nil
-}
-
-func (r *Reconciler) listKnownSandboxOrgIDs(ctx context.Context) ([]string, error) {
-	return r.sandboxReconcileOrgIDs(ctx)
-}
-
-func (r *Reconciler) sandboxReconcileOrgIDs(ctx context.Context) ([]string, error) {
-	orgIDs := map[string]struct{}{}
-	for _, configuredOrgID := range r.sandboxReconcileOrganizationIDs {
-		parsedOrgID, err := uuidutil.ParseUUID(configuredOrgID, "sandbox_reconcile.organization_id")
-		if err != nil {
-			return nil, err
-		}
-		orgIDs[parsedOrgID.String()] = struct{}{}
-	}
-	agentOrgIDs, err := r.agentIdentityByOrg(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for orgID := range agentOrgIDs {
-		parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent.organization_id")
-		if err != nil {
-			return nil, err
-		}
-		orgIDs[parsedOrgID.String()] = struct{}{}
-	}
-	ordered := make([]string, 0, len(orgIDs))
-	for orgID := range orgIDs {
-		ordered = append(ordered, orgID)
-	}
-	sort.Strings(ordered)
-	return ordered, nil
 }
 
 func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.Sandbox, now time.Time) error {
@@ -355,6 +323,14 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		request.AdditionalProperties = map[string]string{}
 	}
 	request.AdditionalProperties[assembler.LabelKeyPrefix+assembler.LabelWorkloadKey] = workloadID
+	// A sandbox pulls the same catalog images an agent does, so it needs the
+	// same per-workload credential.
+	if credentials, err := r.mintSandboxPullCredential(ctx, workloadID, assembled); err != nil {
+		log.Printf("reconciler: %v", err)
+		return err
+	} else if len(credentials) > 0 {
+		request.ImagePullCredentials = credentials
+	}
 	identity, err := r.createSandboxIdentity(ctx, plan.sandboxID, assembled.EnvironmentID, assembled.OwnerID, uuid.MustParse(workloadID), assembled.OrganizationID)
 	if err != nil {
 		return err

@@ -41,6 +41,17 @@ type Reconciler struct {
 	workloadReconcileInterval       time.Duration
 	idle                            time.Duration
 	stopSec                         uint32
+	// Optional: without them nothing is minted and the spec keeps whatever
+	// pull credentials it already carried.
+	imageProxy     ImageProxyClient
+	imageProxyHost string
+}
+
+// WithImageProxy enables the per-workload pull credential lifecycle.
+func (r *Reconciler) WithImageProxy(proxy ImageProxyClient, host string) *Reconciler {
+	r.imageProxy = proxy
+	r.imageProxyHost = host
+	return r
 }
 
 type Config struct {
@@ -300,6 +311,14 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarg
 	}
 	request.WorkloadId = workloadIDValue
 	request.Main.Env = append(request.Main.Env, &runnerv1.EnvVar{Name: "WORKLOAD_ID", Value: workloadIDValue})
+	// The credential is scoped to this workload and the images it may pull, so
+	// it can only be minted once the workload has an id.
+	if credentials, err := r.mintPullCredential(ctx, workloadIDValue, assembled); err != nil {
+		log.Printf("reconciler: %v", err)
+		return
+	} else if len(credentials) > 0 {
+		request.ImagePullCredentials = credentials
+	}
 	identity, err := r.createIdentity(ctx, target, workloadID, assembled.OrganizationID)
 	if err != nil {
 		log.Printf("reconciler: %v", err)
@@ -443,6 +462,9 @@ func (r *Reconciler) stopWorkloadWithContext(runnerCtx context.Context, workload
 	}); err != nil {
 		return fmt.Errorf("update workload %s to stopped: %w", workloadID, err)
 	}
+	// Revoked alongside the OpenZiti identity: both are per-workload grants
+	// that outlive nothing.
+	r.revokePullCredential(runnerCtx, workloadID)
 	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
 		if err := r.deleteIdentity(runnerCtx, workload.GetZitiIdentityId()); err != nil {
 			return fmt.Errorf("delete ziti identity %s after stopping workload %s: %w", workload.GetZitiIdentityId(), workloadID, err)

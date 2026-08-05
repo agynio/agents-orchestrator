@@ -29,7 +29,10 @@ type SandboxAssembleResult struct {
 	RunnerID       string
 	// Flavor names the catalog entry the workload is allocated from, and is
 	// what compute is billed by.
-	Flavor                 string
+	Flavor string
+	// GrantedImageIDs are the catalog images this sandbox may pull. The
+	// credential is minted against them once the workload id exists.
+	GrantedImageIDs        []string
 	WorkspaceVolumeID      string
 	WorkspaceSizeGB        string
 	AllocatedCPUMillicores int32
@@ -65,7 +68,6 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		return nil, err
 	}
 	resolver := newEnvResolver(a.secrets)
-	imagePullResolver := newImagePullResolver(a.secrets)
 	environmentEnvs, err := a.listEnvs(ctx, &agentsv1.ListEnvsRequest{EnvironmentId: environmentID.String()})
 	if err != nil {
 		return nil, fmt.Errorf("list environment envs: %w", err)
@@ -74,25 +76,31 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 	if err != nil {
 		return nil, fmt.Errorf("resolve environment envs: %w", err)
 	}
-	environmentImagePullAttachments, err := a.listImagePullSecretAttachments(ctx, &agentsv1.ListImagePullSecretAttachmentsRequest{EnvironmentId: environmentID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("list environment image pull secret attachments: %w", err)
-	}
-	if err := imagePullResolver.Resolve(ctx, environmentImagePullAttachments); err != nil {
-		return nil, fmt.Errorf("resolve environment image pull secrets: %w", err)
-	}
-	imagePullCredentials, err := imagePullResolver.Credentials()
-	if err != nil {
-		return nil, fmt.Errorf("image pull credentials: %w", err)
-	}
 	allocatedCPU, allocatedRAM, err := flavorAllocatedResources(flavor)
 	if err != nil {
 		return nil, err
 	}
+
+	rewriter := newImageRewriter(a.images, a.organizations, a.cfg.ImageProxyHost)
+	mainImage := environment.GetImage()
+	agentRuntimeImage := ""
+	if rewriter.enabled() && environment.GetWorkspaceImageId() != "" {
+		mainImage, err = rewriter.Rewrite(ctx, environment.GetWorkspaceImageId(), environment.GetWorkspaceImageTag())
+		if err != nil {
+			return nil, fmt.Errorf("environment %s workspace image: %w", environmentID, err)
+		}
+	}
+	if rewriter.enabled() && environment.GetAgentRuntimeImageId() != "" {
+		agentRuntimeImage, err = rewriter.Rewrite(ctx, environment.GetAgentRuntimeImageId(), environment.GetAgentRuntimeImageTag())
+		if err != nil {
+			return nil, fmt.Errorf("environment %s agent runtime image: %w", environmentID, err)
+		}
+	}
+
 	mainEnv := mergeEnvVars(a.baseSandboxEnvVars(sandbox, environment), environmentEnvVars, fmt.Sprintf("sandbox %s", sandboxID.String()))
 	mainEnv = appendEgressCAEnvVars(mainEnv)
 	main := &runnerv1.ContainerSpec{
-		Image:            environment.GetImage(),
+		Image:            mainImage,
 		Name:             fmt.Sprintf("sandbox-%s", sandboxID.String()[:8]),
 		Cmd:              []string{agynBinBinaryPath},
 		Env:              mainEnv,
@@ -100,19 +108,23 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		Mounts:           []*runnerv1.VolumeMount{{Volume: sandboxWorkspaceVolumeName, MountPath: SandboxWorkspaceMountPath}, {Volume: agynBinVolumeName, MountPath: agynBinMountPath}},
 		InlineFileMounts: egressCAInlineFileMounts(a.egressCACert),
 	}
-	initImage := strings.TrimSpace(a.cfg.SandboxInitImage)
-	if initImage == "" {
-		return nil, fmt.Errorf("sandbox init image is required")
+	// The two platform init containers go into a sandbox too, which is what
+	// makes agyn available inside a plain one. The environment's agent runtime
+	// follows when it names one, so a sandbox carries the same tooling as an
+	// agent running there.
+	initContainers, err := a.platformInitContainers()
+	if err != nil {
+		return nil, err
 	}
-	initContainer := &runnerv1.ContainerSpec{
-		Image: initImage,
-		Name:  "sandbox-init",
-		Mounts: []*runnerv1.VolumeMount{
-			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
-		},
+	if runtimeInit := a.agentRuntimeInitContainer(agentRuntimeImage); runtimeInit != nil {
+		initContainers = append(initContainers, runtimeInit)
+	} else if len(initContainers) == 0 {
+		legacy, err := a.legacyInitContainer(a.cfg.SandboxInitImage)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: %w", err)
+		}
+		initContainers = append(initContainers, legacy)
 	}
-	applyEgressCA(initContainer, a.egressCACert)
-	initContainers := []*runnerv1.ContainerSpec{initContainer}
 	volumes := []*runnerv1.VolumeSpec{
 		{
 			Name:           sandboxWorkspaceVolumeName,
@@ -173,16 +185,17 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		applyEgressCA(zitiSidecar, a.egressCACert)
 		applyEgressCA(zitiGatewayWait, a.egressCACert)
 		applyEgressCA(zitiServiceWait, a.egressCACert)
-		initContainers = []*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, zitiServiceWait, initContainer}
+		// Ziti runs before the binaries land, so the agyn-bin init containers
+		// follow it rather than being replaced by it.
+		initContainers = append([]*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, zitiServiceWait}, initContainers...)
 		volumes = append(volumes, &runnerv1.VolumeSpec{Name: zitiIdentityVolumeName, Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL})
 	}
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
 	request := &runnerv1.StartWorkloadRequest{
-		Main:                 main,
-		Volumes:              volumes,
-		InitContainers:       initContainers,
-		ImagePullCredentials: imagePullCredentials,
-		InlineFiles:          a.inlineFiles(),
+		Main:           main,
+		Volumes:        volumes,
+		InitContainers: initContainers,
+		InlineFiles:    a.inlineFiles(),
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy:      ManagedByValue,
 			LabelKeyPrefix + LabelSandboxID:      sandboxID.String(),
@@ -203,6 +216,7 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		OwnerID:                ownerID,
 		RunnerID:               flavor.GetRunnerId(),
 		Flavor:                 flavor.GetName(),
+		GrantedImageIDs:        rewriter.GrantedImageIDs(),
 		WorkspaceVolumeID:      workspaceVolumeID,
 		WorkspaceSizeGB:        a.cfg.SandboxWorkspaceSizeGB,
 		AllocatedCPUMillicores: allocatedCPU,
@@ -232,8 +246,8 @@ func (a *Assembler) fetchEnvironment(ctx context.Context, environmentID uuid.UUI
 	if environment == nil {
 		return nil, fmt.Errorf("environment %s missing", environmentID.String())
 	}
-	if environment.GetImage() == "" {
-		return nil, fmt.Errorf("environment %s image is required", environmentID.String())
+	if environment.GetImage() == "" && environment.GetWorkspaceImageId() == "" {
+		return nil, fmt.Errorf("environment %s names no workspace image", environmentID.String())
 	}
 	if environment.GetRunnerId() == "" {
 		return nil, fmt.Errorf("environment %s runner_id is required", environmentID.String())

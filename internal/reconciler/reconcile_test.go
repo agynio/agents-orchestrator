@@ -1477,54 +1477,39 @@ func TestReconcileVolumesSkipsSandboxOwnedVolumes(t *testing.T) {
 	}
 }
 
-func TestListTrackedSandboxesUsesConfiguredOrganizations(t *testing.T) {
+// A sandbox is reconciled wherever it lives. Deriving the organizations to look
+// in - from configuration, or from which ones have agents - left a sandbox in
+// any other organization with no pod and no error to say why.
+func TestListTrackedSandboxesCoversEveryOrganization(t *testing.T) {
 	ctx := context.Background()
 	sandboxID := uuid.NewString()
-	configuredOrgID := uuid.New().String()
+	unconfiguredOrgID := uuid.New().String()
 	var requests []*agentsv1.ListSandboxesRequest
 	agents := &testutil.FakeAgentsClient{
-		ListAgentsFunc: func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
-			return &agentsv1.ListAgentsResponse{}, nil
-		},
 		ListSandboxesFunc: func(_ context.Context, req *agentsv1.ListSandboxesRequest, _ ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error) {
 			requests = append(requests, req)
-			if req.GetOrganizationId() == "" {
-				return nil, errors.New("organization id is required")
-			}
-			if req.GetOrganizationId() != configuredOrgID {
+			if req.GetOrganizationId() != "" {
 				return &agentsv1.ListSandboxesResponse{}, nil
 			}
 			return &agentsv1.ListSandboxesResponse{Sandboxes: []*agentsv1.Sandbox{
-				{Meta: &agentsv1.EntityMeta{Id: sandboxID}, OrganizationId: configuredOrgID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING},
+				{Meta: &agentsv1.EntityMeta{Id: sandboxID}, OrganizationId: unconfiguredOrgID, Status: agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING},
 			}}, nil
 		},
 	}
-	reconciler := newTestReconciler(Config{
-		Agents:                          agents,
-		SandboxReconcileOrganizationIDs: []string{configuredOrgID},
-	})
+	reconciler := newTestReconciler(Config{Agents: agents})
 
 	sandboxes, err := reconciler.listTrackedSandboxes(ctx)
 	if err != nil {
 		t.Fatalf("list tracked sandboxes: %v", err)
 	}
 	if len(requests) != 1 {
-		t.Fatalf("expected 1 list sandboxes request, got %d", len(requests))
+		t.Fatalf("expected one list request, got %d", len(requests))
 	}
-	seenConfigured := false
-	for _, request := range requests {
-		if request.GetOrganizationId() == "" {
-			t.Fatal("expected org-scoped sandbox list")
-		}
-		if !request.GetIncludeTerminated() {
-			t.Fatal("expected terminated sandboxes included")
-		}
-		if request.GetOrganizationId() == configuredOrgID {
-			seenConfigured = true
-		}
+	if requests[0].GetOrganizationId() != "" {
+		t.Fatalf("expected a request naming no organization, got %q", requests[0].GetOrganizationId())
 	}
-	if !seenConfigured {
-		t.Fatal("expected configured sandbox org to be listed")
+	if !requests[0].GetIncludeTerminated() {
+		t.Fatal("expected terminated sandboxes included")
 	}
 	if len(sandboxes) != 1 || sandboxes[0].GetMeta().GetId() != sandboxID {
 		t.Fatalf("unexpected sandboxes: %v", sandboxes)
@@ -1555,9 +1540,6 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
-		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
 		},
 		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			runtimeReq = req
@@ -1800,9 +1782,6 @@ func TestStartSandboxWorkloadWritesRuntimeRunning(t *testing.T) {
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			runtimeReq = req
 			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
@@ -1925,9 +1904,6 @@ func TestStartSandboxWorkloadFailureWritesRuntimeFailed(t *testing.T) {
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			runtimeReq = req
 			return &agentsv1.UpdateSandboxRuntimeStateResponse{}, nil
@@ -1994,9 +1970,6 @@ func TestReconcileSandboxStartsFromStartingRuntimeState(t *testing.T) {
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
-		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
 		},
 		UpdateSandboxRuntimeStateFunc: func(_ context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest, _ ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
 			runtimeReq = req

@@ -12,46 +12,25 @@ import (
 var ErrNotImplemented = errors.New("not implemented")
 
 type FakeAgentsClient struct {
-	GetAgentFunc                       func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
-	GetEnvironmentFunc                 func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error)
-	ResolveAgentIdentityFunc           func(context.Context, *agentsv1.ResolveAgentIdentityRequest, ...grpc.CallOption) (*agentsv1.ResolveAgentIdentityResponse, error)
-	ListAgentsFunc                     func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
-	ListSkillsFunc                     func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
-	ListEnvsFunc                       func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
-	ListInitScriptsFunc                func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
-	ListVolumeAttachmentsFunc          func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error)
-	ListImagePullSecretAttachmentsFunc func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error)
-	ListMcpsFunc                       func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
-	ListHooksFunc                      func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error)
-	GetVolumeFunc                      func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
-	GetSandboxFunc                     func(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error)
-	ListSandboxesFunc                  func(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
-	UpdateSandboxRuntimeStateFunc      func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)
-	DeleteSandboxFunc                  func(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error)
-	ListInstancesFunc                  func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
-	PauseInstanceFunc                  func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
+	GetAgentFunc                  func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
+	GetEnvironmentFunc            func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error)
+	ResolveAgentIdentityFunc      func(context.Context, *agentsv1.ResolveAgentIdentityRequest, ...grpc.CallOption) (*agentsv1.ResolveAgentIdentityResponse, error)
+	ListAgentsFunc                func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
+	ListSkillsFunc                func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
+	ListEnvsFunc                  func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
+	ListInitScriptsFunc           func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
+	ListVolumeAttachmentsFunc     func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error)
+	ListMcpsFunc                  func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
+	GetVolumeFunc                 func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
+	GetSandboxFunc                func(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error)
+	ListSandboxesFunc             func(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
+	UpdateSandboxRuntimeStateFunc func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)
+	DeleteSandboxFunc             func(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error)
+	ListInstancesFunc             func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
+	PauseInstanceFunc             func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
 }
 
 func (f *FakeAgentsClient) CreateAgent(context.Context, *agentsv1.CreateAgentRequest, ...grpc.CallOption) (*agentsv1.CreateAgentResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) CreateImagePullSecretAttachment(context.Context, *agentsv1.CreateImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.CreateImagePullSecretAttachmentResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) GetImagePullSecretAttachment(context.Context, *agentsv1.GetImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.GetImagePullSecretAttachmentResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) DeleteImagePullSecretAttachment(context.Context, *agentsv1.DeleteImagePullSecretAttachmentRequest, ...grpc.CallOption) (*agentsv1.DeleteImagePullSecretAttachmentResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) ListImagePullSecretAttachments(ctx context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest, opts ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-	if f.ListImagePullSecretAttachmentsFunc != nil {
-		return f.ListImagePullSecretAttachmentsFunc(ctx, req, opts...)
-	}
 	return nil, ErrNotImplemented
 }
 
@@ -305,29 +284,6 @@ func (f *FakeAgentsClient) ListSkills(ctx context.Context, req *agentsv1.ListSki
 	return nil, ErrNotImplemented
 }
 
-func (f *FakeAgentsClient) CreateHook(context.Context, *agentsv1.CreateHookRequest, ...grpc.CallOption) (*agentsv1.CreateHookResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) GetHook(context.Context, *agentsv1.GetHookRequest, ...grpc.CallOption) (*agentsv1.GetHookResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) UpdateHook(context.Context, *agentsv1.UpdateHookRequest, ...grpc.CallOption) (*agentsv1.UpdateHookResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) DeleteHook(context.Context, *agentsv1.DeleteHookRequest, ...grpc.CallOption) (*agentsv1.DeleteHookResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) ListHooks(ctx context.Context, req *agentsv1.ListHooksRequest, opts ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
-	if f.ListHooksFunc != nil {
-		return f.ListHooksFunc(ctx, req, opts...)
-	}
-	return nil, ErrNotImplemented
-}
-
 func (f *FakeAgentsClient) CreateEnv(context.Context, *agentsv1.CreateEnvRequest, ...grpc.CallOption) (*agentsv1.CreateEnvResponse, error) {
 	return nil, ErrNotImplemented
 }
@@ -375,9 +331,8 @@ func (f *FakeAgentsClient) ListInitScripts(ctx context.Context, req *agentsv1.Li
 }
 
 type FakeSecretsClient struct {
-	ResolveSecretExistsFunc    func(context.Context, *secretsv1.ResolveSecretExistsRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretExistsResponse, error)
-	ResolveSecretFunc          func(context.Context, *secretsv1.ResolveSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretResponse, error)
-	ResolveImagePullSecretFunc func(context.Context, *secretsv1.ResolveImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error)
+	ResolveSecretExistsFunc func(context.Context, *secretsv1.ResolveSecretExistsRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretExistsResponse, error)
+	ResolveSecretFunc       func(context.Context, *secretsv1.ResolveSecretRequest, ...grpc.CallOption) (*secretsv1.ResolveSecretResponse, error)
 }
 
 func (f *FakeSecretsClient) CreateSecretProvider(context.Context, *secretsv1.CreateSecretProviderRequest, ...grpc.CallOption) (*secretsv1.CreateSecretProviderResponse, error) {
@@ -401,33 +356,6 @@ func (f *FakeSecretsClient) ListSecretProviders(context.Context, *secretsv1.List
 }
 
 func (f *FakeSecretsClient) CreateSecret(context.Context, *secretsv1.CreateSecretRequest, ...grpc.CallOption) (*secretsv1.CreateSecretResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeSecretsClient) CreateImagePullSecret(context.Context, *secretsv1.CreateImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.CreateImagePullSecretResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeSecretsClient) GetImagePullSecret(context.Context, *secretsv1.GetImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.GetImagePullSecretResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeSecretsClient) UpdateImagePullSecret(context.Context, *secretsv1.UpdateImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.UpdateImagePullSecretResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeSecretsClient) DeleteImagePullSecret(context.Context, *secretsv1.DeleteImagePullSecretRequest, ...grpc.CallOption) (*secretsv1.DeleteImagePullSecretResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeSecretsClient) ListImagePullSecrets(context.Context, *secretsv1.ListImagePullSecretsRequest, ...grpc.CallOption) (*secretsv1.ListImagePullSecretsResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeSecretsClient) ResolveImagePullSecret(ctx context.Context, req *secretsv1.ResolveImagePullSecretRequest, opts ...grpc.CallOption) (*secretsv1.ResolveImagePullSecretResponse, error) {
-	if f.ResolveImagePullSecretFunc != nil {
-		return f.ResolveImagePullSecretFunc(ctx, req, opts...)
-	}
 	return nil, ErrNotImplemented
 }
 

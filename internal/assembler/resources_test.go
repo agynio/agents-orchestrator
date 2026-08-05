@@ -17,7 +17,6 @@ func TestAssemblerAggregatesResourceRequests(t *testing.T) {
 	agentID := uuid.New()
 	threadID := uuid.New()
 	mcpID := uuid.New()
-	hookID := uuid.New()
 
 	agent := &agentsv1.Agent{
 		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
@@ -40,12 +39,6 @@ func TestAssemblerAggregatesResourceRequests(t *testing.T) {
 		Command:   "mcp run",
 		Resources: &agentsv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"},
 	}
-	hook := &agentsv1.Hook{
-		Meta:      &agentsv1.EntityMeta{Id: hookID.String()},
-		Image:     "hook-image",
-		Function:  "hook run",
-		Resources: &agentsv1.ComputeResources{RequestsCpu: "100m", RequestsMemory: "256Mi"},
-	}
 
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
@@ -66,14 +59,8 @@ func TestAssemblerAggregatesResourceRequests(t *testing.T) {
 		ListVolumeAttachmentsFunc: func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 		},
-		ListImagePullSecretAttachmentsFunc: func(context.Context, *agentsv1.ListImagePullSecretAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
-			return &agentsv1.ListImagePullSecretAttachmentsResponse{}, nil
-		},
 		ListMcpsFunc: func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{mcp}}, nil
-		},
-		ListHooksFunc: func(context.Context, *agentsv1.ListHooksRequest, ...grpc.CallOption) (*agentsv1.ListHooksResponse, error) {
-			return &agentsv1.ListHooksResponse{Hooks: []*agentsv1.Hook{hook}}, nil
 		},
 	}
 
@@ -87,10 +74,10 @@ func TestAssemblerAggregatesResourceRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
-	if result.AllocatedCPUMillicores != 850 {
-		t.Fatalf("expected cpu millicores 850, got %d", result.AllocatedCPUMillicores)
+	if result.AllocatedCPUMillicores != 750 {
+		t.Fatalf("expected cpu millicores 750, got %d", result.AllocatedCPUMillicores)
 	}
-	expectedRAM := int64(512<<20 + 1<<30 + 256<<20)
+	expectedRAM := int64(512<<20 + 1<<30)
 	if result.AllocatedRAMBytes != expectedRAM {
 		t.Fatalf("expected ram bytes %d, got %d", expectedRAM, result.AllocatedRAMBytes)
 	}
