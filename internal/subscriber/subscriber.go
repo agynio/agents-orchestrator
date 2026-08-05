@@ -110,30 +110,40 @@ func (s *Subscriber) Run(ctx context.Context) error {
 
 var errRoomsChanged = errors.New("rooms changed")
 
+// runSubscriptions holds every room until the room set changes or the context
+// ends. Each subscription reconnects on its own: one instance the platform can
+// no longer resolve used to end the whole set, and every wake delivered while
+// the rest were being rebuilt was lost.
 func (s *Subscriber) runSubscriptions(ctx context.Context, subscriptions []roomSubscription, roomsUpdated <-chan struct{}) error {
-	errCh := make(chan error, len(subscriptions))
 	for _, subscription := range subscriptions {
 		subscription := subscription
-		go func() {
-			errCh <- s.runSubscription(ctx, subscription)
-		}()
+		go s.keepSubscribed(ctx, subscription)
 	}
 
-	remaining := len(subscriptions)
-	for remaining > 0 {
-		select {
-		case <-roomsUpdated:
-			return errRoomsChanged
-		case <-ctx.Done():
-			return ctx.Err()
-		case err := <-errCh:
-			remaining--
-			if err != nil {
-				return err
-			}
-		}
+	select {
+	case <-roomsUpdated:
+		return errRoomsChanged
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return nil
+}
+
+// keepSubscribed reconnects a single subscription until its context ends.
+func (s *Subscriber) keepSubscribed(ctx context.Context, subscription roomSubscription) {
+	backoff := time.Second
+	for {
+		err := s.runSubscription(ctx, subscription)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			log.Printf("subscriber: %v", err)
+		}
+		if waitWithBackoff(ctx, backoff) != nil {
+			return
+		}
+		backoff = nextBackoff(backoff)
+	}
 }
 
 func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubscription) error {

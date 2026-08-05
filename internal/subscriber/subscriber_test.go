@@ -13,7 +13,9 @@ import (
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	"github.com/agynio/agents-orchestrator/internal/testutil"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestSubscriberWakeOnMessageCreated(t *testing.T) {
@@ -156,6 +158,81 @@ func TestSubscriberResubscribesOnInstanceChange(t *testing.T) {
 
 	harness.cancel()
 	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+}
+
+// One instance the platform can no longer resolve used to end every other
+// instance's stream too, and a wake delivered during the rebuild was lost.
+func TestSubscriberKeepsHealthySubscriptionsWhenOneFails(t *testing.T) {
+	failing := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	healthy := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+	responses := make(chan *notificationsv1.SubscribeResponse)
+	var mu sync.Mutex
+	calls := map[string]int{}
+
+	agentsClient := &testutil.FakeAgentsClient{ListInstancesFunc: func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
+		return &agentsv1.ListInstancesResponse{Instances: []*agentsv1.AgentInstance{
+			instanceFixture(failing), instanceFixture(healthy),
+		}}, nil
+	}}
+	client := &fakeNotificationsClient{subscribe: func(ctx context.Context, req *notificationsv1.SubscribeRequest, opts ...grpc.CallOption) (notificationsv1.NotificationsService_SubscribeClient, error) {
+		identity := ""
+		if md, ok := metadata.FromOutgoingContext(ctx); ok {
+			if values := md.Get(identityMetadataKey); len(values) > 0 {
+				identity = values[0]
+			}
+		}
+		mu.Lock()
+		calls[identity]++
+		mu.Unlock()
+		if identity == failing {
+			return nil, status.Error(codes.PermissionDenied, "permission denied")
+		}
+		return &fakeSubscribeStream{fakeClientStream: fakeClientStream{ctx: ctx}, responses: responses}, nil
+	}}
+
+	subscriber := NewWithSandboxOrganizations(client, agentsClient, nil)
+	subscriber.roomRefreshInterval = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- subscriber.Run(ctx) }()
+
+	// Long enough for the failing subscription to retry past its first backoff.
+	deadline := time.After(10 * time.Second)
+	for {
+		mu.Lock()
+		failed, ok := calls[failing], calls[healthy]
+		mu.Unlock()
+		if failed >= 3 {
+			if ok != 1 {
+				t.Fatalf("healthy subscription was rebuilt %d times while the other failed %d times", ok, failed)
+			}
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("failing subscription only retried %d times", failed)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	// The surviving stream still delivers.
+	select {
+	case responses <- messageEnvelope("message.created"):
+	case <-time.After(time.Second):
+		t.Fatal("healthy subscription was not receiving")
+	}
+	select {
+	case <-subscriber.Wake():
+	case <-time.After(time.Second):
+		t.Fatal("expected wake signal")
+	}
+
+	cancel()
+	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("unexpected run error: %v", err)
 	}
 }
