@@ -23,7 +23,9 @@ const (
 	listPageSize                              int32 = 100
 	rpcTimeout                                      = 10 * time.Second
 	agynBinVolumeName                               = "agyn-bin"
-	agynBinMountPath                                = "/agyn/bin"
+	// The volume is the whole /agyn tree: binaries under bin/, and the agent
+	// runtime's config.json beside it rather than among them.
+	agynBinMountPath                                = "/agyn"
 	agynBinBinaryPath                               = "/agyn/bin/agynd"
 	mcpBasePort                                     = 8100
 	mcpResolverOptions                              = "attempts:1 timeout:1 no-aaaa"
