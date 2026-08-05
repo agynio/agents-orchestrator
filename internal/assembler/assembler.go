@@ -23,8 +23,8 @@ const (
 	listPageSize                              int32 = 100
 	rpcTimeout                                      = 10 * time.Second
 	agynBinVolumeName                               = "agyn-bin"
-	agynBinMountPath                                = "/agyn-bin"
-	agynBinBinaryPath                               = "/agyn-bin/agynd"
+	agynBinMountPath                                = "/agyn/bin"
+	agynBinBinaryPath                               = "/agyn/bin/agynd"
 	mcpBasePort                                     = 8100
 	mcpResolverOptions                              = "attempts:1 timeout:1 no-aaaa"
 	mcpNodeOptions                                  = "--dns-result-order=ipv4first"
