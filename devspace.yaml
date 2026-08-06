@@ -68,7 +68,7 @@ functions:
                 - name: EGRESS_CA_NAMESPACE
                   value: "__EGRESS_CA_NAMESPACE__"
                 - name: ZITI_SIDECAR_IMAGE
-                  value: "openziti/ziti-tunnel:1.6.15"
+                  value: "openziti/ziti-tunnel:2.0.0-pre8"
                 - name: ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST
                   value: "__ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST__"
                 - name: ZITI_ENROLLMENT_CONTROLLER_PORT
