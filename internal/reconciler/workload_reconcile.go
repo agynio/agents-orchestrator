@@ -27,9 +27,9 @@ func runnerIdentityForWorkloads(runnerID string, runnerOrganizationID string, or
 	}
 	var identityID string
 	for workloadID, workload := range workloads {
-		workloadIdentityID := strings.TrimSpace(workloadAgentInstanceID(workload))
+		workloadIdentityID := workloadRunnerIdentityID(workload)
 		if workloadIdentityID == "" {
-			return "", fmt.Errorf("workload %s missing agent instance id", workloadID)
+			return "", fmt.Errorf("workload %s missing owner identity", workloadID)
 		}
 		if identityID == "" {
 			identityID = workloadIdentityID
@@ -51,21 +51,27 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Sandboxes are reconciled here too -- nothing else moves a workload out of
+	// running, so a sandbox whose pod was gone stayed active forever. They are
+	// listed separately because the agent listing feeds callers that would read
+	// a sandbox as an orphan.
+	sandboxes, err := r.listActiveSandboxWorkloads(ctx)
+	if err != nil {
+		return err
+	}
+	tracked = append(tracked, sandboxes...)
 	runnerIDs := map[string]struct{}{}
 	workloadsByRunner := make(map[string]map[string]*runnersv1.Workload)
 	runnerIdentities := map[string]string{}
 	for _, workload := range tracked {
-		if workload.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
-			continue
-		}
 		runnerID := workload.GetRunnerId()
 		if runnerID == "" {
 			log.Printf("reconciler: warn: workload %s missing runner id", workload.GetMeta().GetId())
 			continue
 		}
-		identityID := strings.TrimSpace(workloadAgentInstanceID(workload))
+		identityID := workloadRunnerIdentityID(workload)
 		if identityID == "" {
-			return fmt.Errorf("workload %s missing agent instance id", workload.GetMeta().GetId())
+			return fmt.Errorf("workload %s missing owner identity", workload.GetMeta().GetId())
 		}
 		workloadID := workload.GetMeta().GetId()
 		if workloadID == "" {
@@ -121,14 +127,16 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
 			for workloadID, workload := range trackedWorkloads {
-				workloadCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
+				workloadCtx, err := runnerIdentityContext(ctx, workloadRunnerIdentityID(workload))
 				if err != nil {
 					return err
 				}
 				if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
 					log.Printf("reconciler: warn: handle missing workload %s on unenrolled runner: %v", workloadID, err)
 				}
-				r.pauseInstance(workloadCtx, workloadAgentInstanceID(workload), pauseReasonRunnerDeprovisioned)
+				if instanceID := strings.TrimSpace(workloadAgentInstanceID(workload)); instanceID != "" {
+					r.pauseInstance(workloadCtx, instanceID, pauseReasonRunnerDeprovisioned)
+				}
 			}
 			continue
 		}
@@ -140,7 +148,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for workloadID, workload := range trackedWorkloads {
-					workloadCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
+					workloadCtx, err := runnerIdentityContext(ctx, workloadRunnerIdentityID(workload))
 					if err != nil {
 						return err
 					}
@@ -157,7 +165,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for workloadID, workload := range trackedWorkloads {
-					workloadCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
+					workloadCtx, err := runnerIdentityContext(ctx, workloadRunnerIdentityID(workload))
 					if err != nil {
 						return err
 					}
@@ -188,7 +196,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 
 		for workloadID, workload := range trackedWorkloads {
-			workloadCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
+			workloadCtx, err := runnerIdentityContext(ctx, workloadRunnerIdentityID(workload))
 			if err != nil {
 				return err
 			}

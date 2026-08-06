@@ -22,6 +22,68 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Sandbox workloads were skipped outright, so a sandbox whose pod was gone sat
+// in running forever: the Console kept listing it as active compute and the
+// flavor-seconds sampler kept billing it.
+func TestReconcileWorkloadsFailsMissingSandbox(t *testing.T) {
+	ctx := context.Background()
+	runnerID := "runner-1"
+	workloadKey := "workload-sandbox-1"
+	sandboxID := uuid.New().String()
+
+	var updateReq *runnersv1.UpdateWorkloadRequest
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{
+				{
+					Meta:           &runnersv1.EntityMeta{Id: workloadKey},
+					RunnerId:       runnerID,
+					OrganizationId: testOrganizationID,
+					OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
+					OwnerId:        sandboxID,
+					Status:         runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+				},
+			}}, nil
+		},
+		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
+			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
+		},
+		updateWorkload: func(_ context.Context, req *runnersv1.UpdateWorkloadRequest, _ ...grpc.CallOption) (*runnersv1.UpdateWorkloadResponse, error) {
+			updateReq = req
+			return &runnersv1.UpdateWorkloadResponse{}, nil
+		},
+	}
+
+	// The runner no longer reports it.
+	runner := &fakeRunnerClient{
+		listWorkloads: func(_ context.Context, _ *runnerv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnerv1.ListWorkloadsResponse, error) {
+			return &runnerv1.ListWorkloadsResponse{}, nil
+		},
+	}
+	runnerDialer := &fakeRunnerDialer{
+		dial: func(_ context.Context, _ string) (runnerv1.RunnerServiceClient, error) { return runner, nil },
+	}
+
+	reconciler := newTestReconciler(Config{
+		RunnerDialer: runnerDialer,
+		Runners:      runners,
+		Agents:       &testutil.FakeAgentsClient{},
+		Assembler:    newTestAssembler(uuid.New(), false),
+	})
+	if err := reconciler.reconcileWorkloads(ctx); err != nil {
+		t.Fatalf("reconcile workloads: %v", err)
+	}
+	if updateReq == nil {
+		t.Fatal("expected the sandbox workload to be updated")
+	}
+	if updateReq.GetStatus() != runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
+		t.Fatalf("expected failed, got %s", updateReq.GetStatus())
+	}
+	if updateReq.GetFailureReason() != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST {
+		t.Fatalf("expected runtime_lost, got %s", updateReq.GetFailureReason())
+	}
+}
+
 func TestReconcileWorkloadsTransitionsStartingToRunning(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"

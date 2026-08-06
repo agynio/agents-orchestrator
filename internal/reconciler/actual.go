@@ -56,6 +56,8 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context, orgIdentities map[
 			return nil, fmt.Errorf("list workloads: %w", err)
 		}
 		for _, workload := range resp.GetWorkloads() {
+			// Agent workloads only. The callers that diff this against desired
+			// agent instances would read a sandbox as an orphan and stop it.
 			if workload.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
 				continue
 			}
