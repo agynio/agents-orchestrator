@@ -324,6 +324,7 @@ exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svc
 
 var reservedEnvNames = map[string]struct{}{
 	"AGENT_ID":                     {},
+	"ENVIRONMENT_ID":               {},
 	"AGENT_INSTANCE_ID":            {},
 	"AGENT_NAME":                   {},
 	"AGENT_ROLE":                   {},
@@ -1047,6 +1048,7 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstan
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_INSTANCE_ID", Value: agentInstanceID.String()},
 		{Name: "AGENT_ID", Value: agentID.String()},
+		{Name: "ENVIRONMENT_ID", Value: agent.GetEnvironmentId()},
 		{Name: "AGENT_NAME", Value: agent.GetName()},
 		{Name: "AGENT_ROLE", Value: agent.GetRole()},
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},

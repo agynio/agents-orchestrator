@@ -333,6 +333,7 @@ func (a *Assembler) baseSandboxEnvVars(sandbox *agentsv1.Sandbox, environment *a
 		{Name: "ENVIRONMENT_ID", Value: environment.GetMeta().GetId()},
 		{Name: "ENVIRONMENT_NAME", Value: environment.GetName()},
 		{Name: "WORKSPACE_DIR", Value: SandboxWorkspaceMountPath},
+		{Name: "ENVIRONMENT_ID", Value: sandbox.GetEnvironmentId()},
 		{Name: "GATEWAY_ADDRESS", Value: a.cfg.AgentGatewayAddress},
 		{Name: "AGYN_GATEWAY_URL", Value: gatewayURL},
 		{Name: "LLM_BASE_URL", Value: a.cfg.AgentLLMBaseURL},
