@@ -122,7 +122,7 @@ func newSandboxFixture() *sandboxFixture {
 func (f *sandboxFixture) assemble(t *testing.T) *SandboxAssembleResult {
 	t.Helper()
 	assembler := NewWithRunnersAndEgressCA(f.agents, f.runners, f.secrets, f.cfg, f.egressCACert)
-	result, err := assembler.AssembleSandbox(context.Background(), f.sandbox, f.workspaceVolumeID)
+	result, err := assembler.AssembleSandbox(context.Background(), f.sandbox)
 	if err != nil {
 		t.Fatalf("assemble sandbox: %v", err)
 	}

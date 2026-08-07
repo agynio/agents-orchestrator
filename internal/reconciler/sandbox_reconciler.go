@@ -283,13 +283,7 @@ func (r *Reconciler) startSandboxWorkloadAttempt(ctx context.Context, plan *sand
 }
 
 func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWorkloadPlan) error {
-	workspaceVolumeID := ""
-	if plan.workspaceVolume != nil {
-		workspaceVolumeID = plan.workspaceVolume.GetMeta().GetId()
-	} else {
-		workspaceVolumeID = uuid.NewString()
-	}
-	assembled, err := r.assembler.AssembleSandbox(ctx, plan.sandbox, workspaceVolumeID)
+	assembled, err := r.assembler.AssembleSandbox(ctx, plan.sandbox)
 	if err != nil {
 		return err
 	}
@@ -343,20 +337,18 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		}
 	}
 	if plan.workspaceVolume == nil {
-		if err := r.createSandboxWorkspaceRecord(runnerCtx, assembled, runnerID); err != nil {
+		if err := r.createSandboxVolumeRecords(runnerCtx, assembled, runnerID); err != nil {
 			r.compensateIdentity(ctx, zitiIdentityID, "sandbox workspace record failure")
 			return err
 		}
 	}
 	if err := r.createSandboxWorkloadRecord(runnerCtx, workloadID, runnerID, assembled, zitiIdentityID); err != nil {
-		r.markSandboxWorkspaceFailed(runnerCtx, plan.workspaceVolume, workspaceVolumeID)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload record failure")
 		return err
 	}
 	resp, err := runnerClient.StartWorkload(runnerCtx, request)
 	if err != nil {
 		r.markWorkloadFailed(runnerCtx, workloadID, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, err.Error(), nil)
-		r.markSandboxWorkspaceFailed(runnerCtx, plan.workspaceVolume, workspaceVolumeID)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox start failure")
 		return err
 	}
@@ -370,7 +362,6 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 			}
 		}
 		r.markWorkloadFailed(runnerCtx, workloadID, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, failureMessage, containers)
-		r.markSandboxWorkspaceFailed(runnerCtx, plan.workspaceVolume, workspaceVolumeID)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload failure")
 		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
 	}
@@ -381,7 +372,6 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 			}
 		}
 		r.markWorkloadFailed(runnerCtx, workloadID, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "workload id mismatch", containers)
-		r.markSandboxWorkspaceFailed(runnerCtx, plan.workspaceVolume, workspaceVolumeID)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload id mismatch")
 		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
 	}
@@ -491,19 +481,27 @@ func (r *Reconciler) createSandboxWorkloadRecord(ctx context.Context, workloadID
 	return err
 }
 
-func (r *Reconciler) createSandboxWorkspaceRecord(ctx context.Context, assembled *assembler.SandboxAssembleResult, runnerID string) error {
-	_, err := r.runners.CreateVolume(internalContext(ctx), &runnersv1.CreateVolumeRequest{
-		Id:             assembled.WorkspaceVolumeID,
-		RunnerId:       runnerID,
-		OrganizationId: assembled.OrganizationID,
-		SizeGb:         assembled.WorkspaceSizeGB,
-		Status:         runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
-		OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
-		OwnerId:        assembled.Request.GetAdditionalProperties()[assembler.LabelKeyPrefix+assembler.LabelSandboxID],
-	})
-	return err
+func (r *Reconciler) createSandboxVolumeRecords(ctx context.Context, assembled *assembler.SandboxAssembleResult, runnerID string) error {
+	records, err := buildVolumeRecords(assembled.PersistentVolumes)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if _, err := r.runners.CreateVolume(internalContext(ctx), &runnersv1.CreateVolumeRequest{
+			Id:                 record.id,
+			RunnerId:           runnerID,
+			OrganizationId:     assembled.OrganizationID,
+			SizeGb:             record.sizeGB,
+			Status:             runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING,
+			OwnerKind:          runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
+			OwnerId:            assembled.Request.GetAdditionalProperties()[assembler.LabelKeyPrefix+assembler.LabelSandboxID],
+			VolumeDefinitionId: &record.volumeID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
-
 func (r *Reconciler) createSandboxIdentity(ctx context.Context, sandboxID, environmentID, ownerID, workloadID uuid.UUID, organizationID string) (*identityInfo, error) {
 	if r.zitiMgmt == nil {
 		return nil, nil

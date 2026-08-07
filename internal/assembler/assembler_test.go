@@ -59,8 +59,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 			}
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
@@ -301,8 +301,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
@@ -624,8 +624,8 @@ func TestAssemblerInitImageOverride(t *testing.T) {
 		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
@@ -683,8 +683,8 @@ func TestAssemblerErrorsOnEmptyInitImage(t *testing.T) {
 		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
@@ -742,8 +742,8 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
@@ -1013,8 +1013,8 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 	}
 
@@ -1076,8 +1076,8 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
@@ -1218,8 +1218,8 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
 			return &agentsv1.ListInitScriptsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, _ *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Name: "mcp", Image: "mcp-image", Command: "run-mcp"}}}, nil
@@ -1916,8 +1916,8 @@ func newAgentEnvironmentFixture() *agentEnvironmentFixture {
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil

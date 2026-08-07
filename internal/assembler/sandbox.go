@@ -22,24 +22,23 @@ const (
 )
 
 type SandboxAssembleResult struct {
-	Request        *runnerv1.StartWorkloadRequest
-	OrganizationID string
-	EnvironmentID  uuid.UUID
-	OwnerID        uuid.UUID
-	RunnerID       string
+	PersistentVolumes []PersistentVolumeInfo
+	Request           *runnerv1.StartWorkloadRequest
+	OrganizationID    string
+	EnvironmentID     uuid.UUID
+	OwnerID           uuid.UUID
+	RunnerID          string
 	// Flavor names the catalog entry the workload is allocated from, and is
 	// what compute is billed by.
 	Flavor string
 	// GrantedImageIDs are the catalog images this sandbox may pull. The
 	// credential is minted against them once the workload id exists.
 	GrantedImageIDs        []string
-	WorkspaceVolumeID      string
-	WorkspaceSizeGB        string
 	AllocatedCPUMillicores int32
 	AllocatedRAMBytes      int64
 }
 
-func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandbox, workspaceVolumeID string) (*SandboxAssembleResult, error) {
+func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandbox) (*SandboxAssembleResult, error) {
 	if sandbox == nil {
 		return nil, fmt.Errorf("sandbox missing")
 	}
@@ -54,10 +53,6 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 	ownerID, err := uuidutil.ParseUUID(sandbox.GetOwnerId(), "sandbox.owner_id")
 	if err != nil {
 		return nil, err
-	}
-	workspaceVolumeID = strings.TrimSpace(workspaceVolumeID)
-	if workspaceVolumeID == "" {
-		return nil, fmt.Errorf("sandbox %s workspace volume id missing", sandboxID.String())
 	}
 	environment, err := a.fetchEnvironment(ctx, environmentID)
 	if err != nil {
@@ -97,6 +92,12 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		}
 	}
 
+	volumeResolver := newVolumeResolver(a.agents, sandboxID)
+	environmentMounts, err := volumeResolver.loadEnvironmentVolumes(ctx, environmentID.String())
+	if err != nil {
+		return nil, err
+	}
+
 	mainEnv := mergeEnvVars(a.baseSandboxEnvVars(sandbox, environment), environmentEnvVars, fmt.Sprintf("sandbox %s", sandboxID.String()))
 	mainEnv = appendEgressCAEnvVars(mainEnv)
 	main := &runnerv1.ContainerSpec{
@@ -105,7 +106,7 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		Cmd:              []string{agynBinBinaryPath},
 		Env:              mainEnv,
 		WorkingDir:       SandboxWorkspaceMountPath,
-		Mounts:           []*runnerv1.VolumeMount{{Volume: sandboxWorkspaceVolumeName, MountPath: SandboxWorkspaceMountPath}, {Volume: agynBinVolumeName, MountPath: agynBinMountPath}},
+		Mounts:           append(environmentMounts, &runnerv1.VolumeMount{Volume: agynBinVolumeName, MountPath: agynBinMountPath}),
 		InlineFileMounts: egressCAInlineFileMounts(a.egressCACert),
 	}
 	// The two platform init containers go into a sandbox too, which is what
@@ -125,24 +126,10 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		}
 		initContainers = append(initContainers, legacy)
 	}
-	volumes := []*runnerv1.VolumeSpec{
-		{
-			Name:           sandboxWorkspaceVolumeName,
-			Kind:           runnerv1.VolumeKind_VOLUME_KIND_NAMED,
-			PersistentName: sandboxWorkspacePersistentName(sandboxID),
-			Labels: map[string]string{
-				LabelManagedBy:      ManagedByValue,
-				LabelSandboxID:      sandboxID.String(),
-				LabelSandboxOwnerID: ownerID.String(),
-				LabelEnvironmentID:  environmentID.String(),
-				LabelVolumeKey:      workspaceVolumeID,
-			},
-		},
-		{
-			Name: agynBinVolumeName,
-			Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL,
-		},
-	}
+	volumes := append(volumeResolver.Specs(), &runnerv1.VolumeSpec{
+		Name: agynBinVolumeName,
+		Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL,
+	})
 	if a.cfg.ZitiEnabled {
 		if _, err := gatewayHost(a.cfg.AgentGatewayAddress); err != nil {
 			return nil, err
@@ -209,7 +196,12 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 			Searches:    []string{zitiDNSSearchService, zitiDNSSearchCluster},
 		}
 	}
+	persistentVolumes, err := volumeResolver.PersistentVolumes()
+	if err != nil {
+		return nil, err
+	}
 	return &SandboxAssembleResult{
+		PersistentVolumes:      persistentVolumes,
 		Request:                request,
 		OrganizationID:         sandbox.GetOrganizationId(),
 		EnvironmentID:          environmentID,
@@ -217,8 +209,6 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		RunnerID:               flavor.GetRunnerId(),
 		Flavor:                 flavor.GetName(),
 		GrantedImageIDs:        rewriter.GrantedImageIDs(),
-		WorkspaceVolumeID:      workspaceVolumeID,
-		WorkspaceSizeGB:        a.cfg.SandboxWorkspaceSizeGB,
 		AllocatedCPUMillicores: allocatedCPU,
 		AllocatedRAMBytes:      allocatedRAM,
 	}, nil
