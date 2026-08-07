@@ -20,33 +20,33 @@ import (
 )
 
 const (
-	listPageSize                              int32 = 100
-	rpcTimeout                                      = 10 * time.Second
-	agynBinVolumeName                               = "agyn-bin"
+	listPageSize      int32 = 100
+	rpcTimeout              = 10 * time.Second
+	agynBinVolumeName       = "agyn-bin"
 	// The volume is the whole /agyn tree: binaries under bin/, and the agent
 	// runtime's config.json beside it rather than among them.
-	agynBinMountPath                                = "/agyn"
-	agynBinBinaryPath                               = "/agyn/bin/agynd"
-	mcpBasePort                                     = 8100
-	mcpResolverOptions                              = "attempts:1 timeout:1 no-aaaa"
-	mcpNodeOptions                                  = "--dns-result-order=ipv4first"
-	ZitiEnrollContainerName                         = "ziti-enroll"
-	ZitiSidecarContainerName                        = "ziti-sidecar"
-	zitiIdentityVolumeName                          = "ziti-identity"
-	zitiIdentityMountPath                           = "/netfoundry"
-	ZitiIdentityBasename                            = "agent"
-	ZitiEnrollmentTokenEnvVar                       = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar                      = "ZITI_IDENTITY_BASENAME"
-	ZitiIdentityDirEnvVar                           = "ZITI_IDENTITY_DIR"
-	ZitiEnrollmentControllerResolveHostEnvVar       = "ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST"
-	ZitiEnrollmentControllerPortEnvVar              = "ZITI_ENROLLMENT_CONTROLLER_PORT"
-	egressCACertPath                                = "/etc/agyn/egress-ca/ca.crt"
-	egressCACertDir                                 = "/etc/agyn/egress-ca"
-	zitiDNSNameserver                               = "127.0.0.1"
-	zitiEnrollEntrypoint                            = "/usr/bin/bash"
-	zitiSidecarEntrypoint                           = "/usr/bin/bash"
-	zitiSidecarServicePollRate                      = "1"
-	zitiEnrollScript                                = `workload_dns_upstream="$1"
+	agynBinMountPath                          = "/agyn"
+	agynBinBinaryPath                         = "/agyn/bin/agynd"
+	mcpBasePort                               = 8100
+	mcpResolverOptions                        = "attempts:1 timeout:1 no-aaaa"
+	mcpNodeOptions                            = "--dns-result-order=ipv4first"
+	ZitiEnrollContainerName                   = "ziti-enroll"
+	ZitiSidecarContainerName                  = "ziti-sidecar"
+	zitiIdentityVolumeName                    = "ziti-identity"
+	zitiIdentityMountPath                     = "/netfoundry"
+	ZitiIdentityBasename                      = "agent"
+	ZitiEnrollmentTokenEnvVar                 = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar                = "ZITI_IDENTITY_BASENAME"
+	ZitiIdentityDirEnvVar                     = "ZITI_IDENTITY_DIR"
+	ZitiEnrollmentControllerResolveHostEnvVar = "ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST"
+	ZitiEnrollmentControllerPortEnvVar        = "ZITI_ENROLLMENT_CONTROLLER_PORT"
+	egressCACertPath                          = "/etc/agyn/egress-ca/ca.crt"
+	egressCACertDir                           = "/etc/agyn/egress-ca"
+	zitiDNSNameserver                         = "127.0.0.1"
+	zitiEnrollEntrypoint                      = "/usr/bin/bash"
+	zitiSidecarEntrypoint                     = "/usr/bin/bash"
+	zitiSidecarServicePollRate                = "1"
+	zitiEnrollScript                          = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
 enrollment_controller_resolve_host="$3"
 enrollment_controller_port_override="$4"
@@ -461,13 +461,22 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 	if environment != nil {
 		environmentID := environment.GetMeta().GetId()
 		mainImage = environment.GetImage()
-		if rewriter.enabled() && environment.GetWorkspaceImageId() != "" {
+		// See sandbox assembly: a catalog reference resolves only through the
+		// Image Proxy, so an unconfigured proxy is a broken deployment rather
+		// than a mode in which the reference is ignored.
+		if environment.GetWorkspaceImageId() != "" {
+			if !rewriter.enabled() {
+				return nil, fmt.Errorf("environment %s names a workspace image but the image proxy is not configured", environmentID)
+			}
 			mainImage, err = rewriter.Rewrite(ctx, environment.GetWorkspaceImageId(), environment.GetWorkspaceImageTag())
 			if err != nil {
 				return nil, fmt.Errorf("environment %s workspace image: %w", environmentID, err)
 			}
 		}
-		if rewriter.enabled() && environment.GetAgentRuntimeImageId() != "" {
+		if environment.GetAgentRuntimeImageId() != "" {
+			if !rewriter.enabled() {
+				return nil, fmt.Errorf("environment %s names an agent runtime image but the image proxy is not configured", environmentID)
+			}
 			agentRuntimeImage, err = rewriter.Rewrite(ctx, environment.GetAgentRuntimeImageId(), environment.GetAgentRuntimeImageTag())
 			if err != nil {
 				return nil, fmt.Errorf("environment %s agent runtime image: %w", environmentID, err)

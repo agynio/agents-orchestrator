@@ -129,6 +129,32 @@ func (f *sandboxFixture) assemble(t *testing.T) *SandboxAssembleResult {
 	return result
 }
 
+// The environment's agent runtime was only read when the Image Proxy happened
+// to be configured, so an unconfigured proxy silently produced a sandbox with
+// no agent CLI -- /agyn/bin held agyn and agynd and nothing else.
+func TestAssembleSandboxFailsWhenImageProxyIsUnconfigured(t *testing.T) {
+	fixture := newSandboxFixture()
+	previous := fixture.agents.GetEnvironmentFunc
+	fixture.agents.GetEnvironmentFunc = func(ctx context.Context, req *agentsv1.GetEnvironmentRequest, opts ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+		resp, err := previous(ctx, req, opts...)
+		if err != nil {
+			return nil, err
+		}
+		resp.Environment.AgentRuntimeImageId = uuid.NewString()
+		resp.Environment.AgentRuntimeImageTag = "1.0.0"
+		return resp, nil
+	}
+
+	assembler := NewWithRunnersAndEgressCA(fixture.agents, fixture.runners, fixture.secrets, fixture.cfg, fixture.egressCACert)
+	_, err := assembler.AssembleSandbox(context.Background(), fixture.sandbox, fixture.workspaceVolumeID)
+	if err == nil {
+		t.Fatal("expected assembly to fail when the environment names a runtime image the proxy cannot resolve")
+	}
+	if !strings.Contains(err.Error(), "image proxy is not configured") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestAssembleSandboxUsesEnvironmentImageAndFlavor(t *testing.T) {
 	fixture := newSandboxFixture()
 	result := fixture.assemble(t)
