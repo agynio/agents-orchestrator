@@ -382,6 +382,10 @@ type AssembleResult struct {
 	// Empty for an agent without an environment, which is still placed by
 	// labels and capabilities.
 	RunnerID string
+	// EnvironmentID is recorded on the workload's OpenZiti identity, so a
+	// data-plane service can resolve what the workload runs from the
+	// connection. Empty for an agent still on the deprecated inline image.
+	EnvironmentID string
 	// GrantedImageIDs are the catalog images this workload may pull. The
 	// pull credential is minted against them once the workload id exists,
 	// which is after assembly.
@@ -652,6 +656,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		GrantedImageIDs:        rewriter.GrantedImageIDs(),
 		RunnerLabels:           runnerLabels,
 		RunnerID:               flavor.GetRunnerId(),
+		EnvironmentID:          agent.GetEnvironmentId(),
 		Flavor:                 flavor.GetName(),
 		PersistentVolumes:      persistentVolumes,
 		AllocatedCPUMillicores: allocatedCPU,

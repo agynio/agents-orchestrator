@@ -56,6 +56,10 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 			if req.GetAgentId() != threadID.String() {
 				return nil, errors.New("unexpected agent instance id")
 			}
+			// The class rides alongside the instance the identity resolves to.
+			if req.GetAgentClassId() != agentID.String() {
+				return nil, errors.New("unexpected agent class id")
+			}
 			workloadID = req.GetWorkloadId()
 			if workloadID == "" {
 				return nil, errors.New("missing workload id")
