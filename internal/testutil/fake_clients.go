@@ -19,9 +19,9 @@ type FakeAgentsClient struct {
 	ListSkillsFunc                func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
 	ListEnvsFunc                  func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
 	ListInitScriptsFunc           func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
-	ListVolumeAttachmentsFunc     func(context.Context, *agentsv1.ListVolumeAttachmentsRequest, ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error)
-	ListMcpsFunc                  func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
+	ListVolumesFunc               func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error)
 	GetVolumeFunc                 func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
+	ListMcpsFunc                  func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
 	GetSandboxFunc                func(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error)
 	ListSandboxesFunc             func(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
 	UpdateSandboxRuntimeStateFunc func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)
@@ -200,13 +200,6 @@ func (f *FakeAgentsClient) CreateVolume(context.Context, *agentsv1.CreateVolumeR
 	return nil, ErrNotImplemented
 }
 
-func (f *FakeAgentsClient) GetVolume(ctx context.Context, req *agentsv1.GetVolumeRequest, opts ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
-	if f.GetVolumeFunc != nil {
-		return f.GetVolumeFunc(ctx, req, opts...)
-	}
-	return nil, ErrNotImplemented
-}
-
 func (f *FakeAgentsClient) UpdateVolume(context.Context, *agentsv1.UpdateVolumeRequest, ...grpc.CallOption) (*agentsv1.UpdateVolumeResponse, error) {
 	return nil, ErrNotImplemented
 }
@@ -215,8 +208,20 @@ func (f *FakeAgentsClient) DeleteVolume(context.Context, *agentsv1.DeleteVolumeR
 	return nil, ErrNotImplemented
 }
 
-func (f *FakeAgentsClient) ListVolumes(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
-	return nil, ErrNotImplemented
+// An environment or MCP declaring no volumes is the ordinary case, so an unset
+// hook reports none rather than refusing.
+func (f *FakeAgentsClient) ListVolumes(ctx context.Context, req *agentsv1.ListVolumesRequest, opts ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+	if f.ListVolumesFunc != nil {
+		return f.ListVolumesFunc(ctx, req, opts...)
+	}
+	return &agentsv1.ListVolumesResponse{}, nil
+}
+
+func (f *FakeAgentsClient) GetVolume(ctx context.Context, req *agentsv1.GetVolumeRequest, opts ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
+	if f.GetVolumeFunc != nil {
+		return f.GetVolumeFunc(ctx, req, opts...)
+	}
+	return &agentsv1.GetVolumeResponse{Volume: &agentsv1.Volume{Meta: &agentsv1.EntityMeta{Id: req.GetId()}}}, nil
 }
 
 func (f *FakeAgentsClient) CreateVolumeAttachment(context.Context, *agentsv1.CreateVolumeAttachmentRequest, ...grpc.CallOption) (*agentsv1.CreateVolumeAttachmentResponse, error) {
@@ -228,13 +233,6 @@ func (f *FakeAgentsClient) GetVolumeAttachment(context.Context, *agentsv1.GetVol
 }
 
 func (f *FakeAgentsClient) DeleteVolumeAttachment(context.Context, *agentsv1.DeleteVolumeAttachmentRequest, ...grpc.CallOption) (*agentsv1.DeleteVolumeAttachmentResponse, error) {
-	return nil, ErrNotImplemented
-}
-
-func (f *FakeAgentsClient) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVolumeAttachmentsRequest, opts ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-	if f.ListVolumeAttachmentsFunc != nil {
-		return f.ListVolumeAttachmentsFunc(ctx, req, opts...)
-	}
 	return nil, ErrNotImplemented
 }
 

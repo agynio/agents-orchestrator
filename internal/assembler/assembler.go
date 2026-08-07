@@ -20,33 +20,33 @@ import (
 )
 
 const (
-	listPageSize                              int32 = 100
-	rpcTimeout                                      = 10 * time.Second
-	agynBinVolumeName                               = "agyn-bin"
+	listPageSize      int32 = 100
+	rpcTimeout              = 10 * time.Second
+	agynBinVolumeName       = "agyn-bin"
 	// The volume is the whole /agyn tree: binaries under bin/, and the agent
 	// runtime's config.json beside it rather than among them.
-	agynBinMountPath                                = "/agyn"
-	agynBinBinaryPath                               = "/agyn/bin/agynd"
-	mcpBasePort                                     = 8100
-	mcpResolverOptions                              = "attempts:1 timeout:1 no-aaaa"
-	mcpNodeOptions                                  = "--dns-result-order=ipv4first"
-	ZitiEnrollContainerName                         = "ziti-enroll"
-	ZitiSidecarContainerName                        = "ziti-sidecar"
-	zitiIdentityVolumeName                          = "ziti-identity"
-	zitiIdentityMountPath                           = "/netfoundry"
-	ZitiIdentityBasename                            = "agent"
-	ZitiEnrollmentTokenEnvVar                       = "ZITI_ENROLL_TOKEN"
-	ZitiIdentityBasenameEnvVar                      = "ZITI_IDENTITY_BASENAME"
-	ZitiIdentityDirEnvVar                           = "ZITI_IDENTITY_DIR"
-	ZitiEnrollmentControllerResolveHostEnvVar       = "ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST"
-	ZitiEnrollmentControllerPortEnvVar              = "ZITI_ENROLLMENT_CONTROLLER_PORT"
-	egressCACertPath                                = "/etc/agyn/egress-ca/ca.crt"
-	egressCACertDir                                 = "/etc/agyn/egress-ca"
-	zitiDNSNameserver                               = "127.0.0.1"
-	zitiEnrollEntrypoint                            = "/usr/bin/bash"
-	zitiSidecarEntrypoint                           = "/usr/bin/bash"
-	zitiSidecarServicePollRate                      = "1"
-	zitiEnrollScript                                = `workload_dns_upstream="$1"
+	agynBinMountPath                          = "/agyn"
+	agynBinBinaryPath                         = "/agyn/bin/agynd"
+	mcpBasePort                               = 8100
+	mcpResolverOptions                        = "attempts:1 timeout:1 no-aaaa"
+	mcpNodeOptions                            = "--dns-result-order=ipv4first"
+	ZitiEnrollContainerName                   = "ziti-enroll"
+	ZitiSidecarContainerName                  = "ziti-sidecar"
+	zitiIdentityVolumeName                    = "ziti-identity"
+	zitiIdentityMountPath                     = "/netfoundry"
+	ZitiIdentityBasename                      = "agent"
+	ZitiEnrollmentTokenEnvVar                 = "ZITI_ENROLL_TOKEN"
+	ZitiIdentityBasenameEnvVar                = "ZITI_IDENTITY_BASENAME"
+	ZitiIdentityDirEnvVar                     = "ZITI_IDENTITY_DIR"
+	ZitiEnrollmentControllerResolveHostEnvVar = "ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST"
+	ZitiEnrollmentControllerPortEnvVar        = "ZITI_ENROLLMENT_CONTROLLER_PORT"
+	egressCACertPath                          = "/etc/agyn/egress-ca/ca.crt"
+	egressCACertDir                           = "/etc/agyn/egress-ca"
+	zitiDNSNameserver                         = "127.0.0.1"
+	zitiEnrollEntrypoint                      = "/usr/bin/bash"
+	zitiSidecarEntrypoint                     = "/usr/bin/bash"
+	zitiSidecarServicePollRate                = "1"
+	zitiEnrollScript                          = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
 enrollment_controller_resolve_host="$3"
 enrollment_controller_port_override="$4"
@@ -324,6 +324,7 @@ exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svc
 
 var reservedEnvNames = map[string]struct{}{
 	"AGENT_ID":                     {},
+	"ENVIRONMENT_ID":               {},
 	"AGENT_INSTANCE_ID":            {},
 	"AGENT_NAME":                   {},
 	"AGENT_ROLE":                   {},
@@ -444,13 +445,14 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		return nil, fmt.Errorf("resolve agent envs: %w", err)
 	}
 
-	agentAttachments, err := a.listVolumeAttachments(ctx, &agentsv1.ListVolumeAttachmentsRequest{AgentId: agentID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("list agent volume attachments: %w", err)
-	}
-	agentMounts, err := volumeResolver.mountsFor(ctx, agentAttachments)
-	if err != nil {
-		return nil, fmt.Errorf("resolve agent mounts: %w", err)
+	// Volumes belong to the environment. An agent declares none of its own, so
+	// an agent without an environment gets no mounts beyond the platform's.
+	var agentMounts []*runnerv1.VolumeMount
+	if environment != nil {
+		agentMounts, err = volumeResolver.loadEnvironmentVolumes(ctx, environment.GetMeta().GetId())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	mainImage := agent.GetImage()
@@ -800,37 +802,6 @@ func (a *Assembler) listEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest)
 	}
 }
 
-func (a *Assembler) listVolumeAttachments(ctx context.Context, req *agentsv1.ListVolumeAttachmentsRequest) ([]*agentsv1.VolumeAttachment, error) {
-	resp := []*agentsv1.VolumeAttachment{}
-	token := ""
-	for {
-		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-		page, err := a.agents.ListVolumeAttachments(rctx, &agentsv1.ListVolumeAttachmentsRequest{
-			VolumeId:  req.GetVolumeId(),
-			AgentId:   req.GetAgentId(),
-			McpId:     req.GetMcpId(),
-			PageSize:  listPageSize,
-			PageToken: token,
-		})
-		cancel()
-		if err != nil {
-			return nil, err
-		}
-		resp = append(resp, page.GetVolumeAttachments()...)
-		token = page.GetNextPageToken()
-		if token == "" {
-			return resp, nil
-		}
-	}
-}
-
-type mcpAssignment struct {
-	mcp  *agentsv1.Mcp
-	id   string
-	name string
-	port int
-}
-
 func assignMcpPorts(mcps []*agentsv1.Mcp) ([]mcpAssignment, error) {
 	assignments := make([]mcpAssignment, 0, len(mcps))
 	for _, mcp := range mcps {
@@ -877,7 +848,7 @@ func (a *Assembler) buildMcpSidecar(ctx context.Context, resolver *envResolver, 
 		resolver,
 		volumeResolver,
 		&agentsv1.ListEnvsRequest{McpId: mcpID.String()},
-		&agentsv1.ListVolumeAttachmentsRequest{McpId: mcpID.String()},
+		mcp,
 	)
 	if err != nil {
 		return nil, err
@@ -1077,6 +1048,7 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstan
 	vars := []*runnerv1.EnvVar{
 		{Name: "AGENT_INSTANCE_ID", Value: agentInstanceID.String()},
 		{Name: "AGENT_ID", Value: agentID.String()},
+		{Name: "ENVIRONMENT_ID", Value: agent.GetEnvironmentId()},
 		{Name: "AGENT_NAME", Value: agent.GetName()},
 		{Name: "AGENT_ROLE", Value: agent.GetRole()},
 		{Name: "AGENT_MODEL", Value: agent.GetModel()},
@@ -1101,44 +1073,120 @@ func (a *Assembler) baseAgentEnvVars(agent *agentsv1.Agent, agentID, agentInstan
 }
 
 type volumeResolver struct {
-	agents          agentsClient
-	agentInstanceID uuid.UUID
-	cache           map[string]*agentsv1.Volume
-	specs           map[string]*runnerv1.VolumeSpec
+	agents  agentsClient
+	ownerID uuid.UUID
+	specs   map[string]*runnerv1.VolumeSpec
+	cache   map[string]*agentsv1.Volume
+	// environmentByName is the environment's own volumes, which an MCP names in
+	// shared_volumes. Names are unique within an environment and deliberately
+	// reusable across them, so resolution is late and by name.
+	environmentByName map[string]*agentsv1.Volume
 }
 
-func newVolumeResolver(agents agentsClient, agentInstanceID uuid.UUID) *volumeResolver {
+func newVolumeResolver(agents agentsClient, ownerID uuid.UUID) *volumeResolver {
 	return &volumeResolver{
-		agents:          agents,
-		agentInstanceID: agentInstanceID,
-		cache:           map[string]*agentsv1.Volume{},
-		specs:           map[string]*runnerv1.VolumeSpec{},
+		agents:            agents,
+		ownerID:           ownerID,
+		specs:             map[string]*runnerv1.VolumeSpec{},
+		cache:             map[string]*agentsv1.Volume{},
+		environmentByName: map[string]*agentsv1.Volume{},
 	}
 }
 
-func (v *volumeResolver) mountsFor(ctx context.Context, attachments []*agentsv1.VolumeAttachment) ([]*runnerv1.VolumeMount, error) {
-	mounts := make([]*runnerv1.VolumeMount, 0, len(attachments))
-	for _, attachment := range attachments {
-		if attachment == nil {
-			return nil, fmt.Errorf("volume attachment is nil")
-		}
-		volumeIDRaw := attachment.GetVolumeId()
-		volumeID, err := uuidutil.ParseUUID(volumeIDRaw, "volume_attachment.volume_id")
+// loadEnvironmentVolumes reads the volumes an environment declares. They mount
+// into the main container of every workload running it, agent or sandbox.
+func (v *volumeResolver) loadEnvironmentVolumes(ctx context.Context, environmentID string) ([]*runnerv1.VolumeMount, error) {
+	volumes, err := v.listVolumes(ctx, &agentsv1.ListVolumesRequest{EnvironmentId: environmentID})
+	if err != nil {
+		return nil, fmt.Errorf("list environment volumes: %w", err)
+	}
+	mounts := make([]*runnerv1.VolumeMount, 0, len(volumes))
+	for _, volume := range volumes {
+		mount, err := v.mountFor(volume)
 		if err != nil {
 			return nil, err
 		}
-		volume, err := v.getVolume(ctx, volumeID)
-		if err != nil {
-			return nil, err
-		}
-		mountPath := volume.GetMountPath()
-		if mountPath == "" {
-			return nil, fmt.Errorf("volume %s mount_path is empty", volumeID.String())
-		}
-		spec := v.ensureSpec(volumeID, volume)
-		mounts = append(mounts, &runnerv1.VolumeMount{Volume: spec.Name, MountPath: mountPath})
+		v.environmentByName[volume.GetName()] = volume
+		mounts = append(mounts, mount)
 	}
 	return mounts, nil
+}
+
+// mountsForMcp is the sidecar's own volumes plus the environment volumes it
+// shares, at the same paths the main container sees them. A shared name that
+// does not resolve, or a path colliding with one of its own, fails scheduling:
+// a sidecar silently missing the files it was configured to read is worse.
+func (v *volumeResolver) mountsForMcp(ctx context.Context, mcp *agentsv1.Mcp) ([]*runnerv1.VolumeMount, error) {
+	own, err := v.listVolumes(ctx, &agentsv1.ListVolumesRequest{McpId: mcp.GetMeta().GetId()})
+	if err != nil {
+		return nil, fmt.Errorf("list mcp volumes: %w", err)
+	}
+	mounts := make([]*runnerv1.VolumeMount, 0, len(own)+len(mcp.GetSharedVolumes()))
+	paths := map[string]string{}
+	for _, volume := range own {
+		mount, err := v.mountFor(volume)
+		if err != nil {
+			return nil, err
+		}
+		paths[mount.MountPath] = volume.GetName()
+		mounts = append(mounts, mount)
+	}
+	for _, name := range mcp.GetSharedVolumes() {
+		shared, ok := v.environmentByName[name]
+		if !ok {
+			return nil, fmt.Errorf("mcp %s shares volume %q, which the environment does not declare", mcp.GetName(), name)
+		}
+		mount, err := v.mountFor(shared)
+		if err != nil {
+			return nil, err
+		}
+		if other, clash := paths[mount.MountPath]; clash {
+			return nil, fmt.Errorf("mcp %s mounts %q at %s and shares %q at the same path", mcp.GetName(), other, mount.MountPath, name)
+		}
+		paths[mount.MountPath] = name
+		mounts = append(mounts, mount)
+	}
+	return mounts, nil
+}
+
+func (v *volumeResolver) listVolumes(ctx context.Context, req *agentsv1.ListVolumesRequest) ([]*agentsv1.Volume, error) {
+	volumes := []*agentsv1.Volume{}
+	pageToken := ""
+	for {
+		rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		page, err := v.agents.ListVolumes(rctx, &agentsv1.ListVolumesRequest{
+			EnvironmentId: req.GetEnvironmentId(),
+			McpId:         req.GetMcpId(),
+			PageSize:      listPageSize,
+			PageToken:     pageToken,
+		})
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		volumes = append(volumes, page.GetVolumes()...)
+		pageToken = page.GetNextPageToken()
+		if pageToken == "" {
+			return volumes, nil
+		}
+	}
+}
+
+func (v *volumeResolver) mountFor(volume *agentsv1.Volume) (*runnerv1.VolumeMount, error) {
+	if volume == nil {
+		return nil, fmt.Errorf("volume is nil")
+	}
+	mountPath := volume.GetMountPath()
+	if mountPath == "" {
+		return nil, fmt.Errorf("volume %s mount_path is empty", volume.GetMeta().GetId())
+	}
+	volumeID, err := uuidutil.ParseUUID(volume.GetMeta().GetId(), "volume.id")
+	if err != nil {
+		return nil, err
+	}
+	v.cache[volumeID.String()] = volume
+	spec := v.ensureSpec(volumeID, volume)
+	return &runnerv1.VolumeMount{Volume: spec.Name, MountPath: mountPath}, nil
 }
 
 func (v *volumeResolver) Specs() []*runnerv1.VolumeSpec {
@@ -1173,32 +1221,20 @@ func (v *volumeResolver) PersistentVolumes() ([]PersistentVolumeInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		volumes = append(volumes, PersistentVolumeInfo{ID: parsedID, AgentInstanceID: v.agentInstanceID, Volume: volume, Spec: spec})
+		volumes = append(volumes, PersistentVolumeInfo{ID: parsedID, AgentInstanceID: v.ownerID, Volume: volume, Spec: spec})
 	}
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].ID.String() < volumes[j].ID.String() })
 	return volumes, nil
 }
 
-func (v *volumeResolver) getVolume(ctx context.Context, volumeID uuid.UUID) (*agentsv1.Volume, error) {
-	key := volumeID.String()
-	if cached, ok := v.cache[key]; ok {
-		return cached, nil
-	}
-	rctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-	resp, err := v.agents.GetVolume(rctx, &agentsv1.GetVolumeRequest{Id: key})
-	cancel()
-	if err != nil {
-		return nil, fmt.Errorf("get volume %s: %w", key, err)
-	}
-	volume := resp.GetVolume()
-	if volume == nil {
-		return nil, fmt.Errorf("volume %s missing", key)
-	}
-	v.cache[key] = volume
-	return volume, nil
+type mcpAssignment struct {
+	mcp  *agentsv1.Mcp
+	id   string
+	name string
+	port int
 }
 
-func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, envReq *agentsv1.ListEnvsRequest, attachmentReq *agentsv1.ListVolumeAttachmentsRequest) ([]*runnerv1.EnvVar, []*runnerv1.VolumeMount, error) {
+func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envResolver, volumeResolver *volumeResolver, envReq *agentsv1.ListEnvsRequest, mcp *agentsv1.Mcp) ([]*runnerv1.EnvVar, []*runnerv1.VolumeMount, error) {
 	vars, err := a.listEnvs(ctx, envReq)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list sidecar envs: %w", err)
@@ -1207,11 +1243,7 @@ func (a *Assembler) resolveSidecarResources(ctx context.Context, resolver *envRe
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve sidecar envs: %w", err)
 	}
-	attachments, err := a.listVolumeAttachments(ctx, attachmentReq)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list sidecar volume attachments: %w", err)
-	}
-	mounts, err := volumeResolver.mountsFor(ctx, attachments)
+	mounts, err := volumeResolver.mountsForMcp(ctx, mcp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve sidecar mounts: %w", err)
 	}
@@ -1230,7 +1262,7 @@ func (v *volumeResolver) ensureSpec(volumeID uuid.UUID, volume *agentsv1.Volume)
 	}
 	if volume.GetPersistent() {
 		spec.Kind = runnerv1.VolumeKind_VOLUME_KIND_NAMED
-		instancePrefix := v.agentInstanceID.String()[:12]
+		instancePrefix := v.ownerID.String()[:12]
 		volumePrefix := key[:12]
 		spec.PersistentName = fmt.Sprintf("pv-%s-%s", instancePrefix, volumePrefix)
 	}
