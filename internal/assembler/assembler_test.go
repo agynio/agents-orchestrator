@@ -918,6 +918,115 @@ func TestSharedVolumesMountTheEnvironmentVolumeIntoTheSidecar(t *testing.T) {
 	}
 }
 
+// The same claim on a fully assembled pod rather than the resolver alone: one
+// volume declared once, reaching both containers at one path.
+func TestSharedVolumeReachesBothContainersOfTheAssembledPod(t *testing.T) {
+	ctx := context.Background()
+	agentID := uuid.New()
+	threadID := uuid.New()
+	environmentID := uuid.New()
+	mcpID := uuid.New()
+	volumeID := uuid.New()
+
+	agentsClient := &testutil.FakeAgentsClient{
+		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
+			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{
+				Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+				OrganizationId: "org-1",
+				Image:          "agent-image",
+				InitImage:      "agent-init-image",
+				EnvironmentId:  environmentID.String(),
+			}}, nil
+		},
+		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+			if req.GetId() != environmentID.String() {
+				return nil, errors.New("unexpected environment id")
+			}
+			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{
+				Meta:           &agentsv1.EntityMeta{Id: environmentID.String()},
+				OrganizationId: "org-1",
+				Name:           "shared-runtime",
+				Image:          "environment-image",
+				RunnerId:       testAgentEnvironmentRunnerID,
+				Flavor:         testAgentEnvironmentFlavor,
+			}}, nil
+		},
+		ListSkillsFunc: func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
+			return &agentsv1.ListSkillsResponse{}, nil
+		},
+		ListMcpsFunc: func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
+			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{{
+				Meta:          &agentsv1.EntityMeta{Id: mcpID.String()},
+				Name:          "files",
+				Image:         "mcp-image",
+				Command:       "run-mcp",
+				SharedVolumes: []string{"workspace"},
+			}}}, nil
+		},
+		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
+			return &agentsv1.ListEnvsResponse{}, nil
+		},
+		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			if req.GetEnvironmentId() == environmentID.String() {
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{{
+					Meta:       &agentsv1.EntityMeta{Id: volumeID.String()},
+					Name:       "workspace",
+					MountPath:  "/workspace",
+					Persistent: true,
+					Size:       "1Gi",
+				}}}, nil
+			}
+			return &agentsv1.ListVolumesResponse{}, nil
+		},
+	}
+
+	runnersClient := &fakeRunnersClient{
+		listFlavors: func(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{{
+				RunnerId:  testAgentEnvironmentRunnerID,
+				Name:      testAgentEnvironmentFlavor,
+				Default:   true,
+				Resources: &runnersv1.ComputeResources{RequestsCpu: "500m", RequestsMemory: "1Gi"},
+			}}}, nil
+		},
+	}
+	assembler := NewWithRunners(agentsClient, runnersClient, &testutil.FakeSecretsClient{}, &config.Config{
+		AgentGatewayAddress: "gateway:50051",
+		AgentLLMBaseURL:     "http://llm:8080/v1",
+	})
+	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+
+	expectedName := "vol-" + volumeID.String()[:8]
+	mainMount := findVolumeMount(result.Request.GetMain(), expectedName)
+	if mainMount == nil {
+		t.Fatalf("expected the main container to mount %q, got %+v", expectedName, result.Request.GetMain().GetMounts())
+	}
+	if len(result.Request.GetSidecars()) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(result.Request.GetSidecars()))
+	}
+	sidecarMount := findVolumeMount(result.Request.GetSidecars()[0], expectedName)
+	if sidecarMount == nil {
+		t.Fatalf("expected the sidecar to mount %q, got %+v", expectedName, result.Request.GetSidecars()[0].GetMounts())
+	}
+	if mainMount.MountPath != sidecarMount.MountPath {
+		t.Fatalf("expected one path in both containers, got %q and %q", mainMount.MountPath, sidecarMount.MountPath)
+	}
+
+	// Declared once: a second spec would be a second PVC holding different bytes.
+	matching := 0
+	for _, spec := range result.Request.GetVolumes() {
+		if spec.GetName() == expectedName {
+			matching++
+		}
+	}
+	if matching != 1 {
+		t.Fatalf("expected the shared volume declared once, got %d specs", matching)
+	}
+}
+
 // A share the environment does not declare fails scheduling rather than leaving
 // a sidecar silently missing the files it was configured to read.
 func TestSharedVolumesRejectAnUnresolvableName(t *testing.T) {
