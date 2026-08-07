@@ -13,6 +13,7 @@ import (
 	groupsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/groups/v1"
 	imageproxyv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/image_proxy/v1"
 	imagesv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/images/v1"
+	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	meteringv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/metering/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
 	organizationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/organizations/v1"
@@ -86,6 +87,12 @@ func run() error {
 		return fmt.Errorf("dial secrets: %w", err)
 	}
 	defer closeConn(secretsConn)
+
+	llmConn, err := grpc.DialContext(ctx, cfg.LLMAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("dial llm: %w", err)
+	}
+	defer closeConn(llmConn)
 
 	runnersConn, err := grpc.NewClient(cfg.RunnersAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -169,7 +176,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	assembledWorkloads := assembler.NewWithRunnersAndEgressCA(agentsClient, runnersClient, secretsClient, &cfg, egressCACert)
+	assembledWorkloads := assembler.NewWithRunnersAndEgressCA(agentsClient, runnersClient, secretsClient, &cfg, egressCACert).
+		WithLLM(llmv1.NewLLMServiceClient(llmConn))
 
 	// The catalog path is optional: without it, references stay as the agents
 	// service stored them and no credential is minted, which is the

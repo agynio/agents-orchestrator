@@ -325,7 +325,7 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 	} else if len(credentials) > 0 {
 		request.ImagePullCredentials = credentials
 	}
-	identity, err := r.createSandboxIdentity(ctx, plan.sandboxID, assembled.EnvironmentID, assembled.OwnerID, uuid.MustParse(workloadID), assembled.OrganizationID)
+	identity, err := r.createSandboxIdentity(ctx, plan.sandboxID, assembled.EnvironmentID, assembled.OwnerID, uuid.MustParse(workloadID), assembled.OrganizationID, assembled.LLMRoleAttributes)
 	if err != nil {
 		return err
 	}
@@ -502,16 +502,17 @@ func (r *Reconciler) createSandboxVolumeRecords(ctx context.Context, assembled *
 	}
 	return nil
 }
-func (r *Reconciler) createSandboxIdentity(ctx context.Context, sandboxID, environmentID, ownerID, workloadID uuid.UUID, organizationID string) (*identityInfo, error) {
+func (r *Reconciler) createSandboxIdentity(ctx context.Context, sandboxID, environmentID, ownerID, workloadID uuid.UUID, organizationID string, llmRoleAttributes []string) (*identityInfo, error) {
 	if r.zitiMgmt == nil {
 		return nil, nil
 	}
 	resp, err := r.zitiMgmt.CreateSandboxIdentity(ctx, &zitimgmtv1.CreateSandboxIdentityRequest{
-		SandboxId:      sandboxID.String(),
-		OwnerId:        ownerID.String(),
-		EnvironmentId:  environmentID.String(),
-		OrganizationId: organizationID,
-		WorkloadId:     workloadID.String(),
+		SandboxId:                sandboxID.String(),
+		OwnerId:                  ownerID.String(),
+		EnvironmentId:            environmentID.String(),
+		OrganizationId:           organizationID,
+		WorkloadId:               workloadID.String(),
+		AdditionalRoleAttributes: llmRoleAttributes,
 		Tags: map[string]string{
 			"agyn.sandbox.id":       sandboxID.String(),
 			"agyn.sandbox.owner_id": ownerID.String(),

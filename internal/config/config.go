@@ -15,6 +15,7 @@ type Config struct {
 	NotificationsAddress                string
 	AgentsAddress                       string
 	SecretsAddress                      string
+	LLMAddress                          string
 	RunnerAddress                       string
 	RunnersAddress                      string
 	MeteringServiceAddress              string
@@ -76,6 +77,10 @@ func FromEnv() (Config, error) {
 	cfg.AgentsAddress = os.Getenv("AGENTS_ADDRESS")
 	if cfg.AgentsAddress == "" {
 		cfg.AgentsAddress = "agents:50051"
+	}
+	cfg.LLMAddress = os.Getenv("LLM_SERVICE_ADDRESS")
+	if cfg.LLMAddress == "" {
+		cfg.LLMAddress = "llm:50051"
 	}
 	cfg.SecretsAddress = os.Getenv("SECRETS_ADDRESS")
 	if cfg.SecretsAddress == "" {

@@ -324,18 +324,23 @@ exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svc
 )
 
 var reservedEnvNames = map[string]struct{}{
-	"AGENT_ID":                     {},
-	"ENVIRONMENT_ID":               {},
-	"AGENT_INSTANCE_ID":            {},
-	"AGENT_NAME":                   {},
-	"AGENT_ROLE":                   {},
-	"AGENT_MODEL":                  {},
-	"AGENT_CONFIG":                 {},
-	"WORKLOAD_ID":                  {},
-	"GATEWAY_ADDRESS":              {},
-	"AGYN_GATEWAY_URL":             {},
-	"AGYN_IDENTITY_ID":             {},
-	"LLM_BASE_URL":                 {},
+	"AGENT_ID":          {},
+	"ENVIRONMENT_ID":    {},
+	"AGENT_INSTANCE_ID": {},
+	"AGENT_NAME":        {},
+	"AGENT_ROLE":        {},
+	"AGENT_MODEL":       {},
+	"AGENT_CONFIG":      {},
+	"WORKLOAD_ID":       {},
+	"GATEWAY_ADDRESS":   {},
+	"AGYN_GATEWAY_URL":  {},
+	"AGYN_IDENTITY_ID":  {},
+	"LLM_BASE_URL":      {},
+	"LLM_MODE":          {},
+	"LLM_MODEL_NAME":    {},
+	// Vendor placeholder credentials. Reserved so a user ENV cannot shadow the
+	// value the LLM Proxy expects to replace.
+	"CLAUDE_CODE_OAUTH_TOKEN":      {},
 	"TRACING_ADDRESS":              {},
 	"OTEL_EXPORTER_OTLP_ENDPOINT":  {},
 	"AGYND_AGENTS_DIRECT_ADDRESS":  {},
@@ -363,6 +368,17 @@ type Assembler struct {
 	images        ImagesClient
 	organizations OrganizationsClient
 	imageProxy    ImageProxyClient
+	// Optional. Required only by an environment in native LLM mode, which fails
+	// assembly without it rather than starting a workload that cannot call a
+	// model.
+	llm llmClient
+}
+
+// WithLLM enables native-mode resolution: which vendors a workload has a
+// subscription for, and what each one's container placeholder is called.
+func (a *Assembler) WithLLM(client llmClient) *Assembler {
+	a.llm = client
+	return a
 }
 
 // WithCatalog enables rewriting catalog references to the image proxy and
@@ -386,6 +402,9 @@ type AssembleResult struct {
 	// data-plane service can resolve what the workload runs from the
 	// connection. Empty for an agent still on the deprecated inline image.
 	EnvironmentID string
+	// LLMRoleAttributes opt the workload's identity into vendor interception.
+	// Empty in platform mode, where vendor traffic is not intercepted.
+	LLMRoleAttributes []string
 	// GrantedImageIDs are the catalog images this workload may pull. The
 	// pull credential is minted against them once the workload id exists,
 	// which is after assembly.
@@ -507,6 +526,16 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		mainEnv = mergeEnvVars(mainEnv, environmentEnvVars, fmt.Sprintf("environment %s", environment.GetMeta().GetId()))
 	}
 	mainEnv = appendEgressCAEnvVars(mainEnv)
+
+	// Native mode decides what the workload's identity is stamped with and what
+	// credential the container holds, so it is resolved before the spec is
+	// built and fails assembly rather than the first model call.
+	llmMode, err := a.resolveLLMMode(ctx, environment, agent.GetEnvironmentId(), agent.GetModelName())
+	if err != nil {
+		return nil, err
+	}
+	// Layered last so a user-set ENV cannot shadow the placeholder or the mode.
+	mainEnv = mergeEnvVars(append(llmMode.EnvVars, mainEnv...), nil, "llm mode")
 
 	mainMounts := append([]*runnerv1.VolumeMount{}, agentMounts...)
 	mainMounts = append(mainMounts, &runnerv1.VolumeMount{Volume: agynBinVolumeName, MountPath: agynBinMountPath})
@@ -657,6 +686,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		RunnerLabels:           runnerLabels,
 		RunnerID:               flavor.GetRunnerId(),
 		EnvironmentID:          agent.GetEnvironmentId(),
+		LLMRoleAttributes:      llmMode.RoleAttributes,
 		Flavor:                 flavor.GetName(),
 		PersistentVolumes:      persistentVolumes,
 		AllocatedCPUMillicores: allocatedCPU,

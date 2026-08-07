@@ -120,6 +120,58 @@ func (Protocol) EnumDescriptor() ([]byte, []int) {
 	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{1}
 }
 
+// Vendor whose own consumer plan a Subscription holds a credential for. Closed:
+// each value fixes an intercepted host, an upstream, a protocol, a header set,
+// and the container placeholder variable name.
+type Vendor int32
+
+const (
+	Vendor_VENDOR_UNSPECIFIED Vendor = 0
+	Vendor_VENDOR_CLAUDE      Vendor = 1
+	Vendor_VENDOR_CODEX       Vendor = 2
+)
+
+// Enum value maps for Vendor.
+var (
+	Vendor_name = map[int32]string{
+		0: "VENDOR_UNSPECIFIED",
+		1: "VENDOR_CLAUDE",
+		2: "VENDOR_CODEX",
+	}
+	Vendor_value = map[string]int32{
+		"VENDOR_UNSPECIFIED": 0,
+		"VENDOR_CLAUDE":      1,
+		"VENDOR_CODEX":       2,
+	}
+)
+
+func (x Vendor) Enum() *Vendor {
+	p := new(Vendor)
+	*p = x
+	return p
+}
+
+func (x Vendor) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Vendor) Descriptor() protoreflect.EnumDescriptor {
+	return file_agynio_api_llm_v1_llm_proto_enumTypes[2].Descriptor()
+}
+
+func (Vendor) Type() protoreflect.EnumType {
+	return &file_agynio_api_llm_v1_llm_proto_enumTypes[2]
+}
+
+func (x Vendor) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Vendor.Descriptor instead.
+func (Vendor) EnumDescriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{2}
+}
+
 type EntityMeta struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // UUID
@@ -1356,6 +1408,1175 @@ func (x *ListModelsResponse) GetNextPageToken() string {
 	return ""
 }
 
+type Subscription struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Meta   *EntityMeta            `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	Name   string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Vendor Vendor                 `protobuf:"varint,3,opt,name=vendor,proto3,enum=agynio.api.llm.v1.Vendor" json:"vendor,omitempty"`
+	// The token is held by reference. The value is resolved at binding time and
+	// never stored or returned here.
+	SecretId string `protobuf:"bytes,4,opt,name=secret_id,json=secretId,proto3" json:"secret_id,omitempty"` // UUID
+	// Empty unless the vendor's API requires an account identifier. Not a secret.
+	AccountId      string `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	OrganizationId string `protobuf:"bytes,6,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"` // UUID
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *Subscription) Reset() {
+	*x = Subscription{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Subscription) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Subscription) ProtoMessage() {}
+
+func (x *Subscription) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Subscription.ProtoReflect.Descriptor instead.
+func (*Subscription) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *Subscription) GetMeta() *EntityMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *Subscription) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Subscription) GetVendor() Vendor {
+	if x != nil {
+		return x.Vendor
+	}
+	return Vendor_VENDOR_UNSPECIFIED
+}
+
+func (x *Subscription) GetSecretId() string {
+	if x != nil {
+		return x.SecretId
+	}
+	return ""
+}
+
+func (x *Subscription) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *Subscription) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+type CreateSubscriptionRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	OrganizationId string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Vendor         Vendor                 `protobuf:"varint,3,opt,name=vendor,proto3,enum=agynio.api.llm.v1.Vendor" json:"vendor,omitempty"`
+	SecretId       string                 `protobuf:"bytes,4,opt,name=secret_id,json=secretId,proto3" json:"secret_id,omitempty"` // UUID
+	AccountId      string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *CreateSubscriptionRequest) Reset() {
+	*x = CreateSubscriptionRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSubscriptionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSubscriptionRequest) ProtoMessage() {}
+
+func (x *CreateSubscriptionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSubscriptionRequest.ProtoReflect.Descriptor instead.
+func (*CreateSubscriptionRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *CreateSubscriptionRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *CreateSubscriptionRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateSubscriptionRequest) GetVendor() Vendor {
+	if x != nil {
+		return x.Vendor
+	}
+	return Vendor_VENDOR_UNSPECIFIED
+}
+
+func (x *CreateSubscriptionRequest) GetSecretId() string {
+	if x != nil {
+		return x.SecretId
+	}
+	return ""
+}
+
+func (x *CreateSubscriptionRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+type CreateSubscriptionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subscription  *Subscription          `protobuf:"bytes,1,opt,name=subscription,proto3" json:"subscription,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateSubscriptionResponse) Reset() {
+	*x = CreateSubscriptionResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSubscriptionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSubscriptionResponse) ProtoMessage() {}
+
+func (x *CreateSubscriptionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSubscriptionResponse.ProtoReflect.Descriptor instead.
+func (*CreateSubscriptionResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *CreateSubscriptionResponse) GetSubscription() *Subscription {
+	if x != nil {
+		return x.Subscription
+	}
+	return nil
+}
+
+type GetSubscriptionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // UUID
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSubscriptionRequest) Reset() {
+	*x = GetSubscriptionRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSubscriptionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSubscriptionRequest) ProtoMessage() {}
+
+func (x *GetSubscriptionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSubscriptionRequest.ProtoReflect.Descriptor instead.
+func (*GetSubscriptionRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *GetSubscriptionRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type GetSubscriptionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subscription  *Subscription          `protobuf:"bytes,1,opt,name=subscription,proto3" json:"subscription,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSubscriptionResponse) Reset() {
+	*x = GetSubscriptionResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSubscriptionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSubscriptionResponse) ProtoMessage() {}
+
+func (x *GetSubscriptionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSubscriptionResponse.ProtoReflect.Descriptor instead.
+func (*GetSubscriptionResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *GetSubscriptionResponse) GetSubscription() *Subscription {
+	if x != nil {
+		return x.Subscription
+	}
+	return nil
+}
+
+// vendor is absent deliberately: changing it would silently redirect every
+// workload the subscription is attached to.
+type UpdateSubscriptionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // UUID
+	Name          *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	SecretId      *string                `protobuf:"bytes,3,opt,name=secret_id,json=secretId,proto3,oneof" json:"secret_id,omitempty"` // UUID
+	AccountId     *string                `protobuf:"bytes,4,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateSubscriptionRequest) Reset() {
+	*x = UpdateSubscriptionRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateSubscriptionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateSubscriptionRequest) ProtoMessage() {}
+
+func (x *UpdateSubscriptionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateSubscriptionRequest.ProtoReflect.Descriptor instead.
+func (*UpdateSubscriptionRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *UpdateSubscriptionRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UpdateSubscriptionRequest) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *UpdateSubscriptionRequest) GetSecretId() string {
+	if x != nil && x.SecretId != nil {
+		return *x.SecretId
+	}
+	return ""
+}
+
+func (x *UpdateSubscriptionRequest) GetAccountId() string {
+	if x != nil && x.AccountId != nil {
+		return *x.AccountId
+	}
+	return ""
+}
+
+type UpdateSubscriptionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subscription  *Subscription          `protobuf:"bytes,1,opt,name=subscription,proto3" json:"subscription,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateSubscriptionResponse) Reset() {
+	*x = UpdateSubscriptionResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateSubscriptionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateSubscriptionResponse) ProtoMessage() {}
+
+func (x *UpdateSubscriptionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateSubscriptionResponse.ProtoReflect.Descriptor instead.
+func (*UpdateSubscriptionResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *UpdateSubscriptionResponse) GetSubscription() *Subscription {
+	if x != nil {
+		return x.Subscription
+	}
+	return nil
+}
+
+type DeleteSubscriptionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // UUID
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSubscriptionRequest) Reset() {
+	*x = DeleteSubscriptionRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSubscriptionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSubscriptionRequest) ProtoMessage() {}
+
+func (x *DeleteSubscriptionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSubscriptionRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSubscriptionRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *DeleteSubscriptionRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteSubscriptionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSubscriptionResponse) Reset() {
+	*x = DeleteSubscriptionResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSubscriptionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSubscriptionResponse) ProtoMessage() {}
+
+func (x *DeleteSubscriptionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSubscriptionResponse.ProtoReflect.Descriptor instead.
+func (*DeleteSubscriptionResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{31}
+}
+
+type ListSubscriptionsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	PageSize       int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken      string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	OrganizationId string                 `protobuf:"bytes,3,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListSubscriptionsRequest) Reset() {
+	*x = ListSubscriptionsRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubscriptionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubscriptionsRequest) ProtoMessage() {}
+
+func (x *ListSubscriptionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubscriptionsRequest.ProtoReflect.Descriptor instead.
+func (*ListSubscriptionsRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ListSubscriptionsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListSubscriptionsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListSubscriptionsRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+type ListSubscriptionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subscriptions []*Subscription        `protobuf:"bytes,1,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSubscriptionsResponse) Reset() {
+	*x = ListSubscriptionsResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubscriptionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubscriptionsResponse) ProtoMessage() {}
+
+func (x *ListSubscriptionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubscriptionsResponse.ProtoReflect.Descriptor instead.
+func (*ListSubscriptionsResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ListSubscriptionsResponse) GetSubscriptions() []*Subscription {
+	if x != nil {
+		return x.Subscriptions
+	}
+	return nil
+}
+
+func (x *ListSubscriptionsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+// Binds a Subscription to an agent or an environment. Unique on
+// (vendor, target): an intercepted request carries nothing that identifies a
+// credential, so the resolution key must never have two candidates.
+type SubscriptionAttachment struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Meta           *EntityMeta            `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	SubscriptionId string                 `protobuf:"bytes,2,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"` // UUID
+	// Denormalized from the subscription, which cannot change vendor. Carried
+	// here so the orchestrator gets role attributes without a second call.
+	Vendor Vendor `protobuf:"varint,3,opt,name=vendor,proto3,enum=agynio.api.llm.v1.Vendor" json:"vendor,omitempty"`
+	// Name of the container environment variable holding this vendor's
+	// placeholder credential. Empty for a vendor that has none.
+	PlaceholderEnv string `protobuf:"bytes,4,opt,name=placeholder_env,json=placeholderEnv,proto3" json:"placeholder_env,omitempty"`
+	// Types that are valid to be assigned to Target:
+	//
+	//	*SubscriptionAttachment_AgentId
+	//	*SubscriptionAttachment_EnvironmentId
+	Target        isSubscriptionAttachment_Target `protobuf_oneof:"target"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscriptionAttachment) Reset() {
+	*x = SubscriptionAttachment{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscriptionAttachment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscriptionAttachment) ProtoMessage() {}
+
+func (x *SubscriptionAttachment) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscriptionAttachment.ProtoReflect.Descriptor instead.
+func (*SubscriptionAttachment) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *SubscriptionAttachment) GetMeta() *EntityMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *SubscriptionAttachment) GetSubscriptionId() string {
+	if x != nil {
+		return x.SubscriptionId
+	}
+	return ""
+}
+
+func (x *SubscriptionAttachment) GetVendor() Vendor {
+	if x != nil {
+		return x.Vendor
+	}
+	return Vendor_VENDOR_UNSPECIFIED
+}
+
+func (x *SubscriptionAttachment) GetPlaceholderEnv() string {
+	if x != nil {
+		return x.PlaceholderEnv
+	}
+	return ""
+}
+
+func (x *SubscriptionAttachment) GetTarget() isSubscriptionAttachment_Target {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *SubscriptionAttachment) GetAgentId() string {
+	if x != nil {
+		if x, ok := x.Target.(*SubscriptionAttachment_AgentId); ok {
+			return x.AgentId
+		}
+	}
+	return ""
+}
+
+func (x *SubscriptionAttachment) GetEnvironmentId() string {
+	if x != nil {
+		if x, ok := x.Target.(*SubscriptionAttachment_EnvironmentId); ok {
+			return x.EnvironmentId
+		}
+	}
+	return ""
+}
+
+type isSubscriptionAttachment_Target interface {
+	isSubscriptionAttachment_Target()
+}
+
+type SubscriptionAttachment_AgentId struct {
+	AgentId string `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3,oneof"` // UUID
+}
+
+type SubscriptionAttachment_EnvironmentId struct {
+	EnvironmentId string `protobuf:"bytes,6,opt,name=environment_id,json=environmentId,proto3,oneof"` // UUID
+}
+
+func (*SubscriptionAttachment_AgentId) isSubscriptionAttachment_Target() {}
+
+func (*SubscriptionAttachment_EnvironmentId) isSubscriptionAttachment_Target() {}
+
+type CreateSubscriptionAttachmentRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	SubscriptionId string                 `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"` // UUID
+	// Types that are valid to be assigned to Target:
+	//
+	//	*CreateSubscriptionAttachmentRequest_AgentId
+	//	*CreateSubscriptionAttachmentRequest_EnvironmentId
+	Target        isCreateSubscriptionAttachmentRequest_Target `protobuf_oneof:"target"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateSubscriptionAttachmentRequest) Reset() {
+	*x = CreateSubscriptionAttachmentRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSubscriptionAttachmentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSubscriptionAttachmentRequest) ProtoMessage() {}
+
+func (x *CreateSubscriptionAttachmentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSubscriptionAttachmentRequest.ProtoReflect.Descriptor instead.
+func (*CreateSubscriptionAttachmentRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *CreateSubscriptionAttachmentRequest) GetSubscriptionId() string {
+	if x != nil {
+		return x.SubscriptionId
+	}
+	return ""
+}
+
+func (x *CreateSubscriptionAttachmentRequest) GetTarget() isCreateSubscriptionAttachmentRequest_Target {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *CreateSubscriptionAttachmentRequest) GetAgentId() string {
+	if x != nil {
+		if x, ok := x.Target.(*CreateSubscriptionAttachmentRequest_AgentId); ok {
+			return x.AgentId
+		}
+	}
+	return ""
+}
+
+func (x *CreateSubscriptionAttachmentRequest) GetEnvironmentId() string {
+	if x != nil {
+		if x, ok := x.Target.(*CreateSubscriptionAttachmentRequest_EnvironmentId); ok {
+			return x.EnvironmentId
+		}
+	}
+	return ""
+}
+
+type isCreateSubscriptionAttachmentRequest_Target interface {
+	isCreateSubscriptionAttachmentRequest_Target()
+}
+
+type CreateSubscriptionAttachmentRequest_AgentId struct {
+	AgentId string `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3,oneof"` // UUID
+}
+
+type CreateSubscriptionAttachmentRequest_EnvironmentId struct {
+	EnvironmentId string `protobuf:"bytes,3,opt,name=environment_id,json=environmentId,proto3,oneof"` // UUID
+}
+
+func (*CreateSubscriptionAttachmentRequest_AgentId) isCreateSubscriptionAttachmentRequest_Target() {}
+
+func (*CreateSubscriptionAttachmentRequest_EnvironmentId) isCreateSubscriptionAttachmentRequest_Target() {
+}
+
+type CreateSubscriptionAttachmentResponse struct {
+	state                  protoimpl.MessageState  `protogen:"open.v1"`
+	SubscriptionAttachment *SubscriptionAttachment `protobuf:"bytes,1,opt,name=subscription_attachment,json=subscriptionAttachment,proto3" json:"subscription_attachment,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *CreateSubscriptionAttachmentResponse) Reset() {
+	*x = CreateSubscriptionAttachmentResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSubscriptionAttachmentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSubscriptionAttachmentResponse) ProtoMessage() {}
+
+func (x *CreateSubscriptionAttachmentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSubscriptionAttachmentResponse.ProtoReflect.Descriptor instead.
+func (*CreateSubscriptionAttachmentResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *CreateSubscriptionAttachmentResponse) GetSubscriptionAttachment() *SubscriptionAttachment {
+	if x != nil {
+		return x.SubscriptionAttachment
+	}
+	return nil
+}
+
+type DeleteSubscriptionAttachmentRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // UUID
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSubscriptionAttachmentRequest) Reset() {
+	*x = DeleteSubscriptionAttachmentRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSubscriptionAttachmentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSubscriptionAttachmentRequest) ProtoMessage() {}
+
+func (x *DeleteSubscriptionAttachmentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSubscriptionAttachmentRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSubscriptionAttachmentRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *DeleteSubscriptionAttachmentRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteSubscriptionAttachmentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSubscriptionAttachmentResponse) Reset() {
+	*x = DeleteSubscriptionAttachmentResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSubscriptionAttachmentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSubscriptionAttachmentResponse) ProtoMessage() {}
+
+func (x *DeleteSubscriptionAttachmentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSubscriptionAttachmentResponse.ProtoReflect.Descriptor instead.
+func (*DeleteSubscriptionAttachmentResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{38}
+}
+
+type ListSubscriptionAttachmentsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	OrganizationId string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	SubscriptionId *string                `protobuf:"bytes,2,opt,name=subscription_id,json=subscriptionId,proto3,oneof" json:"subscription_id,omitempty"` // UUID
+	AgentId        *string                `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3,oneof" json:"agent_id,omitempty"`                      // UUID
+	EnvironmentId  *string                `protobuf:"bytes,4,opt,name=environment_id,json=environmentId,proto3,oneof" json:"environment_id,omitempty"`    // UUID
+	PageSize       int32                  `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken      string                 `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListSubscriptionAttachmentsRequest) Reset() {
+	*x = ListSubscriptionAttachmentsRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubscriptionAttachmentsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubscriptionAttachmentsRequest) ProtoMessage() {}
+
+func (x *ListSubscriptionAttachmentsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubscriptionAttachmentsRequest.ProtoReflect.Descriptor instead.
+func (*ListSubscriptionAttachmentsRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *ListSubscriptionAttachmentsRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *ListSubscriptionAttachmentsRequest) GetSubscriptionId() string {
+	if x != nil && x.SubscriptionId != nil {
+		return *x.SubscriptionId
+	}
+	return ""
+}
+
+func (x *ListSubscriptionAttachmentsRequest) GetAgentId() string {
+	if x != nil && x.AgentId != nil {
+		return *x.AgentId
+	}
+	return ""
+}
+
+func (x *ListSubscriptionAttachmentsRequest) GetEnvironmentId() string {
+	if x != nil && x.EnvironmentId != nil {
+		return *x.EnvironmentId
+	}
+	return ""
+}
+
+func (x *ListSubscriptionAttachmentsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListSubscriptionAttachmentsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListSubscriptionAttachmentsResponse struct {
+	state                   protoimpl.MessageState    `protogen:"open.v1"`
+	SubscriptionAttachments []*SubscriptionAttachment `protobuf:"bytes,1,rep,name=subscription_attachments,json=subscriptionAttachments,proto3" json:"subscription_attachments,omitempty"`
+	NextPageToken           string                    `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *ListSubscriptionAttachmentsResponse) Reset() {
+	*x = ListSubscriptionAttachmentsResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubscriptionAttachmentsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubscriptionAttachmentsResponse) ProtoMessage() {}
+
+func (x *ListSubscriptionAttachmentsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubscriptionAttachmentsResponse.ProtoReflect.Descriptor instead.
+func (*ListSubscriptionAttachmentsResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *ListSubscriptionAttachmentsResponse) GetSubscriptionAttachments() []*SubscriptionAttachment {
+	if x != nil {
+		return x.SubscriptionAttachments
+	}
+	return nil
+}
+
+func (x *ListSubscriptionAttachmentsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type CountSubscriptionsReferencingSecretRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SecretId      string                 `protobuf:"bytes,1,opt,name=secret_id,json=secretId,proto3" json:"secret_id,omitempty"` // UUID
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CountSubscriptionsReferencingSecretRequest) Reset() {
+	*x = CountSubscriptionsReferencingSecretRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CountSubscriptionsReferencingSecretRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CountSubscriptionsReferencingSecretRequest) ProtoMessage() {}
+
+func (x *CountSubscriptionsReferencingSecretRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CountSubscriptionsReferencingSecretRequest.ProtoReflect.Descriptor instead.
+func (*CountSubscriptionsReferencingSecretRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *CountSubscriptionsReferencingSecretRequest) GetSecretId() string {
+	if x != nil {
+		return x.SecretId
+	}
+	return ""
+}
+
+type CountSubscriptionsReferencingSecretResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Count           int32                  `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	SubscriptionIds []string               `protobuf:"bytes,2,rep,name=subscription_ids,json=subscriptionIds,proto3" json:"subscription_ids,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CountSubscriptionsReferencingSecretResponse) Reset() {
+	*x = CountSubscriptionsReferencingSecretResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CountSubscriptionsReferencingSecretResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CountSubscriptionsReferencingSecretResponse) ProtoMessage() {}
+
+func (x *CountSubscriptionsReferencingSecretResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CountSubscriptionsReferencingSecretResponse.ProtoReflect.Descriptor instead.
+func (*CountSubscriptionsReferencingSecretResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *CountSubscriptionsReferencingSecretResponse) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *CountSubscriptionsReferencingSecretResponse) GetSubscriptionIds() []string {
+	if x != nil {
+		return x.SubscriptionIds
+	}
+	return nil
+}
+
 type TestModelRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // UUID
@@ -1365,7 +2586,7 @@ type TestModelRequest struct {
 
 func (x *TestModelRequest) Reset() {
 	*x = TestModelRequest{}
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[23]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1377,7 +2598,7 @@ func (x *TestModelRequest) String() string {
 func (*TestModelRequest) ProtoMessage() {}
 
 func (x *TestModelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[23]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1390,7 +2611,7 @@ func (x *TestModelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestModelRequest.ProtoReflect.Descriptor instead.
 func (*TestModelRequest) Descriptor() ([]byte, []int) {
-	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{23}
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *TestModelRequest) GetModelId() string {
@@ -1409,7 +2630,7 @@ type TestModelResponse struct {
 
 func (x *TestModelResponse) Reset() {
 	*x = TestModelResponse{}
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[24]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1421,7 +2642,7 @@ func (x *TestModelResponse) String() string {
 func (*TestModelResponse) ProtoMessage() {}
 
 func (x *TestModelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[24]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1434,7 +2655,7 @@ func (x *TestModelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestModelResponse.ProtoReflect.Descriptor instead.
 func (*TestModelResponse) Descriptor() ([]byte, []int) {
-	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{24}
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *TestModelResponse) GetOutputText() string {
@@ -1453,7 +2674,7 @@ type ResolveModelRequest struct {
 
 func (x *ResolveModelRequest) Reset() {
 	*x = ResolveModelRequest{}
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[25]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1465,7 +2686,7 @@ func (x *ResolveModelRequest) String() string {
 func (*ResolveModelRequest) ProtoMessage() {}
 
 func (x *ResolveModelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[25]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1478,7 +2699,7 @@ func (x *ResolveModelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveModelRequest.ProtoReflect.Descriptor instead.
 func (*ResolveModelRequest) Descriptor() ([]byte, []int) {
-	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{25}
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ResolveModelRequest) GetModelId() string {
@@ -1502,7 +2723,7 @@ type ResolveModelResponse struct {
 
 func (x *ResolveModelResponse) Reset() {
 	*x = ResolveModelResponse{}
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[26]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1514,7 +2735,7 @@ func (x *ResolveModelResponse) String() string {
 func (*ResolveModelResponse) ProtoMessage() {}
 
 func (x *ResolveModelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[26]
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1527,7 +2748,7 @@ func (x *ResolveModelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveModelResponse.ProtoReflect.Descriptor instead.
 func (*ResolveModelResponse) Descriptor() ([]byte, []int) {
-	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{26}
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ResolveModelResponse) GetEndpoint() string {
@@ -1570,6 +2791,168 @@ func (x *ResolveModelResponse) GetAuthMethod() AuthMethod {
 		return x.AuthMethod
 	}
 	return AuthMethod_AUTH_METHOD_UNSPECIFIED
+}
+
+// Both identifiers come from the caller's OpenZiti identity; neither is
+// self-asserted by the workload. vendor is the intercept service the connection
+// arrived on.
+type ResolveSubscriptionRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty for a sandbox, which runs no agent class.
+	AgentId       string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                   // UUID
+	EnvironmentId string `protobuf:"bytes,2,opt,name=environment_id,json=environmentId,proto3" json:"environment_id,omitempty"` // UUID
+	Vendor        Vendor `protobuf:"varint,3,opt,name=vendor,proto3,enum=agynio.api.llm.v1.Vendor" json:"vendor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveSubscriptionRequest) Reset() {
+	*x = ResolveSubscriptionRequest{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveSubscriptionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveSubscriptionRequest) ProtoMessage() {}
+
+func (x *ResolveSubscriptionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveSubscriptionRequest.ProtoReflect.Descriptor instead.
+func (*ResolveSubscriptionRequest) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *ResolveSubscriptionRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *ResolveSubscriptionRequest) GetEnvironmentId() string {
+	if x != nil {
+		return x.EnvironmentId
+	}
+	return ""
+}
+
+func (x *ResolveSubscriptionRequest) GetVendor() Vendor {
+	if x != nil {
+		return x.Vendor
+	}
+	return Vendor_VENDOR_UNSPECIFIED
+}
+
+// Everything the proxy needs to serve a native-mode connection, so it performs
+// no configuration lookups of its own. placeholder_env is deliberately absent:
+// the proxy strips Authorization and x-api-key whatever they were called.
+type ResolveSubscriptionResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Metering records this as resource_id; the proxy has no other source.
+	SubscriptionId   string   `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"` // UUID
+	Token            string   `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	AccountId        string   `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	UpstreamEndpoint string   `protobuf:"bytes,4,opt,name=upstream_endpoint,json=upstreamEndpoint,proto3" json:"upstream_endpoint,omitempty"`
+	Protocol         Protocol `protobuf:"varint,5,opt,name=protocol,proto3,enum=agynio.api.llm.v1.Protocol" json:"protocol,omitempty"`
+	// The environment's llm_allowed_models, read by the LLM service from Agents.
+	// Empty means no restriction.
+	AllowedModels  []string `protobuf:"bytes,6,rep,name=allowed_models,json=allowedModels,proto3" json:"allowed_models,omitempty"`
+	OrganizationId string   `protobuf:"bytes,7,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"` // UUID
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ResolveSubscriptionResponse) Reset() {
+	*x = ResolveSubscriptionResponse{}
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveSubscriptionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveSubscriptionResponse) ProtoMessage() {}
+
+func (x *ResolveSubscriptionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agynio_api_llm_v1_llm_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveSubscriptionResponse.ProtoReflect.Descriptor instead.
+func (*ResolveSubscriptionResponse) Descriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *ResolveSubscriptionResponse) GetSubscriptionId() string {
+	if x != nil {
+		return x.SubscriptionId
+	}
+	return ""
+}
+
+func (x *ResolveSubscriptionResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *ResolveSubscriptionResponse) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *ResolveSubscriptionResponse) GetUpstreamEndpoint() string {
+	if x != nil {
+		return x.UpstreamEndpoint
+	}
+	return ""
+}
+
+func (x *ResolveSubscriptionResponse) GetProtocol() Protocol {
+	if x != nil {
+		return x.Protocol
+	}
+	return Protocol_PROTOCOL_UNSPECIFIED
+}
+
+func (x *ResolveSubscriptionResponse) GetAllowedModels() []string {
+	if x != nil {
+		return x.AllowedModels
+	}
+	return nil
+}
+
+func (x *ResolveSubscriptionResponse) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
 }
 
 var File_agynio_api_llm_v1_llm_proto protoreflect.FileDescriptor
@@ -1668,7 +3051,88 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\"n\n" +
 	"\x12ListModelsResponse\x120\n" +
 	"\x06models\x18\x01 \x03(\v2\x18.agynio.api.llm.v1.ModelR\x06models\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"-\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xed\x01\n" +
+	"\fSubscription\x121\n" +
+	"\x04meta\x18\x01 \x01(\v2\x1d.agynio.api.llm.v1.EntityMetaR\x04meta\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
+	"\x06vendor\x18\x03 \x01(\x0e2\x19.agynio.api.llm.v1.VendorR\x06vendor\x12\x1b\n" +
+	"\tsecret_id\x18\x04 \x01(\tR\bsecretId\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x05 \x01(\tR\taccountId\x12'\n" +
+	"\x0forganization_id\x18\x06 \x01(\tR\x0eorganizationId\"\xc7\x01\n" +
+	"\x19CreateSubscriptionRequest\x12'\n" +
+	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
+	"\x06vendor\x18\x03 \x01(\x0e2\x19.agynio.api.llm.v1.VendorR\x06vendor\x12\x1b\n" +
+	"\tsecret_id\x18\x04 \x01(\tR\bsecretId\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x05 \x01(\tR\taccountId\"a\n" +
+	"\x1aCreateSubscriptionResponse\x12C\n" +
+	"\fsubscription\x18\x01 \x01(\v2\x1f.agynio.api.llm.v1.SubscriptionR\fsubscription\"(\n" +
+	"\x16GetSubscriptionRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"^\n" +
+	"\x17GetSubscriptionResponse\x12C\n" +
+	"\fsubscription\x18\x01 \x01(\v2\x1f.agynio.api.llm.v1.SubscriptionR\fsubscription\"\xb0\x01\n" +
+	"\x19UpdateSubscriptionRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12 \n" +
+	"\tsecret_id\x18\x03 \x01(\tH\x01R\bsecretId\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"account_id\x18\x04 \x01(\tH\x02R\taccountId\x88\x01\x01B\a\n" +
+	"\x05_nameB\f\n" +
+	"\n" +
+	"_secret_idB\r\n" +
+	"\v_account_id\"a\n" +
+	"\x1aUpdateSubscriptionResponse\x12C\n" +
+	"\fsubscription\x18\x01 \x01(\v2\x1f.agynio.api.llm.v1.SubscriptionR\fsubscription\"+\n" +
+	"\x19DeleteSubscriptionRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x1c\n" +
+	"\x1aDeleteSubscriptionResponse\"\x7f\n" +
+	"\x18ListSubscriptionsRequest\x12\x1b\n" +
+	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x12'\n" +
+	"\x0forganization_id\x18\x03 \x01(\tR\x0eorganizationId\"\x8a\x01\n" +
+	"\x19ListSubscriptionsResponse\x12E\n" +
+	"\rsubscriptions\x18\x01 \x03(\v2\x1f.agynio.api.llm.v1.SubscriptionR\rsubscriptions\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xa0\x02\n" +
+	"\x16SubscriptionAttachment\x121\n" +
+	"\x04meta\x18\x01 \x01(\v2\x1d.agynio.api.llm.v1.EntityMetaR\x04meta\x12'\n" +
+	"\x0fsubscription_id\x18\x02 \x01(\tR\x0esubscriptionId\x121\n" +
+	"\x06vendor\x18\x03 \x01(\x0e2\x19.agynio.api.llm.v1.VendorR\x06vendor\x12'\n" +
+	"\x0fplaceholder_env\x18\x04 \x01(\tR\x0eplaceholderEnv\x12\x1b\n" +
+	"\bagent_id\x18\x05 \x01(\tH\x00R\aagentId\x12'\n" +
+	"\x0eenvironment_id\x18\x06 \x01(\tH\x00R\renvironmentIdB\b\n" +
+	"\x06target\"\x9e\x01\n" +
+	"#CreateSubscriptionAttachmentRequest\x12'\n" +
+	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x1b\n" +
+	"\bagent_id\x18\x02 \x01(\tH\x00R\aagentId\x12'\n" +
+	"\x0eenvironment_id\x18\x03 \x01(\tH\x00R\renvironmentIdB\b\n" +
+	"\x06target\"\x8a\x01\n" +
+	"$CreateSubscriptionAttachmentResponse\x12b\n" +
+	"\x17subscription_attachment\x18\x01 \x01(\v2).agynio.api.llm.v1.SubscriptionAttachmentR\x16subscriptionAttachment\"5\n" +
+	"#DeleteSubscriptionAttachmentRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"&\n" +
+	"$DeleteSubscriptionAttachmentResponse\"\xb7\x02\n" +
+	"\"ListSubscriptionAttachmentsRequest\x12'\n" +
+	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12,\n" +
+	"\x0fsubscription_id\x18\x02 \x01(\tH\x00R\x0esubscriptionId\x88\x01\x01\x12\x1e\n" +
+	"\bagent_id\x18\x03 \x01(\tH\x01R\aagentId\x88\x01\x01\x12*\n" +
+	"\x0eenvironment_id\x18\x04 \x01(\tH\x02R\renvironmentId\x88\x01\x01\x12\x1b\n" +
+	"\tpage_size\x18\x05 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x06 \x01(\tR\tpageTokenB\x12\n" +
+	"\x10_subscription_idB\v\n" +
+	"\t_agent_idB\x11\n" +
+	"\x0f_environment_id\"\xb3\x01\n" +
+	"#ListSubscriptionAttachmentsResponse\x12d\n" +
+	"\x18subscription_attachments\x18\x01 \x03(\v2).agynio.api.llm.v1.SubscriptionAttachmentR\x17subscriptionAttachments\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"I\n" +
+	"*CountSubscriptionsReferencingSecretRequest\x12\x1b\n" +
+	"\tsecret_id\x18\x01 \x01(\tR\bsecretId\"n\n" +
+	"+CountSubscriptionsReferencingSecretResponse\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count\x12)\n" +
+	"\x10subscription_ids\x18\x02 \x03(\tR\x0fsubscriptionIds\"-\n" +
 	"\x10TestModelRequest\x12\x19\n" +
 	"\bmodel_id\x18\x01 \x01(\tR\amodelId\"4\n" +
 	"\x11TestModelResponse\x12\x1f\n" +
@@ -1684,7 +3148,20 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\x127\n" +
 	"\bprotocol\x18\x05 \x01(\x0e2\x1b.agynio.api.llm.v1.ProtocolR\bprotocol\x12>\n" +
 	"\vauth_method\x18\x06 \x01(\x0e2\x1d.agynio.api.llm.v1.AuthMethodR\n" +
-	"authMethod*\\\n" +
+	"authMethod\"\x91\x01\n" +
+	"\x1aResolveSubscriptionRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
+	"\x0eenvironment_id\x18\x02 \x01(\tR\renvironmentId\x121\n" +
+	"\x06vendor\x18\x03 \x01(\x0e2\x19.agynio.api.llm.v1.VendorR\x06vendor\"\xb1\x02\n" +
+	"\x1bResolveSubscriptionResponse\x12'\n" +
+	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x03 \x01(\tR\taccountId\x12+\n" +
+	"\x11upstream_endpoint\x18\x04 \x01(\tR\x10upstreamEndpoint\x127\n" +
+	"\bprotocol\x18\x05 \x01(\x0e2\x1b.agynio.api.llm.v1.ProtocolR\bprotocol\x12%\n" +
+	"\x0eallowed_models\x18\x06 \x03(\tR\rallowedModels\x12'\n" +
+	"\x0forganization_id\x18\a \x01(\tR\x0eorganizationId*\\\n" +
 	"\n" +
 	"AuthMethod\x12\x1b\n" +
 	"\x17AUTH_METHOD_UNSPECIFIED\x10\x00\x12\x16\n" +
@@ -1693,7 +3170,11 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\bProtocol\x12\x18\n" +
 	"\x14PROTOCOL_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12PROTOCOL_RESPONSES\x10\x01\x12\x1f\n" +
-	"\x1bPROTOCOL_ANTHROPIC_MESSAGES\x10\x022\xb3\t\n" +
+	"\x1bPROTOCOL_ANTHROPIC_MESSAGES\x10\x02*E\n" +
+	"\x06Vendor\x12\x16\n" +
+	"\x12VENDOR_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rVENDOR_CLAUDE\x10\x01\x12\x10\n" +
+	"\fVENDOR_CODEX\x10\x022\xb6\x13\n" +
 	"\n" +
 	"LLMService\x12n\n" +
 	"\x11CreateLLMProvider\x12+.agynio.api.llm.v1.CreateLLMProviderRequest\x1a,.agynio.api.llm.v1.CreateLLMProviderResponse\x12e\n" +
@@ -1706,9 +3187,19 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\vUpdateModel\x12%.agynio.api.llm.v1.UpdateModelRequest\x1a&.agynio.api.llm.v1.UpdateModelResponse\x12\\\n" +
 	"\vDeleteModel\x12%.agynio.api.llm.v1.DeleteModelRequest\x1a&.agynio.api.llm.v1.DeleteModelResponse\x12Y\n" +
 	"\n" +
-	"ListModels\x12$.agynio.api.llm.v1.ListModelsRequest\x1a%.agynio.api.llm.v1.ListModelsResponse\x12V\n" +
+	"ListModels\x12$.agynio.api.llm.v1.ListModelsRequest\x1a%.agynio.api.llm.v1.ListModelsResponse\x12q\n" +
+	"\x12CreateSubscription\x12,.agynio.api.llm.v1.CreateSubscriptionRequest\x1a-.agynio.api.llm.v1.CreateSubscriptionResponse\x12h\n" +
+	"\x0fGetSubscription\x12).agynio.api.llm.v1.GetSubscriptionRequest\x1a*.agynio.api.llm.v1.GetSubscriptionResponse\x12q\n" +
+	"\x12UpdateSubscription\x12,.agynio.api.llm.v1.UpdateSubscriptionRequest\x1a-.agynio.api.llm.v1.UpdateSubscriptionResponse\x12q\n" +
+	"\x12DeleteSubscription\x12,.agynio.api.llm.v1.DeleteSubscriptionRequest\x1a-.agynio.api.llm.v1.DeleteSubscriptionResponse\x12n\n" +
+	"\x11ListSubscriptions\x12+.agynio.api.llm.v1.ListSubscriptionsRequest\x1a,.agynio.api.llm.v1.ListSubscriptionsResponse\x12\x8f\x01\n" +
+	"\x1cCreateSubscriptionAttachment\x126.agynio.api.llm.v1.CreateSubscriptionAttachmentRequest\x1a7.agynio.api.llm.v1.CreateSubscriptionAttachmentResponse\x12\x8f\x01\n" +
+	"\x1cDeleteSubscriptionAttachment\x126.agynio.api.llm.v1.DeleteSubscriptionAttachmentRequest\x1a7.agynio.api.llm.v1.DeleteSubscriptionAttachmentResponse\x12\x8c\x01\n" +
+	"\x1bListSubscriptionAttachments\x125.agynio.api.llm.v1.ListSubscriptionAttachmentsRequest\x1a6.agynio.api.llm.v1.ListSubscriptionAttachmentsResponse\x12V\n" +
 	"\tTestModel\x12#.agynio.api.llm.v1.TestModelRequest\x1a$.agynio.api.llm.v1.TestModelResponse\x12_\n" +
-	"\fResolveModel\x12&.agynio.api.llm.v1.ResolveModelRequest\x1a'.agynio.api.llm.v1.ResolveModelResponseB\xcf\x01\n" +
+	"\fResolveModel\x12&.agynio.api.llm.v1.ResolveModelRequest\x1a'.agynio.api.llm.v1.ResolveModelResponse\x12t\n" +
+	"\x13ResolveSubscription\x12-.agynio.api.llm.v1.ResolveSubscriptionRequest\x1a..agynio.api.llm.v1.ResolveSubscriptionResponse\x12\xa4\x01\n" +
+	"#CountSubscriptionsReferencingSecret\x12=.agynio.api.llm.v1.CountSubscriptionsReferencingSecretRequest\x1a>.agynio.api.llm.v1.CountSubscriptionsReferencingSecretResponseB\xcf\x01\n" +
 	"\x15com.agynio.api.llm.v1B\bLlmProtoP\x01ZEgithub.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1;llmv1\xa2\x02\x03AAL\xaa\x02\x11Agynio.Api.Llm.V1\xca\x02\x11Agynio\\Api\\Llm\\V1\xe2\x02\x1dAgynio\\Api\\Llm\\V1\\GPBMetadata\xea\x02\x14Agynio::Api::Llm::V1b\x06proto3"
 
 var (
@@ -1723,90 +3214,146 @@ func file_agynio_api_llm_v1_llm_proto_rawDescGZIP() []byte {
 	return file_agynio_api_llm_v1_llm_proto_rawDescData
 }
 
-var file_agynio_api_llm_v1_llm_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agynio_api_llm_v1_llm_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_agynio_api_llm_v1_llm_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_agynio_api_llm_v1_llm_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_agynio_api_llm_v1_llm_proto_goTypes = []any{
-	(AuthMethod)(0),                   // 0: agynio.api.llm.v1.AuthMethod
-	(Protocol)(0),                     // 1: agynio.api.llm.v1.Protocol
-	(*EntityMeta)(nil),                // 2: agynio.api.llm.v1.EntityMeta
-	(*LLMProvider)(nil),               // 3: agynio.api.llm.v1.LLMProvider
-	(*CreateLLMProviderRequest)(nil),  // 4: agynio.api.llm.v1.CreateLLMProviderRequest
-	(*CreateLLMProviderResponse)(nil), // 5: agynio.api.llm.v1.CreateLLMProviderResponse
-	(*GetLLMProviderRequest)(nil),     // 6: agynio.api.llm.v1.GetLLMProviderRequest
-	(*GetLLMProviderResponse)(nil),    // 7: agynio.api.llm.v1.GetLLMProviderResponse
-	(*UpdateLLMProviderRequest)(nil),  // 8: agynio.api.llm.v1.UpdateLLMProviderRequest
-	(*UpdateLLMProviderResponse)(nil), // 9: agynio.api.llm.v1.UpdateLLMProviderResponse
-	(*DeleteLLMProviderRequest)(nil),  // 10: agynio.api.llm.v1.DeleteLLMProviderRequest
-	(*DeleteLLMProviderResponse)(nil), // 11: agynio.api.llm.v1.DeleteLLMProviderResponse
-	(*ListLLMProvidersRequest)(nil),   // 12: agynio.api.llm.v1.ListLLMProvidersRequest
-	(*ListLLMProvidersResponse)(nil),  // 13: agynio.api.llm.v1.ListLLMProvidersResponse
-	(*Model)(nil),                     // 14: agynio.api.llm.v1.Model
-	(*CreateModelRequest)(nil),        // 15: agynio.api.llm.v1.CreateModelRequest
-	(*CreateModelResponse)(nil),       // 16: agynio.api.llm.v1.CreateModelResponse
-	(*GetModelRequest)(nil),           // 17: agynio.api.llm.v1.GetModelRequest
-	(*GetModelResponse)(nil),          // 18: agynio.api.llm.v1.GetModelResponse
-	(*UpdateModelRequest)(nil),        // 19: agynio.api.llm.v1.UpdateModelRequest
-	(*UpdateModelResponse)(nil),       // 20: agynio.api.llm.v1.UpdateModelResponse
-	(*DeleteModelRequest)(nil),        // 21: agynio.api.llm.v1.DeleteModelRequest
-	(*DeleteModelResponse)(nil),       // 22: agynio.api.llm.v1.DeleteModelResponse
-	(*ListModelsRequest)(nil),         // 23: agynio.api.llm.v1.ListModelsRequest
-	(*ListModelsResponse)(nil),        // 24: agynio.api.llm.v1.ListModelsResponse
-	(*TestModelRequest)(nil),          // 25: agynio.api.llm.v1.TestModelRequest
-	(*TestModelResponse)(nil),         // 26: agynio.api.llm.v1.TestModelResponse
-	(*ResolveModelRequest)(nil),       // 27: agynio.api.llm.v1.ResolveModelRequest
-	(*ResolveModelResponse)(nil),      // 28: agynio.api.llm.v1.ResolveModelResponse
-	(*timestamppb.Timestamp)(nil),     // 29: google.protobuf.Timestamp
+	(AuthMethod)(0),                                     // 0: agynio.api.llm.v1.AuthMethod
+	(Protocol)(0),                                       // 1: agynio.api.llm.v1.Protocol
+	(Vendor)(0),                                         // 2: agynio.api.llm.v1.Vendor
+	(*EntityMeta)(nil),                                  // 3: agynio.api.llm.v1.EntityMeta
+	(*LLMProvider)(nil),                                 // 4: agynio.api.llm.v1.LLMProvider
+	(*CreateLLMProviderRequest)(nil),                    // 5: agynio.api.llm.v1.CreateLLMProviderRequest
+	(*CreateLLMProviderResponse)(nil),                   // 6: agynio.api.llm.v1.CreateLLMProviderResponse
+	(*GetLLMProviderRequest)(nil),                       // 7: agynio.api.llm.v1.GetLLMProviderRequest
+	(*GetLLMProviderResponse)(nil),                      // 8: agynio.api.llm.v1.GetLLMProviderResponse
+	(*UpdateLLMProviderRequest)(nil),                    // 9: agynio.api.llm.v1.UpdateLLMProviderRequest
+	(*UpdateLLMProviderResponse)(nil),                   // 10: agynio.api.llm.v1.UpdateLLMProviderResponse
+	(*DeleteLLMProviderRequest)(nil),                    // 11: agynio.api.llm.v1.DeleteLLMProviderRequest
+	(*DeleteLLMProviderResponse)(nil),                   // 12: agynio.api.llm.v1.DeleteLLMProviderResponse
+	(*ListLLMProvidersRequest)(nil),                     // 13: agynio.api.llm.v1.ListLLMProvidersRequest
+	(*ListLLMProvidersResponse)(nil),                    // 14: agynio.api.llm.v1.ListLLMProvidersResponse
+	(*Model)(nil),                                       // 15: agynio.api.llm.v1.Model
+	(*CreateModelRequest)(nil),                          // 16: agynio.api.llm.v1.CreateModelRequest
+	(*CreateModelResponse)(nil),                         // 17: agynio.api.llm.v1.CreateModelResponse
+	(*GetModelRequest)(nil),                             // 18: agynio.api.llm.v1.GetModelRequest
+	(*GetModelResponse)(nil),                            // 19: agynio.api.llm.v1.GetModelResponse
+	(*UpdateModelRequest)(nil),                          // 20: agynio.api.llm.v1.UpdateModelRequest
+	(*UpdateModelResponse)(nil),                         // 21: agynio.api.llm.v1.UpdateModelResponse
+	(*DeleteModelRequest)(nil),                          // 22: agynio.api.llm.v1.DeleteModelRequest
+	(*DeleteModelResponse)(nil),                         // 23: agynio.api.llm.v1.DeleteModelResponse
+	(*ListModelsRequest)(nil),                           // 24: agynio.api.llm.v1.ListModelsRequest
+	(*ListModelsResponse)(nil),                          // 25: agynio.api.llm.v1.ListModelsResponse
+	(*Subscription)(nil),                                // 26: agynio.api.llm.v1.Subscription
+	(*CreateSubscriptionRequest)(nil),                   // 27: agynio.api.llm.v1.CreateSubscriptionRequest
+	(*CreateSubscriptionResponse)(nil),                  // 28: agynio.api.llm.v1.CreateSubscriptionResponse
+	(*GetSubscriptionRequest)(nil),                      // 29: agynio.api.llm.v1.GetSubscriptionRequest
+	(*GetSubscriptionResponse)(nil),                     // 30: agynio.api.llm.v1.GetSubscriptionResponse
+	(*UpdateSubscriptionRequest)(nil),                   // 31: agynio.api.llm.v1.UpdateSubscriptionRequest
+	(*UpdateSubscriptionResponse)(nil),                  // 32: agynio.api.llm.v1.UpdateSubscriptionResponse
+	(*DeleteSubscriptionRequest)(nil),                   // 33: agynio.api.llm.v1.DeleteSubscriptionRequest
+	(*DeleteSubscriptionResponse)(nil),                  // 34: agynio.api.llm.v1.DeleteSubscriptionResponse
+	(*ListSubscriptionsRequest)(nil),                    // 35: agynio.api.llm.v1.ListSubscriptionsRequest
+	(*ListSubscriptionsResponse)(nil),                   // 36: agynio.api.llm.v1.ListSubscriptionsResponse
+	(*SubscriptionAttachment)(nil),                      // 37: agynio.api.llm.v1.SubscriptionAttachment
+	(*CreateSubscriptionAttachmentRequest)(nil),         // 38: agynio.api.llm.v1.CreateSubscriptionAttachmentRequest
+	(*CreateSubscriptionAttachmentResponse)(nil),        // 39: agynio.api.llm.v1.CreateSubscriptionAttachmentResponse
+	(*DeleteSubscriptionAttachmentRequest)(nil),         // 40: agynio.api.llm.v1.DeleteSubscriptionAttachmentRequest
+	(*DeleteSubscriptionAttachmentResponse)(nil),        // 41: agynio.api.llm.v1.DeleteSubscriptionAttachmentResponse
+	(*ListSubscriptionAttachmentsRequest)(nil),          // 42: agynio.api.llm.v1.ListSubscriptionAttachmentsRequest
+	(*ListSubscriptionAttachmentsResponse)(nil),         // 43: agynio.api.llm.v1.ListSubscriptionAttachmentsResponse
+	(*CountSubscriptionsReferencingSecretRequest)(nil),  // 44: agynio.api.llm.v1.CountSubscriptionsReferencingSecretRequest
+	(*CountSubscriptionsReferencingSecretResponse)(nil), // 45: agynio.api.llm.v1.CountSubscriptionsReferencingSecretResponse
+	(*TestModelRequest)(nil),                            // 46: agynio.api.llm.v1.TestModelRequest
+	(*TestModelResponse)(nil),                           // 47: agynio.api.llm.v1.TestModelResponse
+	(*ResolveModelRequest)(nil),                         // 48: agynio.api.llm.v1.ResolveModelRequest
+	(*ResolveModelResponse)(nil),                        // 49: agynio.api.llm.v1.ResolveModelResponse
+	(*ResolveSubscriptionRequest)(nil),                  // 50: agynio.api.llm.v1.ResolveSubscriptionRequest
+	(*ResolveSubscriptionResponse)(nil),                 // 51: agynio.api.llm.v1.ResolveSubscriptionResponse
+	(*timestamppb.Timestamp)(nil),                       // 52: google.protobuf.Timestamp
 }
 var file_agynio_api_llm_v1_llm_proto_depIdxs = []int32{
-	29, // 0: agynio.api.llm.v1.EntityMeta.created_at:type_name -> google.protobuf.Timestamp
-	29, // 1: agynio.api.llm.v1.EntityMeta.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 2: agynio.api.llm.v1.LLMProvider.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	52, // 0: agynio.api.llm.v1.EntityMeta.created_at:type_name -> google.protobuf.Timestamp
+	52, // 1: agynio.api.llm.v1.EntityMeta.updated_at:type_name -> google.protobuf.Timestamp
+	3,  // 2: agynio.api.llm.v1.LLMProvider.meta:type_name -> agynio.api.llm.v1.EntityMeta
 	0,  // 3: agynio.api.llm.v1.LLMProvider.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
 	1,  // 4: agynio.api.llm.v1.LLMProvider.protocol:type_name -> agynio.api.llm.v1.Protocol
 	0,  // 5: agynio.api.llm.v1.CreateLLMProviderRequest.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
 	1,  // 6: agynio.api.llm.v1.CreateLLMProviderRequest.protocol:type_name -> agynio.api.llm.v1.Protocol
-	3,  // 7: agynio.api.llm.v1.CreateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
-	3,  // 8: agynio.api.llm.v1.GetLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	4,  // 7: agynio.api.llm.v1.CreateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	4,  // 8: agynio.api.llm.v1.GetLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
 	0,  // 9: agynio.api.llm.v1.UpdateLLMProviderRequest.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
 	1,  // 10: agynio.api.llm.v1.UpdateLLMProviderRequest.protocol:type_name -> agynio.api.llm.v1.Protocol
-	3,  // 11: agynio.api.llm.v1.UpdateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
-	3,  // 12: agynio.api.llm.v1.ListLLMProvidersResponse.providers:type_name -> agynio.api.llm.v1.LLMProvider
-	2,  // 13: agynio.api.llm.v1.Model.meta:type_name -> agynio.api.llm.v1.EntityMeta
-	14, // 14: agynio.api.llm.v1.CreateModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	14, // 15: agynio.api.llm.v1.GetModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	14, // 16: agynio.api.llm.v1.UpdateModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	14, // 17: agynio.api.llm.v1.ListModelsResponse.models:type_name -> agynio.api.llm.v1.Model
-	1,  // 18: agynio.api.llm.v1.ResolveModelResponse.protocol:type_name -> agynio.api.llm.v1.Protocol
-	0,  // 19: agynio.api.llm.v1.ResolveModelResponse.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
-	4,  // 20: agynio.api.llm.v1.LLMService.CreateLLMProvider:input_type -> agynio.api.llm.v1.CreateLLMProviderRequest
-	6,  // 21: agynio.api.llm.v1.LLMService.GetLLMProvider:input_type -> agynio.api.llm.v1.GetLLMProviderRequest
-	8,  // 22: agynio.api.llm.v1.LLMService.UpdateLLMProvider:input_type -> agynio.api.llm.v1.UpdateLLMProviderRequest
-	10, // 23: agynio.api.llm.v1.LLMService.DeleteLLMProvider:input_type -> agynio.api.llm.v1.DeleteLLMProviderRequest
-	12, // 24: agynio.api.llm.v1.LLMService.ListLLMProviders:input_type -> agynio.api.llm.v1.ListLLMProvidersRequest
-	15, // 25: agynio.api.llm.v1.LLMService.CreateModel:input_type -> agynio.api.llm.v1.CreateModelRequest
-	17, // 26: agynio.api.llm.v1.LLMService.GetModel:input_type -> agynio.api.llm.v1.GetModelRequest
-	19, // 27: agynio.api.llm.v1.LLMService.UpdateModel:input_type -> agynio.api.llm.v1.UpdateModelRequest
-	21, // 28: agynio.api.llm.v1.LLMService.DeleteModel:input_type -> agynio.api.llm.v1.DeleteModelRequest
-	23, // 29: agynio.api.llm.v1.LLMService.ListModels:input_type -> agynio.api.llm.v1.ListModelsRequest
-	25, // 30: agynio.api.llm.v1.LLMService.TestModel:input_type -> agynio.api.llm.v1.TestModelRequest
-	27, // 31: agynio.api.llm.v1.LLMService.ResolveModel:input_type -> agynio.api.llm.v1.ResolveModelRequest
-	5,  // 32: agynio.api.llm.v1.LLMService.CreateLLMProvider:output_type -> agynio.api.llm.v1.CreateLLMProviderResponse
-	7,  // 33: agynio.api.llm.v1.LLMService.GetLLMProvider:output_type -> agynio.api.llm.v1.GetLLMProviderResponse
-	9,  // 34: agynio.api.llm.v1.LLMService.UpdateLLMProvider:output_type -> agynio.api.llm.v1.UpdateLLMProviderResponse
-	11, // 35: agynio.api.llm.v1.LLMService.DeleteLLMProvider:output_type -> agynio.api.llm.v1.DeleteLLMProviderResponse
-	13, // 36: agynio.api.llm.v1.LLMService.ListLLMProviders:output_type -> agynio.api.llm.v1.ListLLMProvidersResponse
-	16, // 37: agynio.api.llm.v1.LLMService.CreateModel:output_type -> agynio.api.llm.v1.CreateModelResponse
-	18, // 38: agynio.api.llm.v1.LLMService.GetModel:output_type -> agynio.api.llm.v1.GetModelResponse
-	20, // 39: agynio.api.llm.v1.LLMService.UpdateModel:output_type -> agynio.api.llm.v1.UpdateModelResponse
-	22, // 40: agynio.api.llm.v1.LLMService.DeleteModel:output_type -> agynio.api.llm.v1.DeleteModelResponse
-	24, // 41: agynio.api.llm.v1.LLMService.ListModels:output_type -> agynio.api.llm.v1.ListModelsResponse
-	26, // 42: agynio.api.llm.v1.LLMService.TestModel:output_type -> agynio.api.llm.v1.TestModelResponse
-	28, // 43: agynio.api.llm.v1.LLMService.ResolveModel:output_type -> agynio.api.llm.v1.ResolveModelResponse
-	32, // [32:44] is the sub-list for method output_type
-	20, // [20:32] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	4,  // 11: agynio.api.llm.v1.UpdateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	4,  // 12: agynio.api.llm.v1.ListLLMProvidersResponse.providers:type_name -> agynio.api.llm.v1.LLMProvider
+	3,  // 13: agynio.api.llm.v1.Model.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	15, // 14: agynio.api.llm.v1.CreateModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	15, // 15: agynio.api.llm.v1.GetModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	15, // 16: agynio.api.llm.v1.UpdateModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	15, // 17: agynio.api.llm.v1.ListModelsResponse.models:type_name -> agynio.api.llm.v1.Model
+	3,  // 18: agynio.api.llm.v1.Subscription.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	2,  // 19: agynio.api.llm.v1.Subscription.vendor:type_name -> agynio.api.llm.v1.Vendor
+	2,  // 20: agynio.api.llm.v1.CreateSubscriptionRequest.vendor:type_name -> agynio.api.llm.v1.Vendor
+	26, // 21: agynio.api.llm.v1.CreateSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
+	26, // 22: agynio.api.llm.v1.GetSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
+	26, // 23: agynio.api.llm.v1.UpdateSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
+	26, // 24: agynio.api.llm.v1.ListSubscriptionsResponse.subscriptions:type_name -> agynio.api.llm.v1.Subscription
+	3,  // 25: agynio.api.llm.v1.SubscriptionAttachment.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	2,  // 26: agynio.api.llm.v1.SubscriptionAttachment.vendor:type_name -> agynio.api.llm.v1.Vendor
+	37, // 27: agynio.api.llm.v1.CreateSubscriptionAttachmentResponse.subscription_attachment:type_name -> agynio.api.llm.v1.SubscriptionAttachment
+	37, // 28: agynio.api.llm.v1.ListSubscriptionAttachmentsResponse.subscription_attachments:type_name -> agynio.api.llm.v1.SubscriptionAttachment
+	1,  // 29: agynio.api.llm.v1.ResolveModelResponse.protocol:type_name -> agynio.api.llm.v1.Protocol
+	0,  // 30: agynio.api.llm.v1.ResolveModelResponse.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
+	2,  // 31: agynio.api.llm.v1.ResolveSubscriptionRequest.vendor:type_name -> agynio.api.llm.v1.Vendor
+	1,  // 32: agynio.api.llm.v1.ResolveSubscriptionResponse.protocol:type_name -> agynio.api.llm.v1.Protocol
+	5,  // 33: agynio.api.llm.v1.LLMService.CreateLLMProvider:input_type -> agynio.api.llm.v1.CreateLLMProviderRequest
+	7,  // 34: agynio.api.llm.v1.LLMService.GetLLMProvider:input_type -> agynio.api.llm.v1.GetLLMProviderRequest
+	9,  // 35: agynio.api.llm.v1.LLMService.UpdateLLMProvider:input_type -> agynio.api.llm.v1.UpdateLLMProviderRequest
+	11, // 36: agynio.api.llm.v1.LLMService.DeleteLLMProvider:input_type -> agynio.api.llm.v1.DeleteLLMProviderRequest
+	13, // 37: agynio.api.llm.v1.LLMService.ListLLMProviders:input_type -> agynio.api.llm.v1.ListLLMProvidersRequest
+	16, // 38: agynio.api.llm.v1.LLMService.CreateModel:input_type -> agynio.api.llm.v1.CreateModelRequest
+	18, // 39: agynio.api.llm.v1.LLMService.GetModel:input_type -> agynio.api.llm.v1.GetModelRequest
+	20, // 40: agynio.api.llm.v1.LLMService.UpdateModel:input_type -> agynio.api.llm.v1.UpdateModelRequest
+	22, // 41: agynio.api.llm.v1.LLMService.DeleteModel:input_type -> agynio.api.llm.v1.DeleteModelRequest
+	24, // 42: agynio.api.llm.v1.LLMService.ListModels:input_type -> agynio.api.llm.v1.ListModelsRequest
+	27, // 43: agynio.api.llm.v1.LLMService.CreateSubscription:input_type -> agynio.api.llm.v1.CreateSubscriptionRequest
+	29, // 44: agynio.api.llm.v1.LLMService.GetSubscription:input_type -> agynio.api.llm.v1.GetSubscriptionRequest
+	31, // 45: agynio.api.llm.v1.LLMService.UpdateSubscription:input_type -> agynio.api.llm.v1.UpdateSubscriptionRequest
+	33, // 46: agynio.api.llm.v1.LLMService.DeleteSubscription:input_type -> agynio.api.llm.v1.DeleteSubscriptionRequest
+	35, // 47: agynio.api.llm.v1.LLMService.ListSubscriptions:input_type -> agynio.api.llm.v1.ListSubscriptionsRequest
+	38, // 48: agynio.api.llm.v1.LLMService.CreateSubscriptionAttachment:input_type -> agynio.api.llm.v1.CreateSubscriptionAttachmentRequest
+	40, // 49: agynio.api.llm.v1.LLMService.DeleteSubscriptionAttachment:input_type -> agynio.api.llm.v1.DeleteSubscriptionAttachmentRequest
+	42, // 50: agynio.api.llm.v1.LLMService.ListSubscriptionAttachments:input_type -> agynio.api.llm.v1.ListSubscriptionAttachmentsRequest
+	46, // 51: agynio.api.llm.v1.LLMService.TestModel:input_type -> agynio.api.llm.v1.TestModelRequest
+	48, // 52: agynio.api.llm.v1.LLMService.ResolveModel:input_type -> agynio.api.llm.v1.ResolveModelRequest
+	50, // 53: agynio.api.llm.v1.LLMService.ResolveSubscription:input_type -> agynio.api.llm.v1.ResolveSubscriptionRequest
+	44, // 54: agynio.api.llm.v1.LLMService.CountSubscriptionsReferencingSecret:input_type -> agynio.api.llm.v1.CountSubscriptionsReferencingSecretRequest
+	6,  // 55: agynio.api.llm.v1.LLMService.CreateLLMProvider:output_type -> agynio.api.llm.v1.CreateLLMProviderResponse
+	8,  // 56: agynio.api.llm.v1.LLMService.GetLLMProvider:output_type -> agynio.api.llm.v1.GetLLMProviderResponse
+	10, // 57: agynio.api.llm.v1.LLMService.UpdateLLMProvider:output_type -> agynio.api.llm.v1.UpdateLLMProviderResponse
+	12, // 58: agynio.api.llm.v1.LLMService.DeleteLLMProvider:output_type -> agynio.api.llm.v1.DeleteLLMProviderResponse
+	14, // 59: agynio.api.llm.v1.LLMService.ListLLMProviders:output_type -> agynio.api.llm.v1.ListLLMProvidersResponse
+	17, // 60: agynio.api.llm.v1.LLMService.CreateModel:output_type -> agynio.api.llm.v1.CreateModelResponse
+	19, // 61: agynio.api.llm.v1.LLMService.GetModel:output_type -> agynio.api.llm.v1.GetModelResponse
+	21, // 62: agynio.api.llm.v1.LLMService.UpdateModel:output_type -> agynio.api.llm.v1.UpdateModelResponse
+	23, // 63: agynio.api.llm.v1.LLMService.DeleteModel:output_type -> agynio.api.llm.v1.DeleteModelResponse
+	25, // 64: agynio.api.llm.v1.LLMService.ListModels:output_type -> agynio.api.llm.v1.ListModelsResponse
+	28, // 65: agynio.api.llm.v1.LLMService.CreateSubscription:output_type -> agynio.api.llm.v1.CreateSubscriptionResponse
+	30, // 66: agynio.api.llm.v1.LLMService.GetSubscription:output_type -> agynio.api.llm.v1.GetSubscriptionResponse
+	32, // 67: agynio.api.llm.v1.LLMService.UpdateSubscription:output_type -> agynio.api.llm.v1.UpdateSubscriptionResponse
+	34, // 68: agynio.api.llm.v1.LLMService.DeleteSubscription:output_type -> agynio.api.llm.v1.DeleteSubscriptionResponse
+	36, // 69: agynio.api.llm.v1.LLMService.ListSubscriptions:output_type -> agynio.api.llm.v1.ListSubscriptionsResponse
+	39, // 70: agynio.api.llm.v1.LLMService.CreateSubscriptionAttachment:output_type -> agynio.api.llm.v1.CreateSubscriptionAttachmentResponse
+	41, // 71: agynio.api.llm.v1.LLMService.DeleteSubscriptionAttachment:output_type -> agynio.api.llm.v1.DeleteSubscriptionAttachmentResponse
+	43, // 72: agynio.api.llm.v1.LLMService.ListSubscriptionAttachments:output_type -> agynio.api.llm.v1.ListSubscriptionAttachmentsResponse
+	47, // 73: agynio.api.llm.v1.LLMService.TestModel:output_type -> agynio.api.llm.v1.TestModelResponse
+	49, // 74: agynio.api.llm.v1.LLMService.ResolveModel:output_type -> agynio.api.llm.v1.ResolveModelResponse
+	51, // 75: agynio.api.llm.v1.LLMService.ResolveSubscription:output_type -> agynio.api.llm.v1.ResolveSubscriptionResponse
+	45, // 76: agynio.api.llm.v1.LLMService.CountSubscriptionsReferencingSecret:output_type -> agynio.api.llm.v1.CountSubscriptionsReferencingSecretResponse
+	55, // [55:77] is the sub-list for method output_type
+	33, // [33:55] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_agynio_api_llm_v1_llm_proto_init() }
@@ -1816,13 +3363,23 @@ func file_agynio_api_llm_v1_llm_proto_init() {
 	}
 	file_agynio_api_llm_v1_llm_proto_msgTypes[6].OneofWrappers = []any{}
 	file_agynio_api_llm_v1_llm_proto_msgTypes[17].OneofWrappers = []any{}
+	file_agynio_api_llm_v1_llm_proto_msgTypes[28].OneofWrappers = []any{}
+	file_agynio_api_llm_v1_llm_proto_msgTypes[34].OneofWrappers = []any{
+		(*SubscriptionAttachment_AgentId)(nil),
+		(*SubscriptionAttachment_EnvironmentId)(nil),
+	}
+	file_agynio_api_llm_v1_llm_proto_msgTypes[35].OneofWrappers = []any{
+		(*CreateSubscriptionAttachmentRequest_AgentId)(nil),
+		(*CreateSubscriptionAttachmentRequest_EnvironmentId)(nil),
+	}
+	file_agynio_api_llm_v1_llm_proto_msgTypes[39].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agynio_api_llm_v1_llm_proto_rawDesc), len(file_agynio_api_llm_v1_llm_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   27,
+			NumEnums:      3,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
