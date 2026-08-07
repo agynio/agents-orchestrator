@@ -215,25 +215,22 @@ func TestAssemblerReusesWorkspaceMount(t *testing.T) {
 		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, req *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			if req.GetAgentId() == agentID.String() {
-				return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: []*agentsv1.VolumeAttachment{
-					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, VolumeId: volumeID.String()},
+		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			if req.GetEnvironmentId() != "" {
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
+					{
+						Meta:       &agentsv1.EntityMeta{Id: volumeID.String()},
+						Name:       "workspace",
+						MountPath:  workspacePath,
+						Persistent: true,
+						Size:       "1Gi",
+					},
 				}}, nil
 			}
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
 			return &agentsv1.ListMcpsResponse{}, nil
-		},
-		GetVolumeFunc: func(_ context.Context, req *agentsv1.GetVolumeRequest, _ ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
-			if req.GetId() != volumeID.String() {
-				return nil, errors.New("unexpected volume id")
-			}
-			return &agentsv1.GetVolumeResponse{Volume: &agentsv1.Volume{
-				Meta:      &agentsv1.EntityMeta{Id: volumeID.String()},
-				MountPath: workspacePath,
-			}}, nil
 		},
 	}
 
@@ -248,25 +245,16 @@ func TestAssemblerReusesWorkspaceMount(t *testing.T) {
 		t.Fatalf("assemble: %v", err)
 	}
 	request := result.Request
-	workspaceVolumeName := "vol-" + volumeID.String()[:8]
-	if len(request.Volumes) != 2 {
-		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
+	// Volumes belong to the environment. An agent without one declares none, so
+	// the only volume is the platform's own binary mount.
+	if len(request.Volumes) != 1 {
+		t.Fatalf("expected 1 volume, got %d", len(request.Volumes))
 	}
 	if findVolumeSpec(request.Volumes, agynBinVolumeName) == nil {
 		t.Fatalf("expected %s volume", agynBinVolumeName)
 	}
-	if findVolumeSpec(request.Volumes, workspaceVolumeName) == nil {
-		t.Fatalf("expected %s volume", workspaceVolumeName)
-	}
-	workspaceMount := findMountByPath(request.Main.Mounts, workspacePath)
-	if workspaceMount == nil {
-		t.Fatalf("expected main workspace mount")
-	}
-	if workspaceMount.Volume != workspaceVolumeName {
-		t.Fatalf("expected workspace volume %q, got %q", workspaceVolumeName, workspaceMount.Volume)
-	}
-	if countMountsByPath(request.Main.Mounts, workspacePath) != 1 {
-		t.Fatalf("expected one workspace mount, got %d", countMountsByPath(request.Main.Mounts, workspacePath))
+	if findMountByPath(request.Main.Mounts, workspacePath) != nil {
+		t.Fatalf("expected no workspace mount without an environment declaring one")
 	}
 	if len(request.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
@@ -799,13 +787,13 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 			}
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, req *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
+		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
 			if req.GetMcpId() == mcpID.String() {
-				return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: []*agentsv1.VolumeAttachment{
-					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, VolumeId: volumeID.String()},
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
+					{Meta: &agentsv1.EntityMeta{Id: volumeID.String()}, Name: "state", MountPath: "/data", Persistent: true, Size: "1Gi"},
 				}}, nil
 			}
-			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 		GetVolumeFunc: func(_ context.Context, req *agentsv1.GetVolumeRequest, _ ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
 			if req.GetId() != volumeID.String() {
@@ -883,107 +871,102 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	assertEnv(t, envs, "RES_OPTIONS", "ndots:2")
 }
 
-func TestAssemblerSharesPersistentVolumeAcrossContainers(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	threadA := uuid.New()
-	threadB := uuid.New()
+// Sharing within one workload is what shared_volumes is for: the agent writes a
+// file and an MCP server reads it, from the same pod volume at the same path.
+func TestSharedVolumesMountTheEnvironmentVolumeIntoTheSidecar(t *testing.T) {
+	environmentID := uuid.New()
 	mcpID := uuid.New()
 	volumeID := uuid.New()
 
-	agentsClient := &testutil.FakeAgentsClient{
-		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
-		},
-		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
-			return &agentsv1.ListSkillsResponse{}, nil
-		},
-		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
-			return &agentsv1.ListMcpsResponse{Mcps: []*agentsv1.Mcp{
-				{Meta: &agentsv1.EntityMeta{Id: mcpID.String()}, Name: "shared", Image: "mcp-image", Command: "run-mcp"},
-			}}, nil
-		},
-		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
-			return &agentsv1.ListEnvsResponse{}, nil
-		},
-		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
-			return &agentsv1.ListInitScriptsResponse{}, nil
-		},
-		ListVolumeAttachmentsFunc: func(_ context.Context, req *agentsv1.ListVolumeAttachmentsRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-			switch {
-			case req.GetAgentId() == agentID.String(), req.GetMcpId() == mcpID.String():
-				return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: []*agentsv1.VolumeAttachment{
-					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, VolumeId: volumeID.String()},
+	agents := &testutil.FakeAgentsClient{
+		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			if req.GetEnvironmentId() == environmentID.String() {
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
+					{Meta: &agentsv1.EntityMeta{Id: volumeID.String()}, Name: "workspace", MountPath: "/workspace", Persistent: true, Size: "1Gi"},
 				}}, nil
-			default:
-				return &agentsv1.ListVolumeAttachmentsResponse{}, nil
 			}
-		},
-		GetVolumeFunc: func(_ context.Context, req *agentsv1.GetVolumeRequest, _ ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error) {
-			if req.GetId() != volumeID.String() {
-				return nil, errors.New("unexpected volume id")
-			}
-			return &agentsv1.GetVolumeResponse{Volume: &agentsv1.Volume{
-				Meta:       &agentsv1.EntityMeta{Id: volumeID.String()},
-				Persistent: true,
-				MountPath:  "/data",
-			}}, nil
+			return &agentsv1.ListVolumesResponse{}, nil
 		},
 	}
+	resolver := newVolumeResolver(agents, uuid.New())
+	mainMounts, err := resolver.loadEnvironmentVolumes(context.Background(), environmentID.String())
+	if err != nil {
+		t.Fatalf("load environment volumes: %v", err)
+	}
+	if len(mainMounts) != 1 || mainMounts[0].MountPath != "/workspace" {
+		t.Fatalf("unexpected main mounts: %+v", mainMounts)
+	}
 
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
+	mcp := &agentsv1.Mcp{
+		Meta:          &agentsv1.EntityMeta{Id: mcpID.String()},
+		Name:          "files",
+		SharedVolumes: []string{"workspace"},
+	}
+	sidecarMounts, err := resolver.mountsForMcp(context.Background(), mcp)
+	if err != nil {
+		t.Fatalf("mounts for mcp: %v", err)
+	}
+	if len(sidecarMounts) != 1 {
+		t.Fatalf("expected 1 sidecar mount, got %d", len(sidecarMounts))
+	}
+	// Same pod volume, same path: a divergent path would be a debugging trap.
+	if sidecarMounts[0].Volume != mainMounts[0].Volume {
+		t.Fatalf("expected the sidecar to mount %q, got %q", mainMounts[0].Volume, sidecarMounts[0].Volume)
+	}
+	if sidecarMounts[0].MountPath != "/workspace" {
+		t.Fatalf("expected /workspace, got %q", sidecarMounts[0].MountPath)
+	}
+}
+
+// A share the environment does not declare fails scheduling rather than leaving
+// a sidecar silently missing the files it was configured to read.
+func TestSharedVolumesRejectAnUnresolvableName(t *testing.T) {
+	resolver := newVolumeResolver(&testutil.FakeAgentsClient{}, uuid.New())
+	if _, err := resolver.loadEnvironmentVolumes(context.Background(), uuid.NewString()); err != nil {
+		t.Fatalf("load environment volumes: %v", err)
+	}
+	_, err := resolver.mountsForMcp(context.Background(), &agentsv1.Mcp{
+		Meta:          &agentsv1.EntityMeta{Id: uuid.NewString()},
+		Name:          "files",
+		SharedVolumes: []string{"nope"},
 	})
+	if err == nil {
+		t.Fatal("expected an unresolvable shared volume to fail")
+	}
+}
 
-	resultA, err := assembler.Assemble(ctx, agentID, threadA, threadA)
-	if err != nil {
-		t.Fatalf("assemble thread A: %v", err)
-	}
-	volumeName := "vol-" + volumeID.String()[:8]
-	if len(resultA.Request.Volumes) != 2 {
-		t.Fatalf("expected 2 volumes, got %d", len(resultA.Request.Volumes))
-	}
-	volumeSpecA := findVolumeSpec(resultA.Request.Volumes, volumeName)
-	if volumeSpecA == nil {
-		t.Fatalf("expected volume %q", volumeName)
-	}
-	expectedPersistentA := "pv-" + threadA.String()[:12] + "-" + volumeID.String()[:12]
-	if volumeSpecA.PersistentName != expectedPersistentA {
-		t.Fatalf("expected persistent name %q, got %q", expectedPersistentA, volumeSpecA.PersistentName)
-	}
-	mainMount := findVolumeMount(resultA.Request.Main, volumeName)
-	if mainMount == nil {
-		t.Fatalf("expected main mount for %q", volumeName)
-	}
-	if mainMount.MountPath != "/data" {
-		t.Fatalf("expected main mount path /data, got %q", mainMount.MountPath)
-	}
-	if len(resultA.Request.Sidecars) != 1 {
-		t.Fatalf("expected 1 sidecar, got %d", len(resultA.Request.Sidecars))
-	}
-	sidecarMount := findVolumeMount(resultA.Request.Sidecars[0], volumeName)
-	if sidecarMount == nil {
-		t.Fatalf("expected sidecar mount for %q", volumeName)
-	}
-	if sidecarMount.MountPath != "/data" {
-		t.Fatalf("expected sidecar mount path /data, got %q", sidecarMount.MountPath)
-	}
+// A shared volume landing on a path the sidecar already uses is refused: the
+// same path cannot hold two different volumes.
+func TestSharedVolumesRejectAMountPathCollision(t *testing.T) {
+	environmentID := uuid.New()
+	mcpID := uuid.New()
 
-	resultB, err := assembler.Assemble(ctx, agentID, threadB, threadB)
-	if err != nil {
-		t.Fatalf("assemble thread B: %v", err)
+	agents := &testutil.FakeAgentsClient{
+		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			if req.GetEnvironmentId() == environmentID.String() {
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "shared", MountPath: "/data"},
+				}}, nil
+			}
+			if req.GetMcpId() == mcpID.String() {
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "own", MountPath: "/data"},
+				}}, nil
+			}
+			return &agentsv1.ListVolumesResponse{}, nil
+		},
 	}
-	volumeSpecB := findVolumeSpec(resultB.Request.Volumes, volumeName)
-	if volumeSpecB == nil {
-		t.Fatalf("expected volume %q", volumeName)
+	resolver := newVolumeResolver(agents, uuid.New())
+	if _, err := resolver.loadEnvironmentVolumes(context.Background(), environmentID.String()); err != nil {
+		t.Fatalf("load environment volumes: %v", err)
 	}
-	expectedPersistentB := "pv-" + threadB.String()[:12] + "-" + volumeID.String()[:12]
-	if volumeSpecB.PersistentName != expectedPersistentB {
-		t.Fatalf("expected persistent name %q, got %q", expectedPersistentB, volumeSpecB.PersistentName)
-	}
-	if volumeSpecA.PersistentName == volumeSpecB.PersistentName {
-		t.Fatalf("expected different persistent names, got %q", volumeSpecA.PersistentName)
+	_, err := resolver.mountsForMcp(context.Background(), &agentsv1.Mcp{
+		Meta:          &agentsv1.EntityMeta{Id: mcpID.String()},
+		Name:          "files",
+		SharedVolumes: []string{"shared"},
+	})
+	if err == nil {
+		t.Fatal("expected a mount path collision to fail")
 	}
 }
 

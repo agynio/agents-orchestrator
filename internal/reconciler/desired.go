@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
@@ -56,7 +57,19 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, m
 			return nil, nil, nil, fmt.Errorf("agent %s updated_at missing", agentID.String())
 		}
 		idleTimeouts[agentID] = idleTimeout
-		agentUpdatedAt[agentID] = updatedAt.AsTime().UTC()
+		configUpdatedAt := updatedAt.AsTime().UTC()
+		// A repaired environment must unblock every instance running it, not
+		// only those whose own class changed. An environment sub-resource write
+		// touches the environment, so its updated_at covers volumes, MCPs, init
+		// scripts and ENVs alike.
+		environmentUpdatedAt, err := r.environmentUpdatedAt(ctx, agent.GetEnvironmentId())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if environmentUpdatedAt.After(configUpdatedAt) {
+			configUpdatedAt = environmentUpdatedAt
+		}
+		agentUpdatedAt[agentID] = configUpdatedAt
 	}
 	result := make([]AgentInstanceTarget, 0, len(unique))
 	for key := range unique {
@@ -242,4 +255,23 @@ func (r *Reconciler) addIdleTimeoutsForWorkloads(ctx context.Context, workloads 
 		idleTimeouts[agentID] = idleTimeout
 	}
 	return nil
+}
+
+// environmentUpdatedAt reports when an agent's environment last changed. A blank
+// id means the agent names none, which is not an error: agents predating
+// environments keep their inline configuration.
+func (r *Reconciler) environmentUpdatedAt(ctx context.Context, environmentID string) (time.Time, error) {
+	environmentID = strings.TrimSpace(environmentID)
+	if environmentID == "" {
+		return time.Time{}, nil
+	}
+	resp, err := r.agents.GetEnvironment(ctx, &agentsv1.GetEnvironmentRequest{Id: environmentID})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get environment %s: %w", environmentID, err)
+	}
+	updated := resp.GetEnvironment().GetMeta().GetUpdatedAt()
+	if updated == nil {
+		return time.Time{}, nil
+	}
+	return updated.AsTime().UTC(), nil
 }

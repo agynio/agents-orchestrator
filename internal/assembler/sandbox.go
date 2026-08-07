@@ -126,6 +126,17 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		}
 		initContainers = append(initContainers, legacy)
 	}
+	// Provisioned disks are attributed to the sandbox that owns them, which is
+	// what volume reconciliation and metering read.
+	for _, spec := range volumeResolver.Specs() {
+		if spec.Labels == nil {
+			spec.Labels = map[string]string{}
+		}
+		spec.Labels[LabelManagedBy] = ManagedByValue
+		spec.Labels[LabelSandboxID] = sandboxID.String()
+		spec.Labels[LabelSandboxOwnerID] = ownerID.String()
+		spec.Labels[LabelEnvironmentID] = environmentID.String()
+	}
 	volumes := append(volumeResolver.Specs(), &runnerv1.VolumeSpec{
 		Name: agynBinVolumeName,
 		Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL,

@@ -1594,6 +1594,16 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
 	var startedWorkloadID string
 	agents := &testutil.FakeAgentsClient{
+		// The environment declares a persistent volume, so one disk is recorded
+		// per sandbox that runs it.
+		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			if req.GetEnvironmentId() == environmentID {
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "workspace", MountPath: "/workspace", Persistent: true, Size: "10Gi"},
+				}}, nil
+			}
+			return &agentsv1.ListVolumesResponse{}, nil
+		},
 		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
 			if req.GetId() != environmentID {
 				return nil, errors.New("unexpected environment id")
@@ -1835,6 +1845,16 @@ func TestStartSandboxWorkloadWritesRuntimeRunning(t *testing.T) {
 	flavorName := "ram-2gb"
 	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
 	agents := &testutil.FakeAgentsClient{
+		// The environment declares a persistent volume, so one disk is recorded
+		// per sandbox that runs it.
+		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			if req.GetEnvironmentId() == environmentID {
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
+					{Meta: &agentsv1.EntityMeta{Id: uuid.NewString()}, Name: "workspace", MountPath: "/workspace", Persistent: true, Size: "10Gi"},
+				}}, nil
+			}
+			return &agentsv1.ListVolumesResponse{}, nil
+		},
 		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
 			if req.GetId() != environmentID {
 				return nil, errors.New("unexpected environment id")

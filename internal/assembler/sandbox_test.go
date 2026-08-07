@@ -92,6 +92,20 @@ func newSandboxFixture() *sandboxFixture {
 				Flavor:         testSandboxFlavor,
 			}}, nil
 		},
+		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
+			if req.GetEnvironmentId() == environmentID.String() {
+				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
+					{
+						Meta:       &agentsv1.EntityMeta{Id: fixture.workspaceVolumeID},
+						Name:       "workspace",
+						MountPath:  testSandboxWorkspace,
+						Persistent: true,
+						Size:       "10Gi",
+					},
+				}}, nil
+			}
+			return &agentsv1.ListVolumesResponse{}, nil
+		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
 			return &agentsv1.ListEnvsResponse{}, nil
 		},
@@ -149,12 +163,6 @@ func TestAssembleSandboxUsesEnvironmentImageAndFlavor(t *testing.T) {
 	}
 	if result.OwnerID != fixture.ownerID {
 		t.Fatalf("unexpected owner id %s", result.OwnerID)
-	}
-	if result.WorkspaceVolumeID != fixture.workspaceVolumeID {
-		t.Fatalf("unexpected workspace volume id %q", result.WorkspaceVolumeID)
-	}
-	if result.WorkspaceSizeGB != testSandboxSizeGB {
-		t.Fatalf("unexpected workspace size %q", result.WorkspaceSizeGB)
 	}
 	if result.AllocatedCPUMillicores != 500 {
 		t.Fatalf("unexpected allocated cpu %d", result.AllocatedCPUMillicores)
@@ -247,14 +255,14 @@ func TestAssembleSandboxMountsPersistentWorkspace(t *testing.T) {
 	if main.GetWorkingDir() != SandboxWorkspaceMountPath {
 		t.Fatalf("expected working dir %q, got %q", SandboxWorkspaceMountPath, main.GetWorkingDir())
 	}
-	workspaceMount := findVolumeMount(main, sandboxWorkspaceVolumeName)
+	workspaceMount := findVolumeMount(main, "vol-"+fixture.workspaceVolumeID[:8])
 	if workspaceMount == nil {
 		t.Fatalf("expected workspace mount, got %v", main.GetMounts())
 	}
 	if workspaceMount.GetMountPath() != SandboxWorkspaceMountPath {
 		t.Fatalf("expected workspace mount path %q, got %q", SandboxWorkspaceMountPath, workspaceMount.GetMountPath())
 	}
-	workspaceVolume := findVolumeSpec(result.Request.GetVolumes(), sandboxWorkspaceVolumeName)
+	workspaceVolume := findVolumeSpec(result.Request.GetVolumes(), "vol-"+fixture.workspaceVolumeID[:8])
 	if workspaceVolume == nil {
 		t.Fatalf("expected workspace volume, got %v", result.Request.GetVolumes())
 	}
@@ -263,7 +271,7 @@ func TestAssembleSandboxMountsPersistentWorkspace(t *testing.T) {
 	}
 	// The deterministic persistent name is what lets the workspace survive idle
 	// stops and reconnects.
-	expectedPersistentName := "sandbox-ws-" + fixture.sandboxID.String()
+	expectedPersistentName := "pv-" + fixture.sandboxID.String()[:12] + "-" + fixture.workspaceVolumeID[:12]
 	if workspaceVolume.GetPersistentName() != expectedPersistentName {
 		t.Fatalf("expected persistent name %q, got %q", expectedPersistentName, workspaceVolume.GetPersistentName())
 	}
@@ -274,9 +282,11 @@ func TestAssembleSandboxMountsPersistentWorkspace(t *testing.T) {
 	if labels[LabelSandboxOwnerID] != fixture.ownerID.String() {
 		t.Fatalf("unexpected workspace owner label: %v", labels)
 	}
-	if labels[LabelVolumeKey] != fixture.workspaceVolumeID {
-		t.Fatalf("unexpected workspace volume key label: %v", labels)
+	if labels[LabelEnvironmentID] != fixture.environmentID.String() {
+		t.Fatalf("unexpected workspace environment label: %v", labels)
 	}
+	// LabelVolumeKey is stamped when the volume record is built, which is after
+	// assembly, so it is asserted there rather than here.
 }
 
 func TestAssembleSandboxInjectsEnvironmentEnvsAndSecrets(t *testing.T) {
