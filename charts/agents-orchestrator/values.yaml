@@ -76,6 +76,17 @@ env:
     value: "secrets:50051"
   - name: RUNNERS_ADDRESS
     value: "runners:50051"
+  - name: IMAGES_ADDRESS
+    value: "images:50051"
+  - name: ORGANIZATIONS_ADDRESS
+    value: "organizations:50051"
+  - name: IMAGE_PROXY_ADDRESS
+    value: "image-proxy:50051"
+  # Derived from the one domain an installation declares. The Image Proxy is
+  # the only path a workload's images are pulled by, so leaving this empty
+  # disables every catalog image reference rather than falling back to one.
+  - name: IMAGE_PROXY_HOST
+    value: "registry.{{ .Values.global.ingress.baseDomain }}"
   - name: METERING_SERVICE_ADDRESS
     value: ""
   - name: METERING_SAMPLE_INTERVAL
