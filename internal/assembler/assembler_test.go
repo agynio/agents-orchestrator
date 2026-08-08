@@ -1888,8 +1888,8 @@ func TestZitiSidecarUsesWorkloadDNSForRuntimeAuth(t *testing.T) {
 	if strings.Contains(zitiSidecarScript, `openssl s_client`) {
 		t.Fatalf("expected sidecar startup not to fail before tunnel retry handling, got %q", zitiSidecarScript)
 	}
-	if strings.Contains(zitiSidecarScript, `--dnsUpstream`) {
-		t.Fatalf("expected sidecar script not to use unsupported dns upstream flag, got %q", zitiSidecarScript)
+	if !strings.Contains(zitiSidecarScript, `--dnsUpstream "udp://${workload_dns_upstream}:53"`) {
+		t.Fatalf("expected sidecar script to forward non-intercepted names upstream rather than refuse them, got %q", zitiSidecarScript)
 	}
 	if !strings.Contains(zitiSidecarScript, `--svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53"`) {
 		t.Fatalf("expected sidecar script to enable service polling and supported DNS resolver, got %q", zitiSidecarScript)
