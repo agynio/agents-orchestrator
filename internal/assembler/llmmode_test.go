@@ -197,3 +197,55 @@ func TestResolveLLMModePropagatesLookupFailure(t *testing.T) {
 		t.Fatal("expected the lookup failure to fail assembly")
 	}
 }
+
+// The agent scope is looked up by the agent's own id. Passing anything else --
+// the environment id is the near miss, since both are on the same struct --
+// silently finds no agent-scoped attachment, so an agent overriding its
+// environment's vendor would fall back to the environment's subscription, or
+// fail assembly outright when the agent's is the only one attached.
+func TestResolveLLMModeQueriesTheAgentScopeByAgentID(t *testing.T) {
+	const agentID = "agent-1"
+	const environmentID = "env-1"
+
+	client := &fakeLLMClient{
+		attachments: []*llmv1.SubscriptionAttachment{
+			{
+				Meta:           &llmv1.EntityMeta{Id: "att-1"},
+				SubscriptionId: "sub-1",
+				Vendor:         llmv1.Vendor_VENDOR_CLAUDE,
+				PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+				Target:         &llmv1.SubscriptionAttachment_AgentId{AgentId: agentID},
+			},
+		},
+	}
+	assembler := &Assembler{llm: client}
+	environment := &agentsv1.Environment{
+		Meta:    &agentsv1.EntityMeta{Id: environmentID},
+		LlmMode: agentsv1.LLMMode_LLM_MODE_NATIVE,
+	}
+
+	mode, err := assembler.resolveLLMMode(context.Background(), environment, agentID, "")
+	if err != nil {
+		t.Fatalf("resolve llm mode: %v", err)
+	}
+	if !mode.Native {
+		t.Fatal("expected native mode")
+	}
+	if len(mode.RoleAttributes) != 1 || mode.RoleAttributes[0] != "llm-native-claude" {
+		t.Fatalf("role attributes = %v, want the agent-scoped vendor", mode.RoleAttributes)
+	}
+
+	// The agent filter has to carry the agent id, not the environment's.
+	var sawAgentFilter bool
+	for _, req := range client.requests {
+		if req.AgentId != nil {
+			sawAgentFilter = true
+			if req.GetAgentId() != agentID {
+				t.Fatalf("agent filter = %q, want %q", req.GetAgentId(), agentID)
+			}
+		}
+	}
+	if !sawAgentFilter {
+		t.Fatal("agent scope was never queried")
+	}
+}

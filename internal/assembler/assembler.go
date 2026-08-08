@@ -530,7 +530,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 	// Native mode decides what the workload's identity is stamped with and what
 	// credential the container holds, so it is resolved before the spec is
 	// built and fails assembly rather than the first model call.
-	llmMode, err := a.resolveLLMMode(ctx, environment, agent.GetEnvironmentId(), agent.GetModelName())
+	llmMode, err := a.resolveLLMMode(ctx, environment, agentID.String(), agent.GetModelName())
 	if err != nil {
 		return nil, err
 	}
