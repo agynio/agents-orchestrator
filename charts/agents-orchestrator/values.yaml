@@ -86,7 +86,9 @@ env:
   # the only path a workload's images are pulled by, so leaving this empty
   # disables every catalog image reference rather than falling back to one.
   - name: IMAGE_PROXY_HOST
-    value: "registry.{{ .Values.global.ingress.baseDomain }}"
+    # Empty rather than "registry." when no domain is configured: the chart is
+    # linted and installed standalone, where global carries no ingress.
+    value: "{{ with .Values.global }}{{ with .ingress }}{{ with .baseDomain }}registry.{{ . }}{{ end }}{{ end }}{{ end }}"
   - name: METERING_SERVICE_ADDRESS
     value: ""
   - name: METERING_SAMPLE_INTERVAL
