@@ -283,9 +283,21 @@ func TestResolveLLMModeLeavesFilePlaceholdersToAgynd(t *testing.T) {
 	if len(mode.RoleAttributes) != 1 || mode.RoleAttributes[0] != "llm-native-openai" {
 		t.Fatalf("role attributes = %v", mode.RoleAttributes)
 	}
+
+	// The path and contents are relayed for agynd -- holder mode has no
+	// platform connection to fetch them over -- but the placeholder itself is
+	// never set as the credential variable the CLI reads.
+	values := map[string]string{}
 	for _, env := range mode.EnvVars {
-		if env.GetName() != "LLM_MODE" {
-			t.Fatalf("file placeholder leaked into the container environment as %s", env.GetName())
-		}
+		values[env.GetName()] = env.GetValue()
+	}
+	if values[placeholderFilePathEnv] != ".codex/auth.json" {
+		t.Fatalf("relayed path = %q", values[placeholderFilePathEnv])
+	}
+	if values[placeholderFileContentsEnv] == "" {
+		t.Fatal("file contents were not relayed")
+	}
+	if _, ok := values["OPENAI_API_KEY"]; ok {
+		t.Fatal("a file placeholder was injected as a credential variable")
 	}
 }
