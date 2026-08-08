@@ -79,13 +79,23 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 	rewriter := newImageRewriter(a.images, a.organizations, a.cfg.ImageProxyHost)
 	mainImage := environment.GetImage()
 	agentRuntimeImage := ""
-	if rewriter.enabled() && environment.GetWorkspaceImageId() != "" {
+	// A catalog reference resolves only through the Image Proxy, which is the
+	// only path a workload's images are pulled by. Skipping the lookup when it
+	// is unconfigured silently dropped the environment's agent runtime, and the
+	// sandbox came up with no agent CLI and nothing said so.
+	if environment.GetWorkspaceImageId() != "" {
+		if !rewriter.enabled() {
+			return nil, fmt.Errorf("environment %s names a workspace image but the image proxy is not configured", environmentID)
+		}
 		mainImage, err = rewriter.Rewrite(ctx, environment.GetWorkspaceImageId(), environment.GetWorkspaceImageTag())
 		if err != nil {
 			return nil, fmt.Errorf("environment %s workspace image: %w", environmentID, err)
 		}
 	}
-	if rewriter.enabled() && environment.GetAgentRuntimeImageId() != "" {
+	if environment.GetAgentRuntimeImageId() != "" {
+		if !rewriter.enabled() {
+			return nil, fmt.Errorf("environment %s names an agent runtime image but the image proxy is not configured", environmentID)
+		}
 		agentRuntimeImage, err = rewriter.Rewrite(ctx, environment.GetAgentRuntimeImageId(), environment.GetAgentRuntimeImageTag())
 		if err != nil {
 			return nil, fmt.Errorf("environment %s agent runtime image: %w", environmentID, err)

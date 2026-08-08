@@ -464,13 +464,22 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 	if environment != nil {
 		environmentID := environment.GetMeta().GetId()
 		mainImage = environment.GetImage()
-		if rewriter.enabled() && environment.GetWorkspaceImageId() != "" {
+		// See sandbox assembly: a catalog reference resolves only through the
+		// Image Proxy, so an unconfigured proxy is a broken deployment rather
+		// than a mode in which the reference is ignored.
+		if environment.GetWorkspaceImageId() != "" {
+			if !rewriter.enabled() {
+				return nil, fmt.Errorf("environment %s names a workspace image but the image proxy is not configured", environmentID)
+			}
 			mainImage, err = rewriter.Rewrite(ctx, environment.GetWorkspaceImageId(), environment.GetWorkspaceImageTag())
 			if err != nil {
 				return nil, fmt.Errorf("environment %s workspace image: %w", environmentID, err)
 			}
 		}
-		if rewriter.enabled() && environment.GetAgentRuntimeImageId() != "" {
+		if environment.GetAgentRuntimeImageId() != "" {
+			if !rewriter.enabled() {
+				return nil, fmt.Errorf("environment %s names an agent runtime image but the image proxy is not configured", environmentID)
+			}
 			agentRuntimeImage, err = rewriter.Rewrite(ctx, environment.GetAgentRuntimeImageId(), environment.GetAgentRuntimeImageTag())
 			if err != nil {
 				return nil, fmt.Errorf("environment %s agent runtime image: %w", environmentID, err)
