@@ -123,24 +123,41 @@ func (Protocol) EnumDescriptor() ([]byte, []int) {
 // Vendor whose own consumer plan a Subscription holds a credential for. Closed:
 // each value fixes an intercepted host, an upstream, a protocol, a header set,
 // and the container placeholder variable name.
+// Named after the API the credential authenticates, not after a CLI that
+// presents it. Naming these after CLIs is what paired chatgpt.com -- the
+// subscription host -- with OPENAI_API_KEY, which selects the API-key mode that
+// addresses api.openai.com instead: two mutually exclusive configurations in one
+// row. Which CLI presents a credential is incidental and free to change.
+//
+// The old names are retained as aliases so existing callers keep compiling and
+// their stored values keep resolving. They carry the same numbers, so nothing
+// on the wire changes.
 type Vendor int32
 
 const (
 	Vendor_VENDOR_UNSPECIFIED Vendor = 0
-	Vendor_VENDOR_CLAUDE      Vendor = 1
-	Vendor_VENDOR_CODEX       Vendor = 2
+	Vendor_VENDOR_ANTHROPIC   Vendor = 1
+	// Deprecated: Marked as deprecated in agynio/api/llm/v1/llm.proto.
+	Vendor_VENDOR_CLAUDE Vendor = 1
+	Vendor_VENDOR_OPENAI Vendor = 2
+	// Deprecated: Marked as deprecated in agynio/api/llm/v1/llm.proto.
+	Vendor_VENDOR_CODEX Vendor = 2
 )
 
 // Enum value maps for Vendor.
 var (
 	Vendor_name = map[int32]string{
 		0: "VENDOR_UNSPECIFIED",
-		1: "VENDOR_CLAUDE",
-		2: "VENDOR_CODEX",
+		1: "VENDOR_ANTHROPIC",
+		// Duplicate value: 1: "VENDOR_CLAUDE",
+		2: "VENDOR_OPENAI",
+		// Duplicate value: 2: "VENDOR_CODEX",
 	}
 	Vendor_value = map[string]int32{
 		"VENDOR_UNSPECIFIED": 0,
+		"VENDOR_ANTHROPIC":   1,
 		"VENDOR_CLAUDE":      1,
+		"VENDOR_OPENAI":      2,
 		"VENDOR_CODEX":       2,
 	}
 )
@@ -170,6 +187,59 @@ func (x Vendor) Number() protoreflect.EnumNumber {
 // Deprecated: Use Vendor.Descriptor instead.
 func (Vendor) EnumDescriptor() ([]byte, []int) {
 	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{2}
+}
+
+// How a vendor's placeholder credential reaches the container. The two differ
+// in who writes it: an environment variable has to be on the container spec so
+// a sandbox shell exec'd against the pod inherits it, while a file lands at a
+// CLI-specific path under HOME that only agynd can resolve.
+type PlaceholderKind int32
+
+const (
+	PlaceholderKind_PLACEHOLDER_KIND_UNSPECIFIED PlaceholderKind = 0
+	PlaceholderKind_PLACEHOLDER_KIND_ENV         PlaceholderKind = 1
+	PlaceholderKind_PLACEHOLDER_KIND_FILE        PlaceholderKind = 2
+)
+
+// Enum value maps for PlaceholderKind.
+var (
+	PlaceholderKind_name = map[int32]string{
+		0: "PLACEHOLDER_KIND_UNSPECIFIED",
+		1: "PLACEHOLDER_KIND_ENV",
+		2: "PLACEHOLDER_KIND_FILE",
+	}
+	PlaceholderKind_value = map[string]int32{
+		"PLACEHOLDER_KIND_UNSPECIFIED": 0,
+		"PLACEHOLDER_KIND_ENV":         1,
+		"PLACEHOLDER_KIND_FILE":        2,
+	}
+)
+
+func (x PlaceholderKind) Enum() *PlaceholderKind {
+	p := new(PlaceholderKind)
+	*p = x
+	return p
+}
+
+func (x PlaceholderKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PlaceholderKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_agynio_api_llm_v1_llm_proto_enumTypes[3].Descriptor()
+}
+
+func (PlaceholderKind) Type() protoreflect.EnumType {
+	return &file_agynio_api_llm_v1_llm_proto_enumTypes[3]
+}
+
+func (x PlaceholderKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PlaceholderKind.Descriptor instead.
+func (PlaceholderKind) EnumDescriptor() ([]byte, []int) {
+	return file_agynio_api_llm_v1_llm_proto_rawDescGZIP(), []int{3}
 }
 
 type EntityMeta struct {
@@ -2019,9 +2089,16 @@ type SubscriptionAttachment struct {
 	// Denormalized from the subscription, which cannot change vendor. Carried
 	// here so the orchestrator gets role attributes without a second call.
 	Vendor Vendor `protobuf:"varint,3,opt,name=vendor,proto3,enum=agynio.api.llm.v1.Vendor" json:"vendor,omitempty"`
-	// Name of the container environment variable holding this vendor's
-	// placeholder credential. Empty for a vendor that has none.
+	// Which of the two delivery mechanisms this vendor's placeholder uses, and
+	// everything the writer needs for it -- so neither the orchestrator nor agynd
+	// holds a vendor table of its own.
+	PlaceholderKind PlaceholderKind `protobuf:"varint,7,opt,name=placeholder_kind,json=placeholderKind,proto3,enum=agynio.api.llm.v1.PlaceholderKind" json:"placeholder_kind,omitempty"`
+	// ENV kind: the container environment variable to set. Empty otherwise.
 	PlaceholderEnv string `protobuf:"bytes,4,opt,name=placeholder_env,json=placeholderEnv,proto3" json:"placeholder_env,omitempty"`
+	// FILE kind: the path, relative to HOME, and the contents to write there.
+	// Both empty otherwise.
+	PlaceholderPath     string `protobuf:"bytes,8,opt,name=placeholder_path,json=placeholderPath,proto3" json:"placeholder_path,omitempty"`
+	PlaceholderContents string `protobuf:"bytes,9,opt,name=placeholder_contents,json=placeholderContents,proto3" json:"placeholder_contents,omitempty"`
 	// Types that are valid to be assigned to Target:
 	//
 	//	*SubscriptionAttachment_AgentId
@@ -2082,9 +2159,30 @@ func (x *SubscriptionAttachment) GetVendor() Vendor {
 	return Vendor_VENDOR_UNSPECIFIED
 }
 
+func (x *SubscriptionAttachment) GetPlaceholderKind() PlaceholderKind {
+	if x != nil {
+		return x.PlaceholderKind
+	}
+	return PlaceholderKind_PLACEHOLDER_KIND_UNSPECIFIED
+}
+
 func (x *SubscriptionAttachment) GetPlaceholderEnv() string {
 	if x != nil {
 		return x.PlaceholderEnv
+	}
+	return ""
+}
+
+func (x *SubscriptionAttachment) GetPlaceholderPath() string {
+	if x != nil {
+		return x.PlaceholderPath
+	}
+	return ""
+}
+
+func (x *SubscriptionAttachment) GetPlaceholderContents() string {
+	if x != nil {
+		return x.PlaceholderContents
 	}
 	return ""
 }
@@ -3095,12 +3193,15 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\x0forganization_id\x18\x03 \x01(\tR\x0eorganizationId\"\x8a\x01\n" +
 	"\x19ListSubscriptionsResponse\x12E\n" +
 	"\rsubscriptions\x18\x01 \x03(\v2\x1f.agynio.api.llm.v1.SubscriptionR\rsubscriptions\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xa0\x02\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xcd\x03\n" +
 	"\x16SubscriptionAttachment\x121\n" +
 	"\x04meta\x18\x01 \x01(\v2\x1d.agynio.api.llm.v1.EntityMetaR\x04meta\x12'\n" +
 	"\x0fsubscription_id\x18\x02 \x01(\tR\x0esubscriptionId\x121\n" +
-	"\x06vendor\x18\x03 \x01(\x0e2\x19.agynio.api.llm.v1.VendorR\x06vendor\x12'\n" +
-	"\x0fplaceholder_env\x18\x04 \x01(\tR\x0eplaceholderEnv\x12\x1b\n" +
+	"\x06vendor\x18\x03 \x01(\x0e2\x19.agynio.api.llm.v1.VendorR\x06vendor\x12M\n" +
+	"\x10placeholder_kind\x18\a \x01(\x0e2\".agynio.api.llm.v1.PlaceholderKindR\x0fplaceholderKind\x12'\n" +
+	"\x0fplaceholder_env\x18\x04 \x01(\tR\x0eplaceholderEnv\x12)\n" +
+	"\x10placeholder_path\x18\b \x01(\tR\x0fplaceholderPath\x121\n" +
+	"\x14placeholder_contents\x18\t \x01(\tR\x13placeholderContents\x12\x1b\n" +
 	"\bagent_id\x18\x05 \x01(\tH\x00R\aagentId\x12'\n" +
 	"\x0eenvironment_id\x18\x06 \x01(\tH\x00R\renvironmentIdB\b\n" +
 	"\x06target\"\x9e\x01\n" +
@@ -3170,11 +3271,17 @@ const file_agynio_api_llm_v1_llm_proto_rawDesc = "" +
 	"\bProtocol\x12\x18\n" +
 	"\x14PROTOCOL_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12PROTOCOL_RESPONSES\x10\x01\x12\x1f\n" +
-	"\x1bPROTOCOL_ANTHROPIC_MESSAGES\x10\x02*E\n" +
+	"\x1bPROTOCOL_ANTHROPIC_MESSAGES\x10\x02*z\n" +
 	"\x06Vendor\x12\x16\n" +
-	"\x12VENDOR_UNSPECIFIED\x10\x00\x12\x11\n" +
-	"\rVENDOR_CLAUDE\x10\x01\x12\x10\n" +
-	"\fVENDOR_CODEX\x10\x022\xb6\x13\n" +
+	"\x12VENDOR_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10VENDOR_ANTHROPIC\x10\x01\x12\x15\n" +
+	"\rVENDOR_CLAUDE\x10\x01\x1a\x02\b\x01\x12\x11\n" +
+	"\rVENDOR_OPENAI\x10\x02\x12\x14\n" +
+	"\fVENDOR_CODEX\x10\x02\x1a\x02\b\x01\x1a\x02\x10\x01*h\n" +
+	"\x0fPlaceholderKind\x12 \n" +
+	"\x1cPLACEHOLDER_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14PLACEHOLDER_KIND_ENV\x10\x01\x12\x19\n" +
+	"\x15PLACEHOLDER_KIND_FILE\x10\x022\xb6\x13\n" +
 	"\n" +
 	"LLMService\x12n\n" +
 	"\x11CreateLLMProvider\x12+.agynio.api.llm.v1.CreateLLMProviderRequest\x1a,.agynio.api.llm.v1.CreateLLMProviderResponse\x12e\n" +
@@ -3214,146 +3321,148 @@ func file_agynio_api_llm_v1_llm_proto_rawDescGZIP() []byte {
 	return file_agynio_api_llm_v1_llm_proto_rawDescData
 }
 
-var file_agynio_api_llm_v1_llm_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_agynio_api_llm_v1_llm_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_agynio_api_llm_v1_llm_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_agynio_api_llm_v1_llm_proto_goTypes = []any{
 	(AuthMethod)(0),                                     // 0: agynio.api.llm.v1.AuthMethod
 	(Protocol)(0),                                       // 1: agynio.api.llm.v1.Protocol
 	(Vendor)(0),                                         // 2: agynio.api.llm.v1.Vendor
-	(*EntityMeta)(nil),                                  // 3: agynio.api.llm.v1.EntityMeta
-	(*LLMProvider)(nil),                                 // 4: agynio.api.llm.v1.LLMProvider
-	(*CreateLLMProviderRequest)(nil),                    // 5: agynio.api.llm.v1.CreateLLMProviderRequest
-	(*CreateLLMProviderResponse)(nil),                   // 6: agynio.api.llm.v1.CreateLLMProviderResponse
-	(*GetLLMProviderRequest)(nil),                       // 7: agynio.api.llm.v1.GetLLMProviderRequest
-	(*GetLLMProviderResponse)(nil),                      // 8: agynio.api.llm.v1.GetLLMProviderResponse
-	(*UpdateLLMProviderRequest)(nil),                    // 9: agynio.api.llm.v1.UpdateLLMProviderRequest
-	(*UpdateLLMProviderResponse)(nil),                   // 10: agynio.api.llm.v1.UpdateLLMProviderResponse
-	(*DeleteLLMProviderRequest)(nil),                    // 11: agynio.api.llm.v1.DeleteLLMProviderRequest
-	(*DeleteLLMProviderResponse)(nil),                   // 12: agynio.api.llm.v1.DeleteLLMProviderResponse
-	(*ListLLMProvidersRequest)(nil),                     // 13: agynio.api.llm.v1.ListLLMProvidersRequest
-	(*ListLLMProvidersResponse)(nil),                    // 14: agynio.api.llm.v1.ListLLMProvidersResponse
-	(*Model)(nil),                                       // 15: agynio.api.llm.v1.Model
-	(*CreateModelRequest)(nil),                          // 16: agynio.api.llm.v1.CreateModelRequest
-	(*CreateModelResponse)(nil),                         // 17: agynio.api.llm.v1.CreateModelResponse
-	(*GetModelRequest)(nil),                             // 18: agynio.api.llm.v1.GetModelRequest
-	(*GetModelResponse)(nil),                            // 19: agynio.api.llm.v1.GetModelResponse
-	(*UpdateModelRequest)(nil),                          // 20: agynio.api.llm.v1.UpdateModelRequest
-	(*UpdateModelResponse)(nil),                         // 21: agynio.api.llm.v1.UpdateModelResponse
-	(*DeleteModelRequest)(nil),                          // 22: agynio.api.llm.v1.DeleteModelRequest
-	(*DeleteModelResponse)(nil),                         // 23: agynio.api.llm.v1.DeleteModelResponse
-	(*ListModelsRequest)(nil),                           // 24: agynio.api.llm.v1.ListModelsRequest
-	(*ListModelsResponse)(nil),                          // 25: agynio.api.llm.v1.ListModelsResponse
-	(*Subscription)(nil),                                // 26: agynio.api.llm.v1.Subscription
-	(*CreateSubscriptionRequest)(nil),                   // 27: agynio.api.llm.v1.CreateSubscriptionRequest
-	(*CreateSubscriptionResponse)(nil),                  // 28: agynio.api.llm.v1.CreateSubscriptionResponse
-	(*GetSubscriptionRequest)(nil),                      // 29: agynio.api.llm.v1.GetSubscriptionRequest
-	(*GetSubscriptionResponse)(nil),                     // 30: agynio.api.llm.v1.GetSubscriptionResponse
-	(*UpdateSubscriptionRequest)(nil),                   // 31: agynio.api.llm.v1.UpdateSubscriptionRequest
-	(*UpdateSubscriptionResponse)(nil),                  // 32: agynio.api.llm.v1.UpdateSubscriptionResponse
-	(*DeleteSubscriptionRequest)(nil),                   // 33: agynio.api.llm.v1.DeleteSubscriptionRequest
-	(*DeleteSubscriptionResponse)(nil),                  // 34: agynio.api.llm.v1.DeleteSubscriptionResponse
-	(*ListSubscriptionsRequest)(nil),                    // 35: agynio.api.llm.v1.ListSubscriptionsRequest
-	(*ListSubscriptionsResponse)(nil),                   // 36: agynio.api.llm.v1.ListSubscriptionsResponse
-	(*SubscriptionAttachment)(nil),                      // 37: agynio.api.llm.v1.SubscriptionAttachment
-	(*CreateSubscriptionAttachmentRequest)(nil),         // 38: agynio.api.llm.v1.CreateSubscriptionAttachmentRequest
-	(*CreateSubscriptionAttachmentResponse)(nil),        // 39: agynio.api.llm.v1.CreateSubscriptionAttachmentResponse
-	(*DeleteSubscriptionAttachmentRequest)(nil),         // 40: agynio.api.llm.v1.DeleteSubscriptionAttachmentRequest
-	(*DeleteSubscriptionAttachmentResponse)(nil),        // 41: agynio.api.llm.v1.DeleteSubscriptionAttachmentResponse
-	(*ListSubscriptionAttachmentsRequest)(nil),          // 42: agynio.api.llm.v1.ListSubscriptionAttachmentsRequest
-	(*ListSubscriptionAttachmentsResponse)(nil),         // 43: agynio.api.llm.v1.ListSubscriptionAttachmentsResponse
-	(*CountSubscriptionsReferencingSecretRequest)(nil),  // 44: agynio.api.llm.v1.CountSubscriptionsReferencingSecretRequest
-	(*CountSubscriptionsReferencingSecretResponse)(nil), // 45: agynio.api.llm.v1.CountSubscriptionsReferencingSecretResponse
-	(*TestModelRequest)(nil),                            // 46: agynio.api.llm.v1.TestModelRequest
-	(*TestModelResponse)(nil),                           // 47: agynio.api.llm.v1.TestModelResponse
-	(*ResolveModelRequest)(nil),                         // 48: agynio.api.llm.v1.ResolveModelRequest
-	(*ResolveModelResponse)(nil),                        // 49: agynio.api.llm.v1.ResolveModelResponse
-	(*ResolveSubscriptionRequest)(nil),                  // 50: agynio.api.llm.v1.ResolveSubscriptionRequest
-	(*ResolveSubscriptionResponse)(nil),                 // 51: agynio.api.llm.v1.ResolveSubscriptionResponse
-	(*timestamppb.Timestamp)(nil),                       // 52: google.protobuf.Timestamp
+	(PlaceholderKind)(0),                                // 3: agynio.api.llm.v1.PlaceholderKind
+	(*EntityMeta)(nil),                                  // 4: agynio.api.llm.v1.EntityMeta
+	(*LLMProvider)(nil),                                 // 5: agynio.api.llm.v1.LLMProvider
+	(*CreateLLMProviderRequest)(nil),                    // 6: agynio.api.llm.v1.CreateLLMProviderRequest
+	(*CreateLLMProviderResponse)(nil),                   // 7: agynio.api.llm.v1.CreateLLMProviderResponse
+	(*GetLLMProviderRequest)(nil),                       // 8: agynio.api.llm.v1.GetLLMProviderRequest
+	(*GetLLMProviderResponse)(nil),                      // 9: agynio.api.llm.v1.GetLLMProviderResponse
+	(*UpdateLLMProviderRequest)(nil),                    // 10: agynio.api.llm.v1.UpdateLLMProviderRequest
+	(*UpdateLLMProviderResponse)(nil),                   // 11: agynio.api.llm.v1.UpdateLLMProviderResponse
+	(*DeleteLLMProviderRequest)(nil),                    // 12: agynio.api.llm.v1.DeleteLLMProviderRequest
+	(*DeleteLLMProviderResponse)(nil),                   // 13: agynio.api.llm.v1.DeleteLLMProviderResponse
+	(*ListLLMProvidersRequest)(nil),                     // 14: agynio.api.llm.v1.ListLLMProvidersRequest
+	(*ListLLMProvidersResponse)(nil),                    // 15: agynio.api.llm.v1.ListLLMProvidersResponse
+	(*Model)(nil),                                       // 16: agynio.api.llm.v1.Model
+	(*CreateModelRequest)(nil),                          // 17: agynio.api.llm.v1.CreateModelRequest
+	(*CreateModelResponse)(nil),                         // 18: agynio.api.llm.v1.CreateModelResponse
+	(*GetModelRequest)(nil),                             // 19: agynio.api.llm.v1.GetModelRequest
+	(*GetModelResponse)(nil),                            // 20: agynio.api.llm.v1.GetModelResponse
+	(*UpdateModelRequest)(nil),                          // 21: agynio.api.llm.v1.UpdateModelRequest
+	(*UpdateModelResponse)(nil),                         // 22: agynio.api.llm.v1.UpdateModelResponse
+	(*DeleteModelRequest)(nil),                          // 23: agynio.api.llm.v1.DeleteModelRequest
+	(*DeleteModelResponse)(nil),                         // 24: agynio.api.llm.v1.DeleteModelResponse
+	(*ListModelsRequest)(nil),                           // 25: agynio.api.llm.v1.ListModelsRequest
+	(*ListModelsResponse)(nil),                          // 26: agynio.api.llm.v1.ListModelsResponse
+	(*Subscription)(nil),                                // 27: agynio.api.llm.v1.Subscription
+	(*CreateSubscriptionRequest)(nil),                   // 28: agynio.api.llm.v1.CreateSubscriptionRequest
+	(*CreateSubscriptionResponse)(nil),                  // 29: agynio.api.llm.v1.CreateSubscriptionResponse
+	(*GetSubscriptionRequest)(nil),                      // 30: agynio.api.llm.v1.GetSubscriptionRequest
+	(*GetSubscriptionResponse)(nil),                     // 31: agynio.api.llm.v1.GetSubscriptionResponse
+	(*UpdateSubscriptionRequest)(nil),                   // 32: agynio.api.llm.v1.UpdateSubscriptionRequest
+	(*UpdateSubscriptionResponse)(nil),                  // 33: agynio.api.llm.v1.UpdateSubscriptionResponse
+	(*DeleteSubscriptionRequest)(nil),                   // 34: agynio.api.llm.v1.DeleteSubscriptionRequest
+	(*DeleteSubscriptionResponse)(nil),                  // 35: agynio.api.llm.v1.DeleteSubscriptionResponse
+	(*ListSubscriptionsRequest)(nil),                    // 36: agynio.api.llm.v1.ListSubscriptionsRequest
+	(*ListSubscriptionsResponse)(nil),                   // 37: agynio.api.llm.v1.ListSubscriptionsResponse
+	(*SubscriptionAttachment)(nil),                      // 38: agynio.api.llm.v1.SubscriptionAttachment
+	(*CreateSubscriptionAttachmentRequest)(nil),         // 39: agynio.api.llm.v1.CreateSubscriptionAttachmentRequest
+	(*CreateSubscriptionAttachmentResponse)(nil),        // 40: agynio.api.llm.v1.CreateSubscriptionAttachmentResponse
+	(*DeleteSubscriptionAttachmentRequest)(nil),         // 41: agynio.api.llm.v1.DeleteSubscriptionAttachmentRequest
+	(*DeleteSubscriptionAttachmentResponse)(nil),        // 42: agynio.api.llm.v1.DeleteSubscriptionAttachmentResponse
+	(*ListSubscriptionAttachmentsRequest)(nil),          // 43: agynio.api.llm.v1.ListSubscriptionAttachmentsRequest
+	(*ListSubscriptionAttachmentsResponse)(nil),         // 44: agynio.api.llm.v1.ListSubscriptionAttachmentsResponse
+	(*CountSubscriptionsReferencingSecretRequest)(nil),  // 45: agynio.api.llm.v1.CountSubscriptionsReferencingSecretRequest
+	(*CountSubscriptionsReferencingSecretResponse)(nil), // 46: agynio.api.llm.v1.CountSubscriptionsReferencingSecretResponse
+	(*TestModelRequest)(nil),                            // 47: agynio.api.llm.v1.TestModelRequest
+	(*TestModelResponse)(nil),                           // 48: agynio.api.llm.v1.TestModelResponse
+	(*ResolveModelRequest)(nil),                         // 49: agynio.api.llm.v1.ResolveModelRequest
+	(*ResolveModelResponse)(nil),                        // 50: agynio.api.llm.v1.ResolveModelResponse
+	(*ResolveSubscriptionRequest)(nil),                  // 51: agynio.api.llm.v1.ResolveSubscriptionRequest
+	(*ResolveSubscriptionResponse)(nil),                 // 52: agynio.api.llm.v1.ResolveSubscriptionResponse
+	(*timestamppb.Timestamp)(nil),                       // 53: google.protobuf.Timestamp
 }
 var file_agynio_api_llm_v1_llm_proto_depIdxs = []int32{
-	52, // 0: agynio.api.llm.v1.EntityMeta.created_at:type_name -> google.protobuf.Timestamp
-	52, // 1: agynio.api.llm.v1.EntityMeta.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 2: agynio.api.llm.v1.LLMProvider.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	53, // 0: agynio.api.llm.v1.EntityMeta.created_at:type_name -> google.protobuf.Timestamp
+	53, // 1: agynio.api.llm.v1.EntityMeta.updated_at:type_name -> google.protobuf.Timestamp
+	4,  // 2: agynio.api.llm.v1.LLMProvider.meta:type_name -> agynio.api.llm.v1.EntityMeta
 	0,  // 3: agynio.api.llm.v1.LLMProvider.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
 	1,  // 4: agynio.api.llm.v1.LLMProvider.protocol:type_name -> agynio.api.llm.v1.Protocol
 	0,  // 5: agynio.api.llm.v1.CreateLLMProviderRequest.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
 	1,  // 6: agynio.api.llm.v1.CreateLLMProviderRequest.protocol:type_name -> agynio.api.llm.v1.Protocol
-	4,  // 7: agynio.api.llm.v1.CreateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
-	4,  // 8: agynio.api.llm.v1.GetLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	5,  // 7: agynio.api.llm.v1.CreateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	5,  // 8: agynio.api.llm.v1.GetLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
 	0,  // 9: agynio.api.llm.v1.UpdateLLMProviderRequest.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
 	1,  // 10: agynio.api.llm.v1.UpdateLLMProviderRequest.protocol:type_name -> agynio.api.llm.v1.Protocol
-	4,  // 11: agynio.api.llm.v1.UpdateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
-	4,  // 12: agynio.api.llm.v1.ListLLMProvidersResponse.providers:type_name -> agynio.api.llm.v1.LLMProvider
-	3,  // 13: agynio.api.llm.v1.Model.meta:type_name -> agynio.api.llm.v1.EntityMeta
-	15, // 14: agynio.api.llm.v1.CreateModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	15, // 15: agynio.api.llm.v1.GetModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	15, // 16: agynio.api.llm.v1.UpdateModelResponse.model:type_name -> agynio.api.llm.v1.Model
-	15, // 17: agynio.api.llm.v1.ListModelsResponse.models:type_name -> agynio.api.llm.v1.Model
-	3,  // 18: agynio.api.llm.v1.Subscription.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	5,  // 11: agynio.api.llm.v1.UpdateLLMProviderResponse.provider:type_name -> agynio.api.llm.v1.LLMProvider
+	5,  // 12: agynio.api.llm.v1.ListLLMProvidersResponse.providers:type_name -> agynio.api.llm.v1.LLMProvider
+	4,  // 13: agynio.api.llm.v1.Model.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	16, // 14: agynio.api.llm.v1.CreateModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	16, // 15: agynio.api.llm.v1.GetModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	16, // 16: agynio.api.llm.v1.UpdateModelResponse.model:type_name -> agynio.api.llm.v1.Model
+	16, // 17: agynio.api.llm.v1.ListModelsResponse.models:type_name -> agynio.api.llm.v1.Model
+	4,  // 18: agynio.api.llm.v1.Subscription.meta:type_name -> agynio.api.llm.v1.EntityMeta
 	2,  // 19: agynio.api.llm.v1.Subscription.vendor:type_name -> agynio.api.llm.v1.Vendor
 	2,  // 20: agynio.api.llm.v1.CreateSubscriptionRequest.vendor:type_name -> agynio.api.llm.v1.Vendor
-	26, // 21: agynio.api.llm.v1.CreateSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
-	26, // 22: agynio.api.llm.v1.GetSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
-	26, // 23: agynio.api.llm.v1.UpdateSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
-	26, // 24: agynio.api.llm.v1.ListSubscriptionsResponse.subscriptions:type_name -> agynio.api.llm.v1.Subscription
-	3,  // 25: agynio.api.llm.v1.SubscriptionAttachment.meta:type_name -> agynio.api.llm.v1.EntityMeta
+	27, // 21: agynio.api.llm.v1.CreateSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
+	27, // 22: agynio.api.llm.v1.GetSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
+	27, // 23: agynio.api.llm.v1.UpdateSubscriptionResponse.subscription:type_name -> agynio.api.llm.v1.Subscription
+	27, // 24: agynio.api.llm.v1.ListSubscriptionsResponse.subscriptions:type_name -> agynio.api.llm.v1.Subscription
+	4,  // 25: agynio.api.llm.v1.SubscriptionAttachment.meta:type_name -> agynio.api.llm.v1.EntityMeta
 	2,  // 26: agynio.api.llm.v1.SubscriptionAttachment.vendor:type_name -> agynio.api.llm.v1.Vendor
-	37, // 27: agynio.api.llm.v1.CreateSubscriptionAttachmentResponse.subscription_attachment:type_name -> agynio.api.llm.v1.SubscriptionAttachment
-	37, // 28: agynio.api.llm.v1.ListSubscriptionAttachmentsResponse.subscription_attachments:type_name -> agynio.api.llm.v1.SubscriptionAttachment
-	1,  // 29: agynio.api.llm.v1.ResolveModelResponse.protocol:type_name -> agynio.api.llm.v1.Protocol
-	0,  // 30: agynio.api.llm.v1.ResolveModelResponse.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
-	2,  // 31: agynio.api.llm.v1.ResolveSubscriptionRequest.vendor:type_name -> agynio.api.llm.v1.Vendor
-	1,  // 32: agynio.api.llm.v1.ResolveSubscriptionResponse.protocol:type_name -> agynio.api.llm.v1.Protocol
-	5,  // 33: agynio.api.llm.v1.LLMService.CreateLLMProvider:input_type -> agynio.api.llm.v1.CreateLLMProviderRequest
-	7,  // 34: agynio.api.llm.v1.LLMService.GetLLMProvider:input_type -> agynio.api.llm.v1.GetLLMProviderRequest
-	9,  // 35: agynio.api.llm.v1.LLMService.UpdateLLMProvider:input_type -> agynio.api.llm.v1.UpdateLLMProviderRequest
-	11, // 36: agynio.api.llm.v1.LLMService.DeleteLLMProvider:input_type -> agynio.api.llm.v1.DeleteLLMProviderRequest
-	13, // 37: agynio.api.llm.v1.LLMService.ListLLMProviders:input_type -> agynio.api.llm.v1.ListLLMProvidersRequest
-	16, // 38: agynio.api.llm.v1.LLMService.CreateModel:input_type -> agynio.api.llm.v1.CreateModelRequest
-	18, // 39: agynio.api.llm.v1.LLMService.GetModel:input_type -> agynio.api.llm.v1.GetModelRequest
-	20, // 40: agynio.api.llm.v1.LLMService.UpdateModel:input_type -> agynio.api.llm.v1.UpdateModelRequest
-	22, // 41: agynio.api.llm.v1.LLMService.DeleteModel:input_type -> agynio.api.llm.v1.DeleteModelRequest
-	24, // 42: agynio.api.llm.v1.LLMService.ListModels:input_type -> agynio.api.llm.v1.ListModelsRequest
-	27, // 43: agynio.api.llm.v1.LLMService.CreateSubscription:input_type -> agynio.api.llm.v1.CreateSubscriptionRequest
-	29, // 44: agynio.api.llm.v1.LLMService.GetSubscription:input_type -> agynio.api.llm.v1.GetSubscriptionRequest
-	31, // 45: agynio.api.llm.v1.LLMService.UpdateSubscription:input_type -> agynio.api.llm.v1.UpdateSubscriptionRequest
-	33, // 46: agynio.api.llm.v1.LLMService.DeleteSubscription:input_type -> agynio.api.llm.v1.DeleteSubscriptionRequest
-	35, // 47: agynio.api.llm.v1.LLMService.ListSubscriptions:input_type -> agynio.api.llm.v1.ListSubscriptionsRequest
-	38, // 48: agynio.api.llm.v1.LLMService.CreateSubscriptionAttachment:input_type -> agynio.api.llm.v1.CreateSubscriptionAttachmentRequest
-	40, // 49: agynio.api.llm.v1.LLMService.DeleteSubscriptionAttachment:input_type -> agynio.api.llm.v1.DeleteSubscriptionAttachmentRequest
-	42, // 50: agynio.api.llm.v1.LLMService.ListSubscriptionAttachments:input_type -> agynio.api.llm.v1.ListSubscriptionAttachmentsRequest
-	46, // 51: agynio.api.llm.v1.LLMService.TestModel:input_type -> agynio.api.llm.v1.TestModelRequest
-	48, // 52: agynio.api.llm.v1.LLMService.ResolveModel:input_type -> agynio.api.llm.v1.ResolveModelRequest
-	50, // 53: agynio.api.llm.v1.LLMService.ResolveSubscription:input_type -> agynio.api.llm.v1.ResolveSubscriptionRequest
-	44, // 54: agynio.api.llm.v1.LLMService.CountSubscriptionsReferencingSecret:input_type -> agynio.api.llm.v1.CountSubscriptionsReferencingSecretRequest
-	6,  // 55: agynio.api.llm.v1.LLMService.CreateLLMProvider:output_type -> agynio.api.llm.v1.CreateLLMProviderResponse
-	8,  // 56: agynio.api.llm.v1.LLMService.GetLLMProvider:output_type -> agynio.api.llm.v1.GetLLMProviderResponse
-	10, // 57: agynio.api.llm.v1.LLMService.UpdateLLMProvider:output_type -> agynio.api.llm.v1.UpdateLLMProviderResponse
-	12, // 58: agynio.api.llm.v1.LLMService.DeleteLLMProvider:output_type -> agynio.api.llm.v1.DeleteLLMProviderResponse
-	14, // 59: agynio.api.llm.v1.LLMService.ListLLMProviders:output_type -> agynio.api.llm.v1.ListLLMProvidersResponse
-	17, // 60: agynio.api.llm.v1.LLMService.CreateModel:output_type -> agynio.api.llm.v1.CreateModelResponse
-	19, // 61: agynio.api.llm.v1.LLMService.GetModel:output_type -> agynio.api.llm.v1.GetModelResponse
-	21, // 62: agynio.api.llm.v1.LLMService.UpdateModel:output_type -> agynio.api.llm.v1.UpdateModelResponse
-	23, // 63: agynio.api.llm.v1.LLMService.DeleteModel:output_type -> agynio.api.llm.v1.DeleteModelResponse
-	25, // 64: agynio.api.llm.v1.LLMService.ListModels:output_type -> agynio.api.llm.v1.ListModelsResponse
-	28, // 65: agynio.api.llm.v1.LLMService.CreateSubscription:output_type -> agynio.api.llm.v1.CreateSubscriptionResponse
-	30, // 66: agynio.api.llm.v1.LLMService.GetSubscription:output_type -> agynio.api.llm.v1.GetSubscriptionResponse
-	32, // 67: agynio.api.llm.v1.LLMService.UpdateSubscription:output_type -> agynio.api.llm.v1.UpdateSubscriptionResponse
-	34, // 68: agynio.api.llm.v1.LLMService.DeleteSubscription:output_type -> agynio.api.llm.v1.DeleteSubscriptionResponse
-	36, // 69: agynio.api.llm.v1.LLMService.ListSubscriptions:output_type -> agynio.api.llm.v1.ListSubscriptionsResponse
-	39, // 70: agynio.api.llm.v1.LLMService.CreateSubscriptionAttachment:output_type -> agynio.api.llm.v1.CreateSubscriptionAttachmentResponse
-	41, // 71: agynio.api.llm.v1.LLMService.DeleteSubscriptionAttachment:output_type -> agynio.api.llm.v1.DeleteSubscriptionAttachmentResponse
-	43, // 72: agynio.api.llm.v1.LLMService.ListSubscriptionAttachments:output_type -> agynio.api.llm.v1.ListSubscriptionAttachmentsResponse
-	47, // 73: agynio.api.llm.v1.LLMService.TestModel:output_type -> agynio.api.llm.v1.TestModelResponse
-	49, // 74: agynio.api.llm.v1.LLMService.ResolveModel:output_type -> agynio.api.llm.v1.ResolveModelResponse
-	51, // 75: agynio.api.llm.v1.LLMService.ResolveSubscription:output_type -> agynio.api.llm.v1.ResolveSubscriptionResponse
-	45, // 76: agynio.api.llm.v1.LLMService.CountSubscriptionsReferencingSecret:output_type -> agynio.api.llm.v1.CountSubscriptionsReferencingSecretResponse
-	55, // [55:77] is the sub-list for method output_type
-	33, // [33:55] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	3,  // 27: agynio.api.llm.v1.SubscriptionAttachment.placeholder_kind:type_name -> agynio.api.llm.v1.PlaceholderKind
+	38, // 28: agynio.api.llm.v1.CreateSubscriptionAttachmentResponse.subscription_attachment:type_name -> agynio.api.llm.v1.SubscriptionAttachment
+	38, // 29: agynio.api.llm.v1.ListSubscriptionAttachmentsResponse.subscription_attachments:type_name -> agynio.api.llm.v1.SubscriptionAttachment
+	1,  // 30: agynio.api.llm.v1.ResolveModelResponse.protocol:type_name -> agynio.api.llm.v1.Protocol
+	0,  // 31: agynio.api.llm.v1.ResolveModelResponse.auth_method:type_name -> agynio.api.llm.v1.AuthMethod
+	2,  // 32: agynio.api.llm.v1.ResolveSubscriptionRequest.vendor:type_name -> agynio.api.llm.v1.Vendor
+	1,  // 33: agynio.api.llm.v1.ResolveSubscriptionResponse.protocol:type_name -> agynio.api.llm.v1.Protocol
+	6,  // 34: agynio.api.llm.v1.LLMService.CreateLLMProvider:input_type -> agynio.api.llm.v1.CreateLLMProviderRequest
+	8,  // 35: agynio.api.llm.v1.LLMService.GetLLMProvider:input_type -> agynio.api.llm.v1.GetLLMProviderRequest
+	10, // 36: agynio.api.llm.v1.LLMService.UpdateLLMProvider:input_type -> agynio.api.llm.v1.UpdateLLMProviderRequest
+	12, // 37: agynio.api.llm.v1.LLMService.DeleteLLMProvider:input_type -> agynio.api.llm.v1.DeleteLLMProviderRequest
+	14, // 38: agynio.api.llm.v1.LLMService.ListLLMProviders:input_type -> agynio.api.llm.v1.ListLLMProvidersRequest
+	17, // 39: agynio.api.llm.v1.LLMService.CreateModel:input_type -> agynio.api.llm.v1.CreateModelRequest
+	19, // 40: agynio.api.llm.v1.LLMService.GetModel:input_type -> agynio.api.llm.v1.GetModelRequest
+	21, // 41: agynio.api.llm.v1.LLMService.UpdateModel:input_type -> agynio.api.llm.v1.UpdateModelRequest
+	23, // 42: agynio.api.llm.v1.LLMService.DeleteModel:input_type -> agynio.api.llm.v1.DeleteModelRequest
+	25, // 43: agynio.api.llm.v1.LLMService.ListModels:input_type -> agynio.api.llm.v1.ListModelsRequest
+	28, // 44: agynio.api.llm.v1.LLMService.CreateSubscription:input_type -> agynio.api.llm.v1.CreateSubscriptionRequest
+	30, // 45: agynio.api.llm.v1.LLMService.GetSubscription:input_type -> agynio.api.llm.v1.GetSubscriptionRequest
+	32, // 46: agynio.api.llm.v1.LLMService.UpdateSubscription:input_type -> agynio.api.llm.v1.UpdateSubscriptionRequest
+	34, // 47: agynio.api.llm.v1.LLMService.DeleteSubscription:input_type -> agynio.api.llm.v1.DeleteSubscriptionRequest
+	36, // 48: agynio.api.llm.v1.LLMService.ListSubscriptions:input_type -> agynio.api.llm.v1.ListSubscriptionsRequest
+	39, // 49: agynio.api.llm.v1.LLMService.CreateSubscriptionAttachment:input_type -> agynio.api.llm.v1.CreateSubscriptionAttachmentRequest
+	41, // 50: agynio.api.llm.v1.LLMService.DeleteSubscriptionAttachment:input_type -> agynio.api.llm.v1.DeleteSubscriptionAttachmentRequest
+	43, // 51: agynio.api.llm.v1.LLMService.ListSubscriptionAttachments:input_type -> agynio.api.llm.v1.ListSubscriptionAttachmentsRequest
+	47, // 52: agynio.api.llm.v1.LLMService.TestModel:input_type -> agynio.api.llm.v1.TestModelRequest
+	49, // 53: agynio.api.llm.v1.LLMService.ResolveModel:input_type -> agynio.api.llm.v1.ResolveModelRequest
+	51, // 54: agynio.api.llm.v1.LLMService.ResolveSubscription:input_type -> agynio.api.llm.v1.ResolveSubscriptionRequest
+	45, // 55: agynio.api.llm.v1.LLMService.CountSubscriptionsReferencingSecret:input_type -> agynio.api.llm.v1.CountSubscriptionsReferencingSecretRequest
+	7,  // 56: agynio.api.llm.v1.LLMService.CreateLLMProvider:output_type -> agynio.api.llm.v1.CreateLLMProviderResponse
+	9,  // 57: agynio.api.llm.v1.LLMService.GetLLMProvider:output_type -> agynio.api.llm.v1.GetLLMProviderResponse
+	11, // 58: agynio.api.llm.v1.LLMService.UpdateLLMProvider:output_type -> agynio.api.llm.v1.UpdateLLMProviderResponse
+	13, // 59: agynio.api.llm.v1.LLMService.DeleteLLMProvider:output_type -> agynio.api.llm.v1.DeleteLLMProviderResponse
+	15, // 60: agynio.api.llm.v1.LLMService.ListLLMProviders:output_type -> agynio.api.llm.v1.ListLLMProvidersResponse
+	18, // 61: agynio.api.llm.v1.LLMService.CreateModel:output_type -> agynio.api.llm.v1.CreateModelResponse
+	20, // 62: agynio.api.llm.v1.LLMService.GetModel:output_type -> agynio.api.llm.v1.GetModelResponse
+	22, // 63: agynio.api.llm.v1.LLMService.UpdateModel:output_type -> agynio.api.llm.v1.UpdateModelResponse
+	24, // 64: agynio.api.llm.v1.LLMService.DeleteModel:output_type -> agynio.api.llm.v1.DeleteModelResponse
+	26, // 65: agynio.api.llm.v1.LLMService.ListModels:output_type -> agynio.api.llm.v1.ListModelsResponse
+	29, // 66: agynio.api.llm.v1.LLMService.CreateSubscription:output_type -> agynio.api.llm.v1.CreateSubscriptionResponse
+	31, // 67: agynio.api.llm.v1.LLMService.GetSubscription:output_type -> agynio.api.llm.v1.GetSubscriptionResponse
+	33, // 68: agynio.api.llm.v1.LLMService.UpdateSubscription:output_type -> agynio.api.llm.v1.UpdateSubscriptionResponse
+	35, // 69: agynio.api.llm.v1.LLMService.DeleteSubscription:output_type -> agynio.api.llm.v1.DeleteSubscriptionResponse
+	37, // 70: agynio.api.llm.v1.LLMService.ListSubscriptions:output_type -> agynio.api.llm.v1.ListSubscriptionsResponse
+	40, // 71: agynio.api.llm.v1.LLMService.CreateSubscriptionAttachment:output_type -> agynio.api.llm.v1.CreateSubscriptionAttachmentResponse
+	42, // 72: agynio.api.llm.v1.LLMService.DeleteSubscriptionAttachment:output_type -> agynio.api.llm.v1.DeleteSubscriptionAttachmentResponse
+	44, // 73: agynio.api.llm.v1.LLMService.ListSubscriptionAttachments:output_type -> agynio.api.llm.v1.ListSubscriptionAttachmentsResponse
+	48, // 74: agynio.api.llm.v1.LLMService.TestModel:output_type -> agynio.api.llm.v1.TestModelResponse
+	50, // 75: agynio.api.llm.v1.LLMService.ResolveModel:output_type -> agynio.api.llm.v1.ResolveModelResponse
+	52, // 76: agynio.api.llm.v1.LLMService.ResolveSubscription:output_type -> agynio.api.llm.v1.ResolveSubscriptionResponse
+	46, // 77: agynio.api.llm.v1.LLMService.CountSubscriptionsReferencingSecret:output_type -> agynio.api.llm.v1.CountSubscriptionsReferencingSecretResponse
+	56, // [56:78] is the sub-list for method output_type
+	34, // [34:56] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_agynio_api_llm_v1_llm_proto_init() }
@@ -3378,7 +3487,7 @@ func file_agynio_api_llm_v1_llm_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agynio_api_llm_v1_llm_proto_rawDesc), len(file_agynio_api_llm_v1_llm_proto_rawDesc)),
-			NumEnums:      3,
+			NumEnums:      4,
 			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   1,

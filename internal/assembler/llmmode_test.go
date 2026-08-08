@@ -82,9 +82,9 @@ func TestResolveLLMModePlatformStampsNothing(t *testing.T) {
 
 func TestResolveLLMModeNativeStampsAttributeAndPlaceholder(t *testing.T) {
 	llm := &fakeLLMClient{attachments: []*llmv1.SubscriptionAttachment{{
-		Vendor:         llmv1.Vendor_VENDOR_CLAUDE,
-		PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
-		Target:         &llmv1.SubscriptionAttachment_EnvironmentId{EnvironmentId: "env-1"},
+		Vendor:          llmv1.Vendor_VENDOR_ANTHROPIC,
+		PlaceholderKind: llmv1.PlaceholderKind_PLACEHOLDER_KIND_ENV, PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+		Target: &llmv1.SubscriptionAttachment_EnvironmentId{EnvironmentId: "env-1"},
 	}}}
 	a := &Assembler{llm: llm}
 
@@ -95,7 +95,7 @@ func TestResolveLLMModeNativeStampsAttributeAndPlaceholder(t *testing.T) {
 	if !mode.Native {
 		t.Fatal("expected native mode")
 	}
-	if len(mode.RoleAttributes) != 1 || mode.RoleAttributes[0] != "llm-native-claude" {
+	if len(mode.RoleAttributes) != 1 || mode.RoleAttributes[0] != "llm-native-anthropic" {
 		t.Fatalf("expected llm-native-claude, got %v", mode.RoleAttributes)
 	}
 	if value, ok := envValue(mode.EnvVars, "CLAUDE_CODE_OAUTH_TOKEN"); !ok || value != placeholderCredential {
@@ -109,9 +109,9 @@ func TestResolveLLMModeNativeStampsAttributeAndPlaceholder(t *testing.T) {
 // A sandbox pins no model and has no agent scope to consult.
 func TestResolveLLMModeSandboxPinsNoModel(t *testing.T) {
 	llm := &fakeLLMClient{attachments: []*llmv1.SubscriptionAttachment{{
-		Vendor:         llmv1.Vendor_VENDOR_CLAUDE,
-		PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
-		Target:         &llmv1.SubscriptionAttachment_EnvironmentId{EnvironmentId: "env-1"},
+		Vendor:          llmv1.Vendor_VENDOR_ANTHROPIC,
+		PlaceholderKind: llmv1.PlaceholderKind_PLACEHOLDER_KIND_ENV, PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+		Target: &llmv1.SubscriptionAttachment_EnvironmentId{EnvironmentId: "env-1"},
 	}}}
 	a := &Assembler{llm: llm}
 
@@ -134,14 +134,14 @@ func TestResolveLLMModeSandboxPinsNoModel(t *testing.T) {
 func TestResolveLLMModeAgentScopeShadowsEnvironment(t *testing.T) {
 	llm := &fakeLLMClient{attachments: []*llmv1.SubscriptionAttachment{
 		{
-			Vendor:         llmv1.Vendor_VENDOR_CLAUDE,
-			PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
-			Target:         &llmv1.SubscriptionAttachment_AgentId{AgentId: "agent-1"},
+			Vendor:          llmv1.Vendor_VENDOR_ANTHROPIC,
+			PlaceholderKind: llmv1.PlaceholderKind_PLACEHOLDER_KIND_ENV, PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+			Target: &llmv1.SubscriptionAttachment_AgentId{AgentId: "agent-1"},
 		},
 		{
-			Vendor:         llmv1.Vendor_VENDOR_CLAUDE,
-			PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
-			Target:         &llmv1.SubscriptionAttachment_EnvironmentId{EnvironmentId: "env-1"},
+			Vendor:          llmv1.Vendor_VENDOR_ANTHROPIC,
+			PlaceholderKind: llmv1.PlaceholderKind_PLACEHOLDER_KIND_ENV, PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+			Target: &llmv1.SubscriptionAttachment_EnvironmentId{EnvironmentId: "env-1"},
 		},
 	}}
 	a := &Assembler{llm: llm}
@@ -210,11 +210,11 @@ func TestResolveLLMModeQueriesTheAgentScopeByAgentID(t *testing.T) {
 	client := &fakeLLMClient{
 		attachments: []*llmv1.SubscriptionAttachment{
 			{
-				Meta:           &llmv1.EntityMeta{Id: "att-1"},
-				SubscriptionId: "sub-1",
-				Vendor:         llmv1.Vendor_VENDOR_CLAUDE,
-				PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
-				Target:         &llmv1.SubscriptionAttachment_AgentId{AgentId: agentID},
+				Meta:            &llmv1.EntityMeta{Id: "att-1"},
+				SubscriptionId:  "sub-1",
+				Vendor:          llmv1.Vendor_VENDOR_ANTHROPIC,
+				PlaceholderKind: llmv1.PlaceholderKind_PLACEHOLDER_KIND_ENV, PlaceholderEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+				Target: &llmv1.SubscriptionAttachment_AgentId{AgentId: agentID},
 			},
 		},
 	}
@@ -231,7 +231,7 @@ func TestResolveLLMModeQueriesTheAgentScopeByAgentID(t *testing.T) {
 	if !mode.Native {
 		t.Fatal("expected native mode")
 	}
-	if len(mode.RoleAttributes) != 1 || mode.RoleAttributes[0] != "llm-native-claude" {
+	if len(mode.RoleAttributes) != 1 || mode.RoleAttributes[0] != "llm-native-anthropic" {
 		t.Fatalf("role attributes = %v, want the agent-scoped vendor", mode.RoleAttributes)
 	}
 
@@ -247,5 +247,45 @@ func TestResolveLLMModeQueriesTheAgentScopeByAgentID(t *testing.T) {
 	}
 	if !sawAgentFilter {
 		t.Fatal("agent scope was never queried")
+	}
+}
+
+// A file placeholder is agynd's to write -- it lands at a CLI-specific path
+// under HOME that the orchestrator cannot resolve. Injecting it as a variable
+// here would put a JSON document in the environment and still leave the file
+// the CLI actually reads missing.
+func TestResolveLLMModeLeavesFilePlaceholdersToAgynd(t *testing.T) {
+	client := &fakeLLMClient{
+		attachments: []*llmv1.SubscriptionAttachment{
+			{
+				Meta:                &llmv1.EntityMeta{Id: "att-1"},
+				SubscriptionId:      "sub-1",
+				Vendor:              llmv1.Vendor_VENDOR_OPENAI,
+				PlaceholderKind:     llmv1.PlaceholderKind_PLACEHOLDER_KIND_FILE,
+				PlaceholderPath:     ".codex/auth.json",
+				PlaceholderContents: `{"tokens":{"access_token":"placeholder"}}`,
+				Target:              &llmv1.SubscriptionAttachment_EnvironmentId{EnvironmentId: "env-1"},
+			},
+		},
+	}
+	assembler := &Assembler{llm: client}
+	environment := &agentsv1.Environment{
+		Meta:    &agentsv1.EntityMeta{Id: "env-1"},
+		LlmMode: agentsv1.LLMMode_LLM_MODE_NATIVE,
+	}
+
+	mode, err := assembler.resolveLLMMode(context.Background(), environment, "", "")
+	if err != nil {
+		t.Fatalf("resolve llm mode: %v", err)
+	}
+	// The attribute is still stamped: interception is what the role attribute
+	// opts into, and that is the orchestrator's either way.
+	if len(mode.RoleAttributes) != 1 || mode.RoleAttributes[0] != "llm-native-openai" {
+		t.Fatalf("role attributes = %v", mode.RoleAttributes)
+	}
+	for _, env := range mode.EnvVars {
+		if env.GetName() != "LLM_MODE" {
+			t.Fatalf("file placeholder leaked into the container environment as %s", env.GetName())
+		}
 	}
 }

@@ -83,10 +83,16 @@ func (a *Assembler) resolveLLMMode(ctx context.Context, environment *agentsv1.En
 			continue
 		}
 		mode.RoleAttributes = append(mode.RoleAttributes, name)
-		// The placeholder variable name comes from the LLM service rather than a
-		// vendor table held here; a vendor with no placeholder yields none.
-		if env := attachment.GetPlaceholderEnv(); env != "" {
-			mode.EnvVars = append(mode.EnvVars, &runnerv1.EnvVar{Name: env, Value: placeholderCredential})
+		// Only the environment-variable kind is the orchestrator's to deliver,
+		// and it has to be here rather than anywhere agynd could put it: a
+		// sandbox shell comes from the runner's Exec against the pod and
+		// inherits the container spec's environment, never a process's. A file
+		// placeholder lands at a CLI-specific path under HOME that only agynd
+		// can resolve, so it passes through untouched here.
+		if attachment.GetPlaceholderKind() == llmv1.PlaceholderKind_PLACEHOLDER_KIND_ENV {
+			if env := attachment.GetPlaceholderEnv(); env != "" {
+				mode.EnvVars = append(mode.EnvVars, &runnerv1.EnvVar{Name: env, Value: placeholderCredential})
+			}
 		}
 	}
 	return mode, nil
@@ -94,10 +100,10 @@ func (a *Assembler) resolveLLMMode(ctx context.Context, environment *agentsv1.En
 
 func vendorRoleAttribute(vendor llmv1.Vendor) (string, bool) {
 	switch vendor {
-	case llmv1.Vendor_VENDOR_CLAUDE:
-		return nativeRoleAttributePrefix + "claude", true
-	case llmv1.Vendor_VENDOR_CODEX:
-		return nativeRoleAttributePrefix + "codex", true
+	case llmv1.Vendor_VENDOR_ANTHROPIC:
+		return nativeRoleAttributePrefix + "anthropic", true
+	case llmv1.Vendor_VENDOR_OPENAI:
+		return nativeRoleAttributePrefix + "openai", true
 	default:
 		return "", false
 	}
