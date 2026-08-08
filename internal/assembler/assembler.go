@@ -310,7 +310,8 @@ fi
 EOF
 chmod +x "${ziti_diverter}"
 export GODEBUG="netdns=go+1"
-exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --diverter "${ziti_diverter}"`
+# Without an upstream the tunneler answers REFUSED for names it does not intercept, which c-ares clients treat as fatal.
+exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svcPollRate "${ZITI_SIDECAR_SERVICE_POLL_RATE}" --resolver "udp://127.0.0.1:53" --dnsUpstream "udp://${workload_dns_upstream}:53" --diverter "${ziti_diverter}"`
 	zitiRequiredCapabilityNetAdmin = "NET_ADMIN"
 	zitiRestartPolicyKey           = "restart_policy"
 	zitiRestartPolicyAlways        = "Always"
