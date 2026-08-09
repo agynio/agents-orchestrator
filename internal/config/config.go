@@ -40,7 +40,6 @@ type Config struct {
 	AgentLLMBaseURL                     string
 	AgyndAgentsDirectAddress            string
 	AgyndRunnersDirectAddress           string
-	SandboxInitImage                    string
 	// The two platform init images, injected into every workload. They are not
 	// a configuration surface: an agent's behaviour is configured through the
 	// agent, and the platform's own binaries are not a choice anyone makes.
@@ -151,10 +150,6 @@ func FromEnv() (Config, error) {
 	cfg.ImagesAddress = os.Getenv("IMAGES_ADDRESS")
 	cfg.OrganizationsAddress = os.Getenv("ORGANIZATIONS_ADDRESS")
 	cfg.ImageProxyAddress = os.Getenv("IMAGE_PROXY_ADDRESS")
-	cfg.SandboxInitImage = os.Getenv("SANDBOX_INIT_IMAGE")
-	if cfg.SandboxInitImage == "" {
-		cfg.SandboxInitImage = "ghcr.io/agynio/agent-init-codex:latest"
-	}
 	cfg.SandboxWorkspaceSizeGB = os.Getenv("SANDBOX_WORKSPACE_SIZE_GB")
 	if cfg.SandboxWorkspaceSizeGB == "" {
 		cfg.SandboxWorkspaceSizeGB = "10"

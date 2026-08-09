@@ -75,7 +75,8 @@ func TestAssemblerMainContainer(t *testing.T) {
 		AgyndRunnersDirectAddress: "10.42.0.11:50051",
 	}
 
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
+	withRuntimeEnvironment(agent, agentsClient, &cfg)
+	assembler := withCatalog(NewWithRunners(agentsClient, runnersWithDefaultFlavor(), &testutil.FakeSecretsClient{}, &cfg), agent.GetOrganizationId())
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -127,12 +128,12 @@ func TestAssemblerMainContainer(t *testing.T) {
 	if len(request.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
 	}
-	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
+	initContainer := testutil.FindInitContainer(request.InitContainers, agentRuntimeInit)
 	if initContainer == nil {
-		t.Fatal("expected agent-init init container")
+		t.Fatalf("expected the %s init container", agentRuntimeInit)
 	}
-	if initContainer.Image != agent.GetInitImage() {
-		t.Fatalf("expected init container image %q, got %q", agent.GetInitImage(), initContainer.Image)
+	if initContainer.Image != testResolvedRuntimeRef {
+		t.Fatalf("expected init container image %q, got %q", testResolvedRuntimeRef, initContainer.Image)
 	}
 	if len(initContainer.Mounts) != 1 {
 		t.Fatalf("expected 1 init container mount, got %d", len(initContainer.Mounts))
@@ -191,76 +192,6 @@ func TestAssemblerMainContainer(t *testing.T) {
 	}
 }
 
-func TestAssemblerReusesWorkspaceMount(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	threadID := uuid.New()
-	volumeID := uuid.New()
-	workspacePath := "/workspace"
-
-	agent := &agentsv1.Agent{
-		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
-		OrganizationId: "org-1",
-		Image:          "agent-image",
-		InitImage:      "agent-init-image",
-	}
-
-	agentsClient := &testutil.FakeAgentsClient{
-		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			if req.GetId() != agentID.String() {
-				return nil, errors.New("unexpected agent id")
-			}
-			return &agentsv1.GetAgentResponse{Agent: agent}, nil
-		},
-		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
-			return &agentsv1.ListEnvsResponse{}, nil
-		},
-		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
-			if req.GetEnvironmentId() != "" {
-				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
-					{
-						Meta:       &agentsv1.EntityMeta{Id: volumeID.String()},
-						Name:       "workspace",
-						MountPath:  workspacePath,
-						Persistent: true,
-						Size:       "1Gi",
-					},
-				}}, nil
-			}
-			return &agentsv1.ListVolumesResponse{}, nil
-		},
-		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
-			return &agentsv1.ListMcpsResponse{}, nil
-		},
-	}
-
-	cfg := config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-	}
-
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
-	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
-	request := result.Request
-	// Volumes belong to the environment. An agent without one declares none, so
-	// the only volume is the platform's own binary mount.
-	if len(request.Volumes) != 1 {
-		t.Fatalf("expected 1 volume, got %d", len(request.Volumes))
-	}
-	if findVolumeSpec(request.Volumes, agynBinVolumeName) == nil {
-		t.Fatalf("expected %s volume", agynBinVolumeName)
-	}
-	if findMountByPath(request.Main.Mounts, workspacePath) != nil {
-		t.Fatalf("expected no workspace mount without an environment declaring one")
-	}
-	if len(request.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
-	}
-}
-
 func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
@@ -311,7 +242,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 		ZitiRuntimeControllerPort:           "443",
 	}
 
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
+	withRuntimeEnvironment(agent, agentsClient, &cfg)
+	assembler := withCatalog(NewWithRunners(agentsClient, runnersWithDefaultFlavor(), &testutil.FakeSecretsClient{}, &cfg), agent.GetOrganizationId())
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -349,12 +281,12 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if request.InitContainers[3].GetName() != zitiServiceWaitContainerName {
 		t.Fatalf("expected %s to be fourth init container", zitiServiceWaitContainerName)
 	}
-	if request.InitContainers[4].GetName() != "agent-init" {
-		t.Fatalf("expected agent-init to be fifth init container")
+	if request.InitContainers[4].GetName() != agentRuntimeInit {
+		t.Fatalf("expected %s to be fifth init container", agentRuntimeInit)
 	}
-	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
+	initContainer := testutil.FindInitContainer(request.InitContainers, agentRuntimeInit)
 	if initContainer == nil {
-		t.Fatal("expected agent-init container")
+		t.Fatalf("expected the %s container", agentRuntimeInit)
 	}
 	if len(request.Sidecars) != 0 {
 		t.Fatalf("expected 0 sidecars, got %d", len(request.Sidecars))
@@ -468,8 +400,8 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringMap(zitiSidecar.AdditionalProperties, expectedProperties) {
 		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiSidecar.AdditionalProperties)
 	}
-	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName || request.InitContainers[3].GetName() != zitiServiceWaitContainerName || request.InitContainers[4].GetName() != "agent-init" {
-		t.Fatalf("expected restartable ziti sidecar init to be followed by ziti wait containers and agent-init, got %s, %s, then %s", request.InitContainers[2].GetName(), request.InitContainers[3].GetName(), request.InitContainers[4].GetName())
+	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName || request.InitContainers[3].GetName() != zitiServiceWaitContainerName || request.InitContainers[4].GetName() != agentRuntimeInit {
+		t.Fatalf("expected restartable ziti sidecar init to be followed by ziti wait containers and %s, got %s, %s, then %s", agentRuntimeInit, request.InitContainers[2].GetName(), request.InitContainers[3].GetName(), request.InitContainers[4].GetName())
 	}
 	assertSameZitiIdentityMount(t, zitiSidecar)
 	zitiGatewayWait := testutil.FindInitContainer(request.InitContainers, zitiGatewayWaitContainerName)
@@ -584,117 +516,6 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 }
 
-func TestAssemblerInitImageOverride(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	threadID := uuid.New()
-
-	agent := &agentsv1.Agent{
-		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
-		OrganizationId: "org-1",
-		Image:          "agent-image",
-		InitImage:      "agent-init-image",
-	}
-
-	agentsClient := &testutil.FakeAgentsClient{
-		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			if req.GetId() != agentID.String() {
-				return nil, errors.New("unexpected agent id")
-			}
-			return &agentsv1.GetAgentResponse{Agent: agent}, nil
-		},
-		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
-			return &agentsv1.ListSkillsResponse{}, nil
-		},
-		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
-			return &agentsv1.ListEnvsResponse{}, nil
-		},
-		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
-			return &agentsv1.ListInitScriptsResponse{}, nil
-		},
-		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
-			return &agentsv1.ListVolumesResponse{}, nil
-		},
-		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
-			return &agentsv1.ListMcpsResponse{}, nil
-		},
-	}
-
-	cfg := config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-	}
-
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
-	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
-	request := result.Request
-	if len(request.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(request.InitContainers))
-	}
-	initContainer := testutil.FindInitContainer(request.InitContainers, "agent-init")
-	if initContainer == nil {
-		t.Fatal("expected agent-init container")
-	}
-	if initContainer.Image != agent.GetInitImage() {
-		t.Fatalf("expected init image %q, got %q", agent.GetInitImage(), initContainer.Image)
-	}
-}
-
-func TestAssemblerErrorsOnEmptyInitImage(t *testing.T) {
-	ctx := context.Background()
-	agentID := uuid.New()
-	threadID := uuid.New()
-
-	agent := &agentsv1.Agent{
-		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
-		OrganizationId: "org-1",
-		Image:          "agent-image",
-		InitImage:      "",
-	}
-
-	agentsClient := &testutil.FakeAgentsClient{
-		GetAgentFunc: func(_ context.Context, req *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			if req.GetId() != agentID.String() {
-				return nil, errors.New("unexpected agent id")
-			}
-			return &agentsv1.GetAgentResponse{Agent: agent}, nil
-		},
-		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
-			return &agentsv1.ListSkillsResponse{}, nil
-		},
-		ListEnvsFunc: func(_ context.Context, _ *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
-			return &agentsv1.ListEnvsResponse{}, nil
-		},
-		ListInitScriptsFunc: func(_ context.Context, _ *agentsv1.ListInitScriptsRequest, _ ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error) {
-			return &agentsv1.ListInitScriptsResponse{}, nil
-		},
-		ListVolumesFunc: func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
-			return &agentsv1.ListVolumesResponse{}, nil
-		},
-		ListMcpsFunc: func(_ context.Context, _ *agentsv1.ListMcpsRequest, _ ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error) {
-			return &agentsv1.ListMcpsResponse{}, nil
-		},
-	}
-
-	cfg := &config.Config{
-		AgentGatewayAddress: "gateway:50051",
-		AgentLLMBaseURL:     "http://llm:8080/v1",
-	}
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
-	_, err := assembler.Assemble(ctx, agentID, threadID, threadID)
-	if err == nil {
-		t.Fatal("expected error for empty init image")
-	}
-	// An agent whose environment names no agent runtime still needs its own
-	// init image, since that is where its agent CLI comes from.
-	if !strings.Contains(err.Error(), "init image is required") {
-		t.Fatalf("expected an init image required error, got %q", err.Error())
-	}
-}
-
 func TestAssemblerResolvesSecretEnv(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
@@ -711,9 +532,10 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		},
 	}
 
+	agent := &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -738,10 +560,12 @@ func TestAssemblerResolvesSecretEnv(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, secretsClient, &config.Config{
+	cfg := &config.Config{
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
-	})
+	}
+	withRuntimeEnvironment(agent, agentsClient, cfg)
+	assembler := withCatalog(NewWithRunners(agentsClient, runnersWithDefaultFlavor(), secretsClient, cfg), agent.GetOrganizationId())
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -762,9 +586,10 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	mcpID := uuid.New()
 	volumeID := uuid.New()
 
+	agent := &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -811,7 +636,8 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
+	withRuntimeEnvironment(agent, agentsClient, cfg)
+	assembler := withCatalog(NewWithRunners(agentsClient, runnersWithDefaultFlavor(), &testutil.FakeSecretsClient{}, cfg), agent.GetOrganizationId())
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -928,15 +754,15 @@ func TestSharedVolumeReachesBothContainersOfTheAssembledPod(t *testing.T) {
 	mcpID := uuid.New()
 	volumeID := uuid.New()
 
+	agent := &agentsv1.Agent{
+		Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
+		OrganizationId: "org-1",
+		Image:          "agent-image",
+		EnvironmentId:  environmentID.String(),
+	}
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{
-				Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
-				OrganizationId: "org-1",
-				Image:          "agent-image",
-				InitImage:      "agent-init-image",
-				EnvironmentId:  environmentID.String(),
-			}}, nil
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
 		},
 		GetEnvironmentFunc: func(_ context.Context, req *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
 			if req.GetId() != environmentID.String() {
@@ -949,6 +775,9 @@ func TestSharedVolumeReachesBothContainersOfTheAssembledPod(t *testing.T) {
 				Image:          "environment-image",
 				RunnerId:       testAgentEnvironmentRunnerID,
 				Flavor:         testAgentEnvironmentFlavor,
+				// Assembly refuses a workload whose environment names no runtime.
+				AgentRuntimeImageId:  testRuntimeImageID,
+				AgentRuntimeImageTag: testRuntimeImageTag,
 			}}, nil
 		},
 		ListSkillsFunc: func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
@@ -990,10 +819,14 @@ func TestSharedVolumeReachesBothContainersOfTheAssembledPod(t *testing.T) {
 			}}}, nil
 		},
 	}
-	assembler := NewWithRunners(agentsClient, runnersClient, &testutil.FakeSecretsClient{}, &config.Config{
+	cfg := &config.Config{
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
-	})
+	}
+	// This test wires its own environment, runner and flavor; it only needs the
+	// catalog that resolves the runtime image the environment names.
+	cfg.ImageProxyHost = testCatalogProxyHost
+	assembler := withCatalog(NewWithRunners(agentsClient, runnersClient, &testutil.FakeSecretsClient{}, cfg), agent.GetOrganizationId())
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -1086,9 +919,10 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 	lowID := "11111111-1111-1111-1111-111111111111"
 	highID := "22222222-2222-2222-2222-222222222222"
 
+	agent := &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -1114,7 +948,8 @@ func TestAssemblerMcpPortAllocation(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
+	withRuntimeEnvironment(agent, agentsClient, cfg)
+	assembler := withCatalog(NewWithRunners(agentsClient, runnersWithDefaultFlavor(), &testutil.FakeSecretsClient{}, cfg), agent.GetOrganizationId())
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -1155,9 +990,10 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 	agentID := uuid.New()
 	threadID := uuid.New()
 
+	agent := &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -1176,10 +1012,12 @@ func TestAssemblerNoMcpsNoAgentMcpServersEnv(t *testing.T) {
 		},
 	}
 
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+	cfg := &config.Config{
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
-	})
+	}
+	withRuntimeEnvironment(agent, agentsClient, cfg)
+	assembler := withCatalog(NewWithRunners(agentsClient, runnersWithDefaultFlavor(), &testutil.FakeSecretsClient{}, cfg), agent.GetOrganizationId())
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -1297,9 +1135,10 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 	mcpID := uuid.New()
 	cert := []byte("test-ca")
 
+	agent := &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}
 	agentsClient := &testutil.FakeAgentsClient{
 		GetAgentFunc: func(_ context.Context, _ *agentsv1.GetAgentRequest, _ ...grpc.CallOption) (*agentsv1.GetAgentResponse, error) {
-			return &agentsv1.GetAgentResponse{Agent: &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image", InitImage: "agent-init-image"}}, nil
+			return &agentsv1.GetAgentResponse{Agent: agent}, nil
 		},
 		ListSkillsFunc: func(_ context.Context, _ *agentsv1.ListSkillsRequest, _ ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
 			return &agentsv1.ListSkillsResponse{}, nil
@@ -1318,7 +1157,7 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 		},
 	}
 
-	assembler := NewWithEgressCA(agentsClient, &testutil.FakeSecretsClient{}, &config.Config{
+	cfg := &config.Config{
 		AgentGatewayAddress:              "gateway:50051",
 		AgentLLMBaseURL:                  "http://llm:8080/v1",
 		ZitiEnabled:                      true,
@@ -1327,7 +1166,9 @@ func TestAssemblerDistributesEgressCA(t *testing.T) {
 		ZitiEnrollmentDNSUpstream:        "10.43.0.10",
 		ZitiRuntimeControllerResolveHost: "istio-ingressgateway.istio-gateway.svc.cluster.local",
 		ZitiRuntimeControllerPort:        "443",
-	}, cert)
+	}
+	withRuntimeEnvironment(agent, agentsClient, cfg)
+	assembler := withCatalog(NewWithRunnersAndEgressCA(agentsClient, runnersWithDefaultFlavor(), &testutil.FakeSecretsClient{}, cfg, cert), agent.GetOrganizationId())
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -2003,6 +1844,9 @@ func newAgentEnvironmentFixture() *agentEnvironmentFixture {
 				Image:          testAgentEnvironmentImage,
 				RunnerId:       testAgentEnvironmentRunnerID,
 				Flavor:         testAgentEnvironmentFlavor,
+				// Assembly refuses a workload whose environment names no runtime.
+				AgentRuntimeImageId:  testRuntimeImageID,
+				AgentRuntimeImageTag: testRuntimeImageTag,
 			}}, nil
 		},
 		ListEnvsFunc: func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
@@ -2031,7 +1875,8 @@ func newAgentEnvironmentFixture() *agentEnvironmentFixture {
 
 func (f *agentEnvironmentFixture) assemble(t *testing.T) *AssembleResult {
 	t.Helper()
-	assembler := NewWithRunners(f.agents, f.runners, f.secrets, f.cfg)
+	f.cfg.ImageProxyHost = testCatalogProxyHost
+	assembler := withCatalog(NewWithRunners(f.agents, f.runners, f.secrets, f.cfg), "org-1")
 	result, err := assembler.Assemble(context.Background(), f.agentID, f.threadID, f.threadID)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -2058,44 +1903,15 @@ func TestAssemblerUsesEnvironmentImageAndRunner(t *testing.T) {
 	if result.Flavor != testAgentEnvironmentFlavor {
 		t.Fatalf("expected environment flavor %q, got %q", testAgentEnvironmentFlavor, result.Flavor)
 	}
-	// The init image stays the agent's: an environment supplies the runtime an
-	// agent runs in, not the bootstrap that seeds it.
-	initContainer := testutil.FindInitContainer(result.Request.GetInitContainers(), "agent-init")
-	if initContainer == nil || initContainer.GetImage() != "agent-init-image" {
-		t.Fatalf("expected the agent's init image, got %+v", initContainer)
+	// The runtime the environment names is what seeds the workload: there is no
+	// longer an agent-supplied init image to fall back to.
+	initContainer := testutil.FindInitContainer(result.Request.GetInitContainers(), agentRuntimeInit)
+	if initContainer == nil {
+		t.Fatalf("expected the %s init container", agentRuntimeInit)
 	}
 	// Carried out of assembly so the reconciler can record it on the workload's
 	// OpenZiti identity.
 	if result.EnvironmentID != fixture.agent.GetEnvironmentId() {
 		t.Fatalf("expected environment id %q, got %q", fixture.agent.GetEnvironmentId(), result.EnvironmentID)
-	}
-}
-
-func TestAssemblerWithoutEnvironmentKeepsAgentImageAndPlacement(t *testing.T) {
-	fixture := newAgentEnvironmentFixture()
-	fixture.agent.EnvironmentId = ""
-	// Agents predating environments must not reach for one at all.
-	fixture.agents.GetEnvironmentFunc = func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
-		return nil, errors.New("unexpected environment lookup")
-	}
-	fixture.agents.ListEnvsFunc = func(_ context.Context, req *agentsv1.ListEnvsRequest, _ ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error) {
-		if req.GetEnvironmentId() != "" {
-			return nil, errors.New("unexpected environment-scoped env listing")
-		}
-		return &agentsv1.ListEnvsResponse{}, nil
-	}
-	fixture.runners.listFlavors = func(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
-		return nil, errors.New("unexpected flavor lookup")
-	}
-
-	result := fixture.assemble(t)
-
-	if result.Request.GetMain().GetImage() != testAgentInlineImage {
-		t.Fatalf("expected the agent's inline image %q, got %q", testAgentInlineImage, result.Request.GetMain().GetImage())
-	}
-	// An empty runner id is what keeps these agents on label and capability
-	// selection in the reconciler.
-	if result.RunnerID != "" {
-		t.Fatalf("expected no environment runner, got %q", result.RunnerID)
 	}
 }

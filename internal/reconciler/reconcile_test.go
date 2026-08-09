@@ -1659,7 +1659,6 @@ func TestStartSandboxWorkloadMarksRunningOnRunnerRunning(t *testing.T) {
 	cfg := &config.Config{
 		AgentGatewayAddress:                 "gateway:50051",
 		AgentLLMBaseURL:                     "http://llm:8080/v1",
-		SandboxInitImage:                    "sandbox-init-image",
 		SandboxWorkspaceSizeGB:              "10",
 		ZitiEnabled:                         true,
 		ZitiSidecarImage:                    "ziti-sidecar-image",
@@ -1906,7 +1905,6 @@ func TestStartSandboxWorkloadWritesRuntimeRunning(t *testing.T) {
 	cfg := &config.Config{
 		AgentGatewayAddress:    "gateway:50051",
 		AgentLLMBaseURL:        "http://llm:8080/v1",
-		SandboxInitImage:       "sandbox-init-image",
 		SandboxWorkspaceSizeGB: "10",
 	}
 	reconciler := newTestReconciler(Config{
@@ -2023,7 +2021,6 @@ func TestStartSandboxWorkloadFailureWritesRuntimeFailed(t *testing.T) {
 		Assembler: assembler.NewWithRunners(agents, runners, &testutil.FakeSecretsClient{}, &config.Config{
 			AgentGatewayAddress:    "gateway:50051",
 			AgentLLMBaseURL:        "http://llm:8080/v1",
-			SandboxInitImage:       "sandbox-init-image",
 			SandboxWorkspaceSizeGB: "10",
 		}),
 	})
@@ -2094,7 +2091,6 @@ func TestReconcileSandboxStartsFromStartingRuntimeState(t *testing.T) {
 		Assembler: assembler.NewWithRunners(agents, runners, &testutil.FakeSecretsClient{}, &config.Config{
 			AgentGatewayAddress:    "gateway:50051",
 			AgentLLMBaseURL:        "http://llm:8080/v1",
-			SandboxInitImage:       "sandbox-init-image",
 			SandboxWorkspaceSizeGB: "10",
 		}),
 	})

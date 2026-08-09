@@ -549,21 +549,18 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		InlineFileMounts: egressCAInlineFileMounts(a.egressCACert),
 	}
 	// Two chart-pinned platform init containers, then the environment's agent
-	// runtime. A workload whose environment names no runtime falls back to the
-	// agent's own init image, which carries all three today.
+	// runtime. Naming no runtime is refused rather than substituted: the
+	// substitute was the agent's own init image, and a workload assembled
+	// without a runtime starts and then has no CLI to spawn.
 	initContainers, err := a.platformInitContainers()
 	if err != nil {
 		return nil, err
 	}
-	if runtimeInit := a.agentRuntimeInitContainer(agentRuntimeImage); runtimeInit != nil {
-		initContainers = append(initContainers, runtimeInit)
-	} else {
-		legacy, err := a.legacyInitContainer(agent.GetInitImage())
-		if err != nil {
-			return nil, fmt.Errorf("agent %s: %w", agentID, err)
-		}
-		initContainers = append(initContainers, legacy)
+	runtimeInit := a.agentRuntimeInitContainer(agentRuntimeImage)
+	if runtimeInit == nil {
+		return nil, fmt.Errorf("agent %s: environment names no agent runtime image", agentID)
 	}
+	initContainers = append(initContainers, runtimeInit)
 	if a.cfg.ZitiEnabled {
 		if _, err := gatewayHost(a.cfg.AgentGatewayAddress); err != nil {
 			return nil, err

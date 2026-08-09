@@ -60,18 +60,3 @@ func TestAgentRuntimeInitContainer(t *testing.T) {
 		t.Fatalf("image = %q, want the proxy reference unchanged", container.GetImage())
 	}
 }
-
-func TestLegacyInitContainerRequiresAnImage(t *testing.T) {
-	a := assemblerWithInitImages("", "")
-
-	if _, err := a.legacyInitContainer(""); err == nil {
-		t.Fatal("expected an empty init image to be refused")
-	}
-	container, err := a.legacyInitContainer("ghcr.io/agynio/agent-init-codex:latest")
-	if err != nil {
-		t.Fatalf("legacyInitContainer: %v", err)
-	}
-	if container.GetName() != legacyAgentInitName {
-		t.Fatalf("name = %q", container.GetName())
-	}
-}

@@ -65,7 +65,6 @@ func newSandboxFixture() *sandboxFixture {
 			AgentGatewayAddress:    testSandboxGatewayURL,
 			AgentLLMBaseURL:        "http://llm:8080/v1",
 			AgentTracingAddress:    "tracing:50051",
-			SandboxInitImage:       testSandboxInitImage,
 			SandboxWorkspaceSizeGB: testSandboxSizeGB,
 		},
 	}
@@ -90,6 +89,10 @@ func newSandboxFixture() *sandboxFixture {
 				Image:          testSandboxImage,
 				RunnerId:       testSandboxRunnerID,
 				Flavor:         testSandboxFlavor,
+				// Assembly no longer substitutes a legacy image, so the
+				// environment names the runtime the sandbox seeds from.
+				AgentRuntimeImageId:  testRuntimeImageID,
+				AgentRuntimeImageTag: testRuntimeImageTag,
 			}}, nil
 		},
 		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
@@ -135,7 +138,8 @@ func newSandboxFixture() *sandboxFixture {
 
 func (f *sandboxFixture) assemble(t *testing.T) *SandboxAssembleResult {
 	t.Helper()
-	assembler := NewWithRunnersAndEgressCA(f.agents, f.runners, f.secrets, f.cfg, f.egressCACert)
+	f.cfg.ImageProxyHost = testCatalogProxyHost
+	assembler := withCatalog(NewWithRunnersAndEgressCA(f.agents, f.runners, f.secrets, f.cfg, f.egressCACert), "org-1")
 	result, err := assembler.AssembleSandbox(context.Background(), f.sandbox)
 	if err != nil {
 		t.Fatalf("assemble sandbox: %v", err)
@@ -228,8 +232,8 @@ func TestAssembleSandboxRunsInitContainerAndHolderCommand(t *testing.T) {
 		t.Fatalf("expected 1 init container, got %d", len(initContainers))
 	}
 	initContainer := initContainers[0]
-	if initContainer.GetImage() != testSandboxInitImage {
-		t.Fatalf("expected init image %q, got %q", testSandboxInitImage, initContainer.GetImage())
+	if initContainer.GetImage() != testResolvedRuntimeRef {
+		t.Fatalf("expected init image %q, got %q", testResolvedRuntimeRef, initContainer.GetImage())
 	}
 	initMount := findVolumeMount(initContainer, agynBinVolumeName)
 	if initMount == nil || initMount.GetMountPath() != agynBinMountPath {
