@@ -19,13 +19,6 @@ const placeholderCredential = "agyn-placeholder-not-a-credential"
 // per environment, or per attachment.
 const nativeRoleAttributePrefix = "llm-native-"
 
-// Where agynd looks for a file placeholder to write. One vendor per workload
-// can use the file kind today; a second would need these keyed by vendor.
-const (
-	placeholderFilePathEnv     = "LLM_PLACEHOLDER_FILE_PATH"
-	placeholderFileContentsEnv = "LLM_PLACEHOLDER_FILE_CONTENTS"
-)
-
 // LLMMode is what a workload needs to reach a model: the mode itself, the role
 // attributes that opt its identity into interception, and the environment
 // variables the container carries.
@@ -101,20 +94,8 @@ func (a *Assembler) resolveLLMMode(ctx context.Context, environment *agentsv1.En
 				mode.EnvVars = append(mode.EnvVars, &runnerv1.EnvVar{Name: env, Value: placeholderCredential})
 			}
 		}
-		// A file placeholder is agynd's to write, and holder mode has no
-		// platform connection to fetch it over -- newHolderDaemon builds no
-		// clients at all. So the path and contents are relayed here, verbatim
-		// from the listing: the orchestrator does not read them and agynd does
-		// not derive them, which is what keeps the vendor table in one place.
-		// The contents are a placeholder, never a credential.
-		if attachment.GetPlaceholderKind() == llmv1.PlaceholderKind_PLACEHOLDER_KIND_FILE {
-			if path := attachment.GetPlaceholderPath(); path != "" {
-				mode.EnvVars = append(mode.EnvVars,
-					&runnerv1.EnvVar{Name: placeholderFilePathEnv, Value: path},
-					&runnerv1.EnvVar{Name: placeholderFileContentsEnv, Value: attachment.GetPlaceholderContents()},
-				)
-			}
-		}
+		// A CLI that reads its credential from a file is agynd's to serve: the
+		// path and shape follow from the CLI, which only agynd knows.
 	}
 	return mode, nil
 }
