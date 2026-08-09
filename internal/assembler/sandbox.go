@@ -140,12 +140,6 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 	}
 	if runtimeInit := a.agentRuntimeInitContainer(agentRuntimeImage); runtimeInit != nil {
 		initContainers = append(initContainers, runtimeInit)
-	} else if len(initContainers) == 0 {
-		legacy, err := a.legacyInitContainer(a.cfg.SandboxInitImage)
-		if err != nil {
-			return nil, fmt.Errorf("sandbox: %w", err)
-		}
-		initContainers = append(initContainers, legacy)
 	}
 	// Provisioned disks are attributed to the sandbox that owns them, which is
 	// what volume reconciliation and metering read.

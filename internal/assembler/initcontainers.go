@@ -1,7 +1,6 @@
 package assembler
 
 import (
-	"fmt"
 	"strings"
 
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
@@ -18,7 +17,6 @@ const (
 	agyndCLIInitName    = "agynd-cli-init"
 	agynCLIInitName     = "agyn-cli-init"
 	agentRuntimeInit    = "agent-runtime"
-	legacyAgentInitName = "agent-init"
 )
 
 // platformInitContainers builds the two chart-pinned init containers every
@@ -72,20 +70,3 @@ func (a *Assembler) agentRuntimeInitContainer(image string) *runnerv1.ContainerS
 	return container
 }
 
-// legacyInitContainer is the single init container a workload got before the
-// platform binaries were split out. It is used when the environment names no
-// agent runtime image, which is every workload still on the free-form image.
-func (a *Assembler) legacyInitContainer(image string) (*runnerv1.ContainerSpec, error) {
-	if strings.TrimSpace(image) == "" {
-		return nil, fmt.Errorf("init image is required when the environment names no agent runtime image")
-	}
-	container := &runnerv1.ContainerSpec{
-		Image: image,
-		Name:  legacyAgentInitName,
-		Mounts: []*runnerv1.VolumeMount{
-			{Volume: agynBinVolumeName, MountPath: agynBinMountPath},
-		},
-	}
-	applyEgressCA(container, a.egressCACert)
-	return container, nil
-}

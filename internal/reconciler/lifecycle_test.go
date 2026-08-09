@@ -11,6 +11,8 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	groupsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/groups/v1"
 	identityv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/identity/v1"
+	imagesv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/images/v1"
+	organizationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/organizations/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	threadsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/threads/v1"
@@ -1755,7 +1757,7 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 				Meta:           &agentsv1.EntityMeta{Id: agentID.String()},
 				OrganizationId: testOrganizationID,
 				Image:          "agent-image",
-				InitImage:      "agent-init-image",
+				EnvironmentId:  testAssemblerEnvironmentID,
 				Resources: &agentsv1.ComputeResources{
 					RequestsCpu:    "500m",
 					RequestsMemory: "1Gi",
@@ -1791,7 +1793,58 @@ func newTestAssembler(agentID uuid.UUID, zitiEnabled bool) *assembler.Assembler 
 		ZitiRuntimeControllerResolveHost:    "istio-ingressgateway.istio-gateway.svc.cluster.local",
 		ZitiRuntimeControllerPort:           "443",
 	}
-	return assembler.New(agentsClient, &testutil.FakeSecretsClient{}, cfg)
+	cfg.ImageProxyHost = testAssemblerProxyHost
+	agentsClient.GetEnvironmentFunc = func(_ context.Context, _ *agentsv1.GetEnvironmentRequest, _ ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {
+		return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{
+			Meta:                 &agentsv1.EntityMeta{Id: testAssemblerEnvironmentID},
+			OrganizationId:       testOrganizationID,
+			Image:                "agent-image",
+			RunnerId:             testAssemblerRunnerID,
+			AgentRuntimeImageId:  testAssemblerRuntimeImageID,
+			AgentRuntimeImageTag: "1.0.0",
+		}}, nil
+	}
+	runners := &fakeRunnersClient{
+		listFlavors: func(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error) {
+			return &runnersv1.ListFlavorsResponse{Flavors: []*runnersv1.Flavor{{
+				Name:    "default",
+				Default: true,
+				Resources: &runnersv1.ComputeResources{
+					RequestsCpu:    "500m",
+					RequestsMemory: "1Gi",
+				},
+			}}}, nil
+		},
+	}
+	return assembler.NewWithRunners(agentsClient, runners, &testutil.FakeSecretsClient{}, cfg).
+		WithCatalog(&fakeImagesClient{}, &fakeOrganizationsClient{}, nil)
+}
+
+const (
+	testAssemblerEnvironmentID  = "33333333-3333-3333-3333-333333333333"
+	testAssemblerRunnerID       = "44444444-4444-4444-4444-444444444444"
+	testAssemblerRuntimeImageID = "55555555-5555-5555-5555-555555555555"
+	testAssemblerProxyHost      = "registry.agyn.test"
+)
+
+// The catalog the environment's runtime image resolves through.
+type fakeImagesClient struct{}
+
+func (f *fakeImagesClient) GetImage(_ context.Context, req *imagesv1.GetImageRequest, _ ...grpc.CallOption) (*imagesv1.GetImageResponse, error) {
+	return &imagesv1.GetImageResponse{Image: &imagesv1.Image{
+		Meta:           &imagesv1.EntityMeta{Id: req.GetId()},
+		Name:           "agent-runtime",
+		OrganizationId: testOrganizationID,
+	}}, nil
+}
+
+type fakeOrganizationsClient struct{}
+
+func (f *fakeOrganizationsClient) GetOrganization(_ context.Context, req *organizationsv1.GetOrganizationRequest, _ ...grpc.CallOption) (*organizationsv1.GetOrganizationResponse, error) {
+	return &organizationsv1.GetOrganizationResponse{Organization: &organizationsv1.Organization{
+		Id:   req.GetId(),
+		Slug: "org-one",
+	}}, nil
 }
 
 // newTestEnvironmentAssembler builds an assembler for an agent that runs in an
@@ -1820,11 +1873,13 @@ func newTestEnvironmentAssembler(agentID, environmentID uuid.UUID, runnerID stri
 				return nil, errors.New("unexpected environment id")
 			}
 			return &agentsv1.GetEnvironmentResponse{Environment: &agentsv1.Environment{
-				Meta:           &agentsv1.EntityMeta{Id: environmentID.String()},
-				OrganizationId: testOrganizationID,
-				Name:           "shared-runtime",
-				Image:          testEnvironmentImage,
-				RunnerId:       runnerID,
+				Meta:                 &agentsv1.EntityMeta{Id: environmentID.String()},
+				AgentRuntimeImageId:  testAssemblerRuntimeImageID,
+				AgentRuntimeImageTag: "1.0.0",
+				OrganizationId:       testOrganizationID,
+				Name:                 "shared-runtime",
+				Image:                testEnvironmentImage,
+				RunnerId:             runnerID,
 			}}, nil
 		},
 		ListSkillsFunc: func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error) {
@@ -1860,7 +1915,9 @@ func newTestEnvironmentAssembler(agentID, environmentID uuid.UUID, runnerID stri
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
-	return assembler.NewWithRunners(agentsClient, runnersClient, &testutil.FakeSecretsClient{}, cfg)
+	cfg.ImageProxyHost = testAssemblerProxyHost
+	return assembler.NewWithRunners(agentsClient, runnersClient, &testutil.FakeSecretsClient{}, cfg).
+		WithCatalog(&fakeImagesClient{}, &fakeOrganizationsClient{}, nil)
 }
 
 func envMap(envs []*runnerv1.EnvVar) map[string]string {

@@ -68,7 +68,8 @@ func TestAssemblerAggregatesResourceRequests(t *testing.T) {
 		AgentGatewayAddress: "gateway:50051",
 		AgentLLMBaseURL:     "http://llm:8080/v1",
 	}
-	assembler := New(agentsClient, &testutil.FakeSecretsClient{}, &cfg)
+	withRuntimeEnvironment(agent, agentsClient, &cfg)
+	assembler := withCatalog(NewWithRunners(agentsClient, runnersWithDefaultFlavor(), &testutil.FakeSecretsClient{}, &cfg), agent.GetOrganizationId())
 
 	result, err := assembler.Assemble(ctx, agentID, threadID, threadID)
 	if err != nil {
