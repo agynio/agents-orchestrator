@@ -159,7 +159,7 @@ func run() error {
 		defer closeConn(groupsConn)
 		groupsClient = groupsv1.NewGroupsServiceClient(groupsConn)
 	}
-	subscriber := subscriber.NewWithSandboxOrganizations(notificationsClient, agentsClient, cfg.SandboxReconcileOrganizationIDs)
+	subscriber := subscriber.New(notificationsClient, agentsClient)
 	egressCANamespace, err := k8sclient.ResolveNamespace(cfg.EgressCANamespace, "egress CA")
 	if err != nil {
 		return err
@@ -210,22 +210,21 @@ func run() error {
 	}
 	assembler := assembledWorkloads
 	reconciler := reconciler.New(reconciler.Config{
-		Threads:                         threadsClient,
-		Agents:                          agentsClient,
-		RunnerDialer:                    runnerDialer,
-		ZitiMgmt:                        zitiMgmtClient,
-		Groups:                          groupsClient,
-		Runners:                         runnersClient,
-		Metering:                        meteringClient,
-		Assembler:                       assembler,
-		Wake:                            subscriber.Wake(),
-		SandboxWake:                     subscriber.SandboxWake(),
-		Poll:                            cfg.PollInterval,
-		WorkloadReconcileInterval:       cfg.WorkloadReconcileInterval,
-		Idle:                            cfg.IdleTimeout,
-		StopSec:                         cfg.StopTimeoutSec,
-		MeteringSampleInterval:          cfg.MeteringSampleInterval,
-		SandboxReconcileOrganizationIDs: append([]string(nil), cfg.SandboxReconcileOrganizationIDs...),
+		Threads:                   threadsClient,
+		Agents:                    agentsClient,
+		RunnerDialer:              runnerDialer,
+		ZitiMgmt:                  zitiMgmtClient,
+		Groups:                    groupsClient,
+		Runners:                   runnersClient,
+		Metering:                  meteringClient,
+		Assembler:                 assembler,
+		Wake:                      subscriber.Wake(),
+		SandboxWake:               subscriber.SandboxWake(),
+		Poll:                      cfg.PollInterval,
+		WorkloadReconcileInterval: cfg.WorkloadReconcileInterval,
+		Idle:                      cfg.IdleTimeout,
+		StopSec:                   cfg.StopTimeoutSec,
+		MeteringSampleInterval:    cfg.MeteringSampleInterval,
 	})
 	if imageProxyClient != nil {
 		reconciler.WithImageProxy(imageProxyClient, cfg.ImageProxyHost)

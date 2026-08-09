@@ -2132,8 +2132,7 @@ func TestReconcileSandboxesContinuesAfterRuntimeUpdateFailure(t *testing.T) {
 		},
 	}
 	reconciler := newTestReconciler(Config{
-		SandboxReconcileOrganizationIDs: []string{testOrganizationID},
-		Agents:                          agents,
+		Agents: agents,
 		Runners: &fakeRunnersClient{
 			listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 				return &runnersv1.ListWorkloadsResponse{}, nil
@@ -2548,9 +2547,8 @@ func TestSandboxReconcileLoopRunsOnWake(t *testing.T) {
 	}
 	wake := make(chan struct{}, 1)
 	reconciler := newTestReconciler(Config{
-		SandboxReconcileOrganizationIDs: []string{testOrganizationID},
-		Agents:                          agents,
-		SandboxWake:                     wake,
+		Agents:      agents,
+		SandboxWake: wake,
 		// Long enough that only the wake can trigger the second cycle.
 		WorkloadReconcileInterval: time.Hour,
 	})

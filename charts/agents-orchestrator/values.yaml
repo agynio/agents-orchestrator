@@ -156,8 +156,6 @@ env:
     value: "ghcr.io/agynio/agyn-cli-init:0.3.0"
   - name: SANDBOX_WORKSPACE_SIZE_GB
     value: "10"
-  - name: SANDBOX_RECONCILE_ORGANIZATION_IDS
-    value: ""
   - name: POLL_INTERVAL
     value: "5s"
   - name: IDLE_TIMEOUT
