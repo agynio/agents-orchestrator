@@ -112,7 +112,7 @@ functions:
                     [ "$elapsed" -ge 240 ] && { echo "ERROR: sync timeout waiting for:${missing_files}" >&2; exit 1; }
                   done
                   [ -s /opt/app/data/buf.gen.yaml ] || { echo "ERROR: buf.gen.yaml is empty" >&2; exit 1; }
-                  buf generate buf.build/agynio/api \
+                  [ -d /opt/app/data/.gen ] || buf generate buf.build/agynio/api \
                     --include-imports \
                     --path agynio/api/runner/v1 \
                     --path agynio/api/runners/v1 \
@@ -258,13 +258,11 @@ dev:
             excludePaths:
               - .git/
               - .devspace/
-              - /.gen/
               - /tmp/
               - /.e2e-deps/
             uploadExcludePaths:
               - .git/
               - .devspace/
-              - /.gen/
               - /tmp/
               - /.e2e-deps/
             downloadExcludePaths:
