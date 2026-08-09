@@ -26,7 +26,8 @@ const (
 	// The volume is the whole /agyn tree: binaries under bin/, and the agent
 	// runtime's config.json beside it rather than among them.
 	agynBinMountPath                          = "/agyn"
-	agynBinBinaryPath                         = "/agyn/bin/agynd"
+	agynBinDir                                = "/agyn/bin"
+	agynBinBinaryPath                         = agynBinDir + "/agynd"
 	mcpBasePort                               = 8100
 	mcpResolverOptions                        = "attempts:1 timeout:1 no-aaaa"
 	mcpNodeOptions                            = "--dns-result-order=ipv4first"
