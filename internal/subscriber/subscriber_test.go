@@ -239,10 +239,6 @@ func TestSubscriberKeepsHealthySubscriptionsWhenOneFails(t *testing.T) {
 
 func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialInstances []*agentsv1.AgentInstance, refreshInterval time.Duration) *subscriberHarness {
 	t.Helper()
-	return newSubscriberHarnessWithSandboxOrgs(t, responses, ack, initialInstances, refreshInterval, nil)
-}
-
-func newSubscriberHarnessWithSandboxOrgs(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialInstances []*agentsv1.AgentInstance, refreshInterval time.Duration, sandboxOrgIDs []string) *subscriberHarness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &instanceStore{instances: initialInstances}
