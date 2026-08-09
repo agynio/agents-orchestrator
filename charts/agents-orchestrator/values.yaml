@@ -89,12 +89,19 @@ env:
     # Empty rather than "registry." when no domain is configured: the chart is
     # linted and installed standalone, where global carries no ingress.
     value: "{{ with .Values.global }}{{ with .ingress }}{{ with .baseDomain }}registry.{{ . }}{{ end }}{{ end }}{{ end }}"
+  # In-cluster name, like every other service address above it. Empty meant each
+  # installation restated the one value it could ever be.
   - name: METERING_SERVICE_ADDRESS
-    value: ""
+    value: "metering:50051"
   - name: METERING_SAMPLE_INTERVAL
     value: "60s"
+  # On: an agent workload reaches the Gateway only over the overlay, and with
+  # this off the orchestrator builds no ziti-management client, so createIdentity
+  # returns nil and the workload dies on "produced zero addresses". Every install
+  # that ships the overlay wants it, so it is the default rather than something
+  # each one repeats.
   - name: ZITI_ENABLED
-    value: "false"
+    value: "true"
   - name: ZITI_LEASE_RENEWAL_INTERVAL
     value: "2m"
   - name: ZITI_ENROLLMENT_TIMEOUT
@@ -103,12 +110,15 @@ env:
     value: "openziti/ziti-tunnel:2.0.0-pre8"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: "ziti-management:50051"
+  # Users, apps and agents group-sync against this service; with it off,
+  # create-user and create-agent block about thirty seconds on a downstream
+  # timeout, so the working configuration is the default one.
   - name: GROUP_SYNC_ENABLED
-    value: "false"
+    value: "true"
   - name: GROUPS_ADDRESS
     value: "groups:50051"
   - name: NATS_URL
-    value: ""
+    value: "nats://nats:4222"
   # Upstream DNS resolver used by the workload Ziti tunnel after enrollment.
   - name: WORKLOAD_DNS_UPSTREAM
     value: ""
@@ -158,8 +168,12 @@ env:
     value: ""
   - name: LEASE_NAME
     value: ""
+  # The CA lives beside this service, so the release namespace is the answer in
+  # every install. service-base templates env values, so it is derived rather
+  # than named by each one -- a literal here silently reads the wrong namespace
+  # when the release moves.
   - name: EGRESS_CA_NAMESPACE
-    value: ""
+    value: "{{ .Release.Namespace }}"
 envFrom: []
 extraEnvVars: []
 extraEnvVarsCM: ""
