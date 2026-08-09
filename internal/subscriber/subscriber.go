@@ -45,23 +45,21 @@ type Subscriber struct {
 	agents              agentsClient
 	wake                chan struct{}
 	sandboxWake         chan struct{}
-	sandboxOrgIDs       []string
 	roomRefreshInterval time.Duration
 }
 
 func New(client notificationsv1.NotificationsServiceClient, agents agentsClient) *Subscriber {
-	return NewWithSandboxOrganizations(client, agents, nil)
+	return NewWithSandboxOrganizations(client, agents)
 }
 
 // NewWithSandboxOrganizations additionally watches the org-level sandbox rooms
 // of organizations that carry no agent, which the agent listing cannot surface.
-func NewWithSandboxOrganizations(client notificationsv1.NotificationsServiceClient, agents agentsClient, sandboxOrganizationIDs []string) *Subscriber {
+func NewWithSandboxOrganizations(client notificationsv1.NotificationsServiceClient, agents agentsClient) *Subscriber {
 	return &Subscriber{
 		client:              client,
 		agents:              agents,
 		wake:                make(chan struct{}, 1),
 		sandboxWake:         make(chan struct{}, 1),
-		sandboxOrgIDs:       append([]string(nil), sandboxOrganizationIDs...),
 		roomRefreshInterval: defaultRoomRefreshInterval,
 	}
 }
@@ -300,18 +298,6 @@ func sortedIdentities(roomsByIdentity map[uuid.UUID]map[string]struct{}) []uuid.
 // rooms; see the caller.
 func (s *Subscriber) sandboxOrgRooms(roomsByIdentity map[uuid.UUID]map[string]struct{}, sandboxOrgIdentities map[string]uuid.UUID) (map[uuid.UUID]map[string]struct{}, error) {
 	roomsByElected := map[uuid.UUID]map[string]struct{}{}
-	for _, configuredOrgID := range s.sandboxOrgIDs {
-		parsedOrgID, err := uuidutil.ParseUUID(strings.TrimSpace(configuredOrgID), "sandbox_reconcile.organization_id")
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; ok {
-			continue
-		}
-		// The organization has no agent to borrow an identity from; the org-level
-		// sandbox room is not identity-scoped, so any known identity can watch it.
-		sandboxOrgIdentities[parsedOrgID.String()] = lowestIdentity(roomsByIdentity)
-	}
 	for orgID, identityID := range sandboxOrgIdentities {
 		if _, ok := roomsByIdentity[identityID]; !ok {
 			continue

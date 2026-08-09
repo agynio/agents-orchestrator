@@ -193,7 +193,7 @@ func TestSubscriberKeepsHealthySubscriptionsWhenOneFails(t *testing.T) {
 		return &fakeSubscribeStream{fakeClientStream: fakeClientStream{ctx: ctx}, responses: responses}, nil
 	}}
 
-	subscriber := NewWithSandboxOrganizations(client, agentsClient, nil)
+	subscriber := New(client, agentsClient)
 	subscriber.roomRefreshInterval = time.Hour
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -239,10 +239,6 @@ func TestSubscriberKeepsHealthySubscriptionsWhenOneFails(t *testing.T) {
 
 func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialInstances []*agentsv1.AgentInstance, refreshInterval time.Duration) *subscriberHarness {
 	t.Helper()
-	return newSubscriberHarnessWithSandboxOrgs(t, responses, ack, initialInstances, refreshInterval, nil)
-}
-
-func newSubscriberHarnessWithSandboxOrgs(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialInstances []*agentsv1.AgentInstance, refreshInterval time.Duration, sandboxOrgIDs []string) *subscriberHarness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &instanceStore{instances: initialInstances}
@@ -269,7 +265,7 @@ func newSubscriberHarnessWithSandboxOrgs(t *testing.T, responses chan *notificat
 			ack:              ack,
 		}, nil
 	}}
-	subscriber := NewWithSandboxOrganizations(client, agentsClient, sandboxOrgIDs)
+	subscriber := New(client, agentsClient)
 	subscriber.roomRefreshInterval = refreshInterval
 	done := make(chan error, 1)
 	go func() {
@@ -477,24 +473,6 @@ func TestSubscriberWakesSandboxOnSandboxUpdated(t *testing.T) {
 		t.Fatal("sandbox.updated must not wake the agent loop")
 	case <-time.After(200 * time.Millisecond):
 	}
-
-	harness.cancel()
-	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected run error: %v", err)
-	}
-}
-
-func TestSubscriberSubscribesConfiguredSandboxOrganizations(t *testing.T) {
-	responses := make(chan *notificationsv1.SubscribeResponse, 1)
-	ack := make(chan struct{}, 1)
-	instanceID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-	configuredOrgID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-	harness := newSubscriberHarnessWithSandboxOrgs(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour, []string{configuredOrgID})
-	defer harness.cancel()
-
-	reqs := waitForSubscribeRequests(t, harness.subscribeReqs, 2)
-	assertSubscribeRequestForIdentity(t, reqs, instanceID)
-	assertSubscribeRooms(t, reqs, []string{"sandbox_org:" + configuredOrgID})
 
 	harness.cancel()
 	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {

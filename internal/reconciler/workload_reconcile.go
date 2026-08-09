@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -202,6 +203,16 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			}
 			item, ok := runnerWorkloads[workloadID]
 			if !ok {
+				// Says what the runner actually reported. Marking a workload lost
+				// stops it and deletes its OpenZiti identity, so a wrong verdict
+				// here kills a healthy workload -- and it was reached silently.
+				reported := make([]string, 0, len(runnerWorkloads))
+				for key := range runnerWorkloads {
+					reported = append(reported, key)
+				}
+				sort.Strings(reported)
+				log.Printf("reconciler: workload %s not among the %d the runner %s reported: %v",
+					workloadID, len(reported), runnerID, reported)
 				if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
 					log.Printf("reconciler: warn: handle missing workload %s: %v", workloadID, err)
 				}

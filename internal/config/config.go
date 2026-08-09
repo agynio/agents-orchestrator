@@ -21,7 +21,6 @@ type Config struct {
 	MeteringServiceAddress              string
 	MeteringSampleInterval              time.Duration
 	ZitiEnabled                         bool
-	SandboxReconcileOrganizationIDs     []string
 	ZitiManagementAddress               string
 	GroupsAddress                       string
 	GroupSyncEnabled                    bool
@@ -158,7 +157,6 @@ func FromEnv() (Config, error) {
 		return Config{}, fmt.Errorf("parse SANDBOX_WORKSPACE_SIZE_GB: %w", err)
 	}
 	var err error
-	cfg.SandboxReconcileOrganizationIDs, err = parseUUIDList(os.Getenv("SANDBOX_RECONCILE_ORGANIZATION_IDS"), "SANDBOX_RECONCILE_ORGANIZATION_IDS")
 	if err != nil {
 		return Config{}, err
 	}
