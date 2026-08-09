@@ -143,14 +143,14 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if !cfg.ZitiEnabled {
 		t.Fatal("expected ZitiEnabled to be true")
 	}
-	if cfg.AgentGatewayAddress != "gateway.ziti:443" {
-		t.Fatalf("expected gateway address %q, got %q", "gateway.ziti:443", cfg.AgentGatewayAddress)
+	if cfg.AgentGatewayAddress != "gateway.agyn:443" {
+		t.Fatalf("expected gateway address %q, got %q", "gateway.agyn:443", cfg.AgentGatewayAddress)
 	}
-	if cfg.AgentTracingAddress != "tracing.ziti:443" {
-		t.Fatalf("expected tracing address %q, got %q", "tracing.ziti:443", cfg.AgentTracingAddress)
+	if cfg.AgentTracingAddress != "tracing.agyn:443" {
+		t.Fatalf("expected tracing address %q, got %q", "tracing.agyn:443", cfg.AgentTracingAddress)
 	}
-	if cfg.AgentLLMBaseURL != "http://llm-proxy.ziti/v1" {
-		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy.ziti/v1", cfg.AgentLLMBaseURL)
+	if cfg.AgentLLMBaseURL != "http://llm-proxy.agyn/v1" {
+		t.Fatalf("expected llm base url %q, got %q", "http://llm-proxy.agyn/v1", cfg.AgentLLMBaseURL)
 	}
 	if cfg.ZitiEnrollmentTimeout != 2*time.Minute {
 		t.Fatalf("expected ziti enrollment timeout %q, got %q", 2*time.Minute, cfg.ZitiEnrollmentTimeout)

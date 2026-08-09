@@ -78,11 +78,11 @@ functions:
                 - name: ZITI_RUNTIME_CONTROLLER_PORT
                   value: "__ZITI_RUNTIME_CONTROLLER_PORT__"
                 - name: AGENT_GATEWAY_ADDRESS
-                  value: "gateway.ziti:443"
+                  value: "gateway.agyn:443"
                 - name: AGENT_TRACING_ADDRESS
-                  value: "tracing.ziti:443"
+                  value: "tracing.agyn:443"
                 - name: AGENT_LLM_BASE_URL
-                  value: "http://llm-proxy.ziti/v1"
+                  value: "http://llm-proxy.agyn/v1"
                 - name: AGYND_AGENTS_DIRECT_ADDRESS
                   value: "__AGYND_AGENTS_DIRECT_ADDRESS__"
                 - name: AGYND_RUNNERS_DIRECT_ADDRESS

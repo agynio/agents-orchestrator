@@ -229,9 +229,9 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		AgentGatewayAddress:                 "gateway.ziti:443",
-		AgentTracingAddress:                 "tracing.ziti:443",
-		AgentLLMBaseURL:                     "http://llm-proxy.ziti/v1",
+		AgentGatewayAddress:                 "gateway.agyn:443",
+		AgentTracingAddress:                 "tracing.agyn:443",
+		AgentLLMBaseURL:                     "http://llm-proxy.agyn/v1",
 		ZitiEnabled:                         true,
 		ZitiSidecarImage:                    "ziti-image",
 		WorkloadDNSUpstream:                 "10.43.0.10",
@@ -418,20 +418,20 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
 		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[1], "getent ahostsv4 gateway.ziti") {
-		t.Fatalf("expected ziti gateway wait to resolve gateway.ziti through pod resolver, got %+v", zitiGatewayWait.Cmd)
+	if !strings.Contains(zitiGatewayWait.Cmd[1], "getent ahostsv4 gateway.agyn") {
+		t.Fatalf("expected ziti gateway wait to resolve gateway.agyn through pod resolver, got %+v", zitiGatewayWait.Cmd)
 	}
-	if strings.Contains(zitiGatewayWait.Cmd[1], "gateway.ziti 127.0.0.1") {
+	if strings.Contains(zitiGatewayWait.Cmd[1], "gateway.agyn 127.0.0.1") {
 		t.Fatalf("expected ziti gateway wait not to bypass pod resolver config, got %+v", zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[1], "/dev/tcp/gateway.ziti/443") {
-		t.Fatalf("expected ziti gateway wait to connect to gateway.ziti through tunnel, got %+v", zitiGatewayWait.Cmd)
+	if !strings.Contains(zitiGatewayWait.Cmd[1], "/dev/tcp/gateway.agyn/443") {
+		t.Fatalf("expected ziti gateway wait to connect to gateway.agyn through tunnel, got %+v", zitiGatewayWait.Cmd)
 	}
 	resolverConfig := "nameserver 127.0.0.1\nnameserver " + cfg.WorkloadDNSUpstream + "\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1\n"
 	if !strings.Contains(zitiGatewayWait.Cmd[1], strconv.Quote(resolverConfig)) {
 		t.Fatalf("expected ziti gateway wait to make tunnel DNS first in resolv.conf, got %+v", zitiGatewayWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[1], "dns lookup failed for gateway.ziti") || !strings.Contains(zitiGatewayWait.Cmd[1], "tcp connect failed for gateway.ziti:443") {
+	if !strings.Contains(zitiGatewayWait.Cmd[1], "dns lookup failed for gateway.agyn") || !strings.Contains(zitiGatewayWait.Cmd[1], "tcp connect failed for gateway.agyn:443") {
 		t.Fatalf("expected ziti gateway wait diagnostics to distinguish DNS and TCP failures, got %+v", zitiGatewayWait.Cmd)
 	}
 	zitiServiceWait := testutil.FindInitContainer(request.InitContainers, zitiServiceWaitContainerName)
@@ -509,10 +509,10 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 
 	assembler := New(&testutil.FakeAgentsClient{}, &testutil.FakeSecretsClient{}, &cfg)
 	envs := envMap(assembler.baseAgentEnvVars(agent, agentID, threadID))
-	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.ziti:443")
-	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.ziti:443")
-	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.ziti/v1")
-	assertEnv(t, envs, "TRACING_ADDRESS", "tracing.ziti:443")
+	assertEnv(t, envs, "GATEWAY_ADDRESS", "gateway.agyn:443")
+	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.agyn:443")
+	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.agyn/v1")
+	assertEnv(t, envs, "TRACING_ADDRESS", "tracing.agyn:443")
 	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 }
 
@@ -1644,22 +1644,22 @@ func assertFileEquals(t *testing.T, path, expected string) {
 }
 
 func TestZitiServiceWaitTargetsLLMProxyTCP(t *testing.T) {
-	target, err := zitiServiceWaitTarget("http://llm-proxy.ziti/v1")
+	target, err := zitiServiceWaitTarget("http://llm-proxy.agyn/v1")
 	if err != nil {
 		t.Fatalf("zitiServiceWaitTarget: %v", err)
 	}
-	if target.host != "llm-proxy.ziti" || target.port != "80" {
-		t.Fatalf("expected llm-proxy.ziti:80, got %s:%s", target.host, target.port)
+	if target.host != "llm-proxy.agyn" || target.port != "80" {
+		t.Fatalf("expected llm-proxy.agyn:80, got %s:%s", target.host, target.port)
 	}
 	cmd := buildZitiServiceWaitCommand(target, "10.43.0.10")
-	if !strings.Contains(cmd[1], "getent ahostsv4 llm-proxy.ziti") {
-		t.Fatalf("expected ziti service wait to resolve llm-proxy.ziti through pod resolver, got %+v", cmd)
+	if !strings.Contains(cmd[1], "getent ahostsv4 llm-proxy.agyn") {
+		t.Fatalf("expected ziti service wait to resolve llm-proxy.agyn through pod resolver, got %+v", cmd)
 	}
-	if strings.Contains(cmd[1], "llm-proxy.ziti 127.0.0.1") {
+	if strings.Contains(cmd[1], "llm-proxy.agyn 127.0.0.1") {
 		t.Fatalf("expected ziti service wait not to bypass pod resolver config, got %+v", cmd)
 	}
-	if !strings.Contains(cmd[1], "/dev/tcp/llm-proxy.ziti/80") {
-		t.Fatalf("expected ziti service wait to connect to llm-proxy.ziti:80 through tunnel, got %+v", cmd)
+	if !strings.Contains(cmd[1], "/dev/tcp/llm-proxy.agyn/80") {
+		t.Fatalf("expected ziti service wait to connect to llm-proxy.agyn:80 through tunnel, got %+v", cmd)
 	}
 	if strings.Contains(cmd[1], "/v1/models") || strings.Contains(cmd[1], "curl") {
 		t.Fatalf("expected ziti service wait not to use HTTP/model-list readiness, got %+v", cmd)
@@ -1667,12 +1667,12 @@ func TestZitiServiceWaitTargetsLLMProxyTCP(t *testing.T) {
 }
 
 func TestZitiServiceWaitTargetPreservesExplicitPort(t *testing.T) {
-	target, err := zitiServiceWaitTarget("https://llm-proxy.ziti:8443/v1")
+	target, err := zitiServiceWaitTarget("https://llm-proxy.agyn:8443/v1")
 	if err != nil {
 		t.Fatalf("zitiServiceWaitTarget: %v", err)
 	}
-	if target.host != "llm-proxy.ziti" || target.port != "8443" {
-		t.Fatalf("expected llm-proxy.ziti:8443, got %s:%s", target.host, target.port)
+	if target.host != "llm-proxy.agyn" || target.port != "8443" {
+		t.Fatalf("expected llm-proxy.agyn:8443, got %s:%s", target.host, target.port)
 	}
 }
 
