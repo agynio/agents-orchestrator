@@ -6,7 +6,22 @@ func appendEgressCAEnvVars(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
 	for _, env := range egressCAEnvVars() {
 		envs = appendPlatformEnvVar(envs, env)
 	}
-	return appendWorkloadPathEnvVar(envs)
+	envs = appendWorkloadPathEnvVar(envs)
+	return appendWorkloadSandboxEnvVar(envs)
+}
+
+// appendWorkloadSandboxEnvVar marks the container as the isolation boundary the
+// agent CLI is already inside.
+//
+// Claude Code refuses to run with bypassed permissions as root -- the container
+// runs as root, and the refusal is fatal rather than a downgrade. agynd sets
+// this for the subprocess it spawns, which covers an agent but not a sandbox,
+// where the shell comes from the runner's Exec against the pod and inherits the
+// container spec's environment instead. The claim is true either way: the
+// container is the sandbox, and the permission prompt it suppresses guards a
+// developer's own machine, not this one.
+func appendWorkloadSandboxEnvVar(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
+	return appendPlatformEnvVar(envs, &runnerv1.EnvVar{Name: "IS_SANDBOX", Value: "1"})
 }
 
 // appendWorkloadPathEnvVar puts the platform's binaries on PATH for everything
