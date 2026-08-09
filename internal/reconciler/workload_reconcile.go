@@ -88,7 +88,13 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			runnerIdentities[runnerID] = identityID
 		}
 	}
-	runners, err := r.listRunnersByOrg(ctx, orgIdentities)
+	// The runners the tracked workloads actually name, not only those belonging
+	// to an organization that owns an agent. listRunnersByOrg is keyed by the
+	// organizations agents run in and returns nothing when there are none, so a
+	// platform running only sandboxes never learned its runner existed -- and
+	// every sandbox was condemned as missing from a runner nothing had asked.
+	// A cluster-scoped runner has no organization to be listed under at all.
+	runners, err := r.runnersForWorkloads(ctx, orgIdentities, workloadsByRunner)
 	if err != nil {
 		return err
 	}
@@ -501,4 +507,49 @@ func containerFailureMessage(container *runnersv1.Container) string {
 		return container.GetMessage()
 	}
 	return container.GetReason()
+}
+
+// runnersForWorkloads lists the runners of every organization that owns an
+// agent, then adds any runner a tracked workload names that the listing missed.
+func (r *Reconciler) runnersForWorkloads(ctx context.Context, orgIdentities map[string]string, workloadsByRunner map[string]map[string]*runnersv1.Workload) ([]*runnersv1.Runner, error) {
+	runners, err := r.listRunnersByOrg(ctx, orgIdentities)
+	if err != nil {
+		return nil, err
+	}
+	listed := map[string]struct{}{}
+	for _, runner := range runners {
+		if id := runner.GetMeta().GetId(); id != "" {
+			listed[id] = struct{}{}
+		}
+	}
+	for runnerID, workloads := range workloadsByRunner {
+		if _, ok := listed[runnerID]; ok || len(workloads) == 0 {
+			continue
+		}
+		identityID := ""
+		for _, workload := range workloads {
+			if identityID = workloadRunnerIdentityID(workload); identityID != "" {
+				break
+			}
+		}
+		if identityID == "" {
+			continue
+		}
+		runnerCtx, err := runnerIdentityContext(ctx, identityID)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := r.runners.GetRunner(internalContext(runnerCtx), &runnersv1.GetRunnerRequest{Id: runnerID})
+		if err != nil {
+			// Reported rather than treated as absent: absent means every workload
+			// on it is stopped and its identity deleted.
+			log.Printf("reconciler: warn: get runner %s named by %d tracked workloads: %v", runnerID, len(workloads), err)
+			continue
+		}
+		if runner := resp.GetRunner(); runner != nil {
+			runners = append(runners, runner)
+			listed[runnerID] = struct{}{}
+		}
+	}
+	return runners, nil
 }
