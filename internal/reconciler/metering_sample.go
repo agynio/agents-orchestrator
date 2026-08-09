@@ -32,6 +32,8 @@ const (
 	labelRunnerID                = "runner_id"
 	labelFlavor                  = "flavor"
 	labelIdentityID              = "identity_id"
+	labelAgentInstanceID         = "agent_instance_id"
+	labelEnvironmentID           = "environment_id"
 	resourceWorkload             = "workload"
 	resourceVolume               = "volume"
 	kindRAM                      = "ram"
@@ -66,7 +68,11 @@ func (r *Reconciler) runMeteringSampleCycle(ctx context.Context) {
 }
 
 func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	agents, err := r.listAllAgents(ctx)
+	if err != nil {
+		return err
+	}
+	orgIdentities, err := agentIdentityByOrgFrom(agents)
 	if err != nil {
 		return err
 	}
@@ -82,14 +88,17 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 		return nil
 	}
 
-	sandboxOwners := r.sandboxOwnerIDs(ctx, workloads, volumes)
+	sources := labelSources{
+		agentEnvironments: agentEnvironmentIDs(agents),
+		sandboxes:         r.sandboxAttribution(ctx, workloads, volumes),
+	}
 
 	records := make([]*meteringv1.UsageRecord, 0, len(workloads)*2+len(volumes))
 	workloadUpdates := make([]*runnersv1.SampledAtEntry, 0, len(workloads))
 	volumeUpdates := make([]*runnersv1.SampledAtEntry, 0, len(volumes))
 
 	for _, workload := range workloads {
-		workloadRecords, update, err := sampleWorkloadMetering(workload, now, sandboxOwners)
+		workloadRecords, update, err := sampleWorkloadMetering(workload, now, sources)
 		if err != nil {
 			return err
 		}
@@ -99,7 +108,7 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 		records = append(records, workloadRecords...)
 	}
 	for _, volume := range volumes {
-		volumeRecord, update, err := sampleVolumeMetering(volume, now, sandboxOwners)
+		volumeRecord, update, err := sampleVolumeMetering(volume, now, sources)
 		if err != nil {
 			return err
 		}
@@ -227,12 +236,41 @@ func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities
 	return volumes, nil
 }
 
-// sandboxOwnerIDs resolves the owning user of every sandbox with pending
-// samples. Metering records for sandbox workloads are attributed to the
-// organization and labelled with the sandbox and its owner; a sandbox that can
-// no longer be resolved is metered without the owner label rather than losing
-// the whole sample cycle.
-func (r *Reconciler) sandboxOwnerIDs(ctx context.Context, workloads []*runnersv1.Workload, volumes []*runnersv1.Volume) map[string]string {
+// labelSources is what the sample cycle resolves once and every record it
+// builds then reads: the environment behind each agent class, and the owner and
+// environment behind each sandbox.
+type labelSources struct {
+	agentEnvironments map[string]string
+	sandboxes         map[string]sandboxAttribution
+}
+
+type sandboxAttribution struct {
+	ownerID       string
+	environmentID string
+}
+
+// agentEnvironmentIDs maps each agent class to the environment it runs in.
+// Resolved at sample time rather than read off the workload: the workload record
+// does not carry one, so repointing a class moves its next samples, not its past
+// ones.
+func agentEnvironmentIDs(agents []*agentsv1.Agent) map[string]string {
+	environments := make(map[string]string, len(agents))
+	for _, agent := range agents {
+		agentID := strings.TrimSpace(agent.GetMeta().GetId())
+		environmentID := strings.TrimSpace(agent.GetEnvironmentId())
+		if agentID == "" || environmentID == "" {
+			continue
+		}
+		environments[agentID] = environmentID
+	}
+	return environments
+}
+
+// sandboxAttribution resolves what every sandbox with pending samples is
+// attributed to: the user answerable for it and the environment it runs. Records
+// are metered to the organization either way, so a sandbox that can no longer be
+// resolved is labelled with neither rather than losing the whole sample cycle.
+func (r *Reconciler) sandboxAttribution(ctx context.Context, workloads []*runnersv1.Workload, volumes []*runnersv1.Volume) map[string]sandboxAttribution {
 	pending := map[string]struct{}{}
 	for _, workload := range workloads {
 		if workload.GetOwnerKind() != runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
@@ -258,7 +296,7 @@ func (r *Reconciler) sandboxOwnerIDs(ctx context.Context, workloads []*runnersv1
 		sandboxIDs = append(sandboxIDs, sandboxID)
 	}
 	sort.Strings(sandboxIDs)
-	owners := make(map[string]string, len(sandboxIDs))
+	attribution := make(map[string]sandboxAttribution, len(sandboxIDs))
 	for _, sandboxID := range sandboxIDs {
 		resp, err := r.agents.GetSandbox(ctx, &agentsv1.GetSandboxRequest{Ref: &agentsv1.GetSandboxRequest_Id{Id: sandboxID}})
 		if err != nil {
@@ -270,12 +308,15 @@ func (r *Reconciler) sandboxOwnerIDs(ctx context.Context, workloads []*runnersv1
 			log.Printf("reconciler: warn: sandbox %s owner id missing for metering labels", sandboxID)
 			continue
 		}
-		owners[sandboxID] = ownerID
+		attribution[sandboxID] = sandboxAttribution{
+			ownerID:       ownerID,
+			environmentID: strings.TrimSpace(resp.GetSandbox().GetEnvironmentId()),
+		}
 	}
-	return owners
+	return attribution
 }
 
-func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sandboxOwners map[string]string) ([]*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
+func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sources labelSources) ([]*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
 	meta := workload.GetMeta()
 	if meta == nil || meta.GetId() == "" {
 		return nil, nil, fmt.Errorf("workload meta missing")
@@ -296,7 +337,7 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sandbox
 	if orgID == "" {
 		return nil, nil, fmt.Errorf("workload %s organization id missing", workloadID)
 	}
-	baseLabels, err := workloadLabels(workload, workloadID, sandboxOwners)
+	baseLabels, err := workloadLabels(workload, workloadID, sources)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -333,7 +374,7 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sandbox
 	}}, update, nil
 }
 
-func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time, sandboxOwners map[string]string) (*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
+func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time, sources labelSources) (*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
 	meta := volume.GetMeta()
 	if meta == nil || meta.GetId() == "" {
 		return nil, nil, fmt.Errorf("volume meta missing")
@@ -354,7 +395,7 @@ func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time, sandboxOwners
 	if orgID == "" {
 		return nil, nil, fmt.Errorf("volume %s organization id missing", volumeID)
 	}
-	labels, err := volumeLabels(volume, volumeID, sandboxOwners)
+	labels, err := volumeLabels(volume, volumeID, sources)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -392,7 +433,7 @@ func sampleWindow(kind, id string, createdAt, lastSampledAt, removedAt *timestam
 	return start.AsTime().UTC(), end, nil
 }
 
-func workloadLabels(workload *runnersv1.Workload, workloadID string, sandboxOwners map[string]string) (map[string]string, error) {
+func workloadLabels(workload *runnersv1.Workload, workloadID string, sources labelSources) (map[string]string, error) {
 	runnerID := strings.TrimSpace(workload.GetRunnerId())
 	if runnerID == "" {
 		return nil, fmt.Errorf("workload %s runner id missing", workloadID)
@@ -402,13 +443,13 @@ func workloadLabels(workload *runnersv1.Workload, workloadID string, sandboxOwne
 		labelResourceID: workloadID,
 		labelRunnerID:   runnerID,
 	}
-	if err := applyOwnerLabels(labels, workloadID, workload.GetOwnerKind(), workload.GetOwnerId(), workload.GetAgentId(), workload.GetThreadId(), sandboxOwners); err != nil {
+	if err := applyOwnerLabels(labels, workloadID, workload.GetOwnerKind(), workload.GetOwnerId(), workload.GetAgentId(), workload.GetThreadId(), sources); err != nil {
 		return nil, err
 	}
 	return labels, nil
 }
 
-func volumeLabels(volume *runnersv1.Volume, volumeID string, sandboxOwners map[string]string) (map[string]string, error) {
+func volumeLabels(volume *runnersv1.Volume, volumeID string, sources labelSources) (map[string]string, error) {
 	runnerID := strings.TrimSpace(volume.GetRunnerId())
 	if runnerID == "" {
 		return nil, fmt.Errorf("volume %s runner id missing", volumeID)
@@ -418,13 +459,13 @@ func volumeLabels(volume *runnersv1.Volume, volumeID string, sandboxOwners map[s
 		labelResourceID: volumeID,
 		labelRunnerID:   runnerID,
 	}
-	if err := applyOwnerLabels(labels, volumeID, volume.GetOwnerKind(), volume.GetOwnerId(), volume.GetAgentId(), volume.GetThreadId(), sandboxOwners); err != nil {
+	if err := applyOwnerLabels(labels, volumeID, volume.GetOwnerKind(), volume.GetOwnerId(), volume.GetAgentId(), volume.GetThreadId(), sources); err != nil {
 		return nil, err
 	}
 	return labels, nil
 }
 
-func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind runnersv1.RuntimeOwnerKind, ownerID, agentID, threadID string, sandboxOwners map[string]string) error {
+func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind runnersv1.RuntimeOwnerKind, ownerID, agentID, threadID string, sources labelSources) error {
 	switch ownerKind {
 	case runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX:
 		sandboxID := strings.TrimSpace(ownerID)
@@ -434,12 +475,17 @@ func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind run
 		labels[labelOwnerKind] = "sandbox"
 		labels[labelSandboxID] = sandboxID
 		labels[labelIdentityID] = sandboxID
-		if sandboxOwnerID := strings.TrimSpace(sandboxOwners[sandboxID]); sandboxOwnerID != "" {
-			labels[labelSandboxOwnerID] = sandboxOwnerID
+		sandbox := sources.sandboxes[sandboxID]
+		if sandbox.ownerID != "" {
+			labels[labelSandboxOwnerID] = sandbox.ownerID
+		}
+		if sandbox.environmentID != "" {
+			labels[labelEnvironmentID] = sandbox.environmentID
 		}
 	case runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_UNSPECIFIED,
 		runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE:
 		cleanAgentID := strings.TrimSpace(agentID)
+		cleanInstanceID := strings.TrimSpace(ownerID)
 		cleanThreadID := strings.TrimSpace(threadID)
 		if cleanAgentID == "" {
 			return fmt.Errorf("resource %s agent id missing", resourceID)
@@ -451,6 +497,14 @@ func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind run
 		labels[labelThreadID] = cleanThreadID
 		labels[labelAgentID] = cleanAgentID
 		labels[labelIdentityID] = cleanAgentID
+		// identity_id is the class here and the instance in the LLM Proxy's
+		// records, so neither alone ranks a class and an instance on one axis.
+		if cleanInstanceID != "" {
+			labels[labelAgentInstanceID] = cleanInstanceID
+		}
+		if environmentID := sources.agentEnvironments[cleanAgentID]; environmentID != "" {
+			labels[labelEnvironmentID] = environmentID
+		}
 	default:
 		return fmt.Errorf("resource %s owner kind %s unsupported", resourceID, ownerKind.String())
 	}

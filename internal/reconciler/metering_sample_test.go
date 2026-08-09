@@ -374,3 +374,130 @@ func TestSampleMeteringKeepsSandboxRecordsWhenOwnerUnresolved(t *testing.T) {
 	}
 	assertLabelValue(t, recorded[0].GetLabels(), labelSandboxID, sandboxID)
 }
+
+// identity_id is the class in these records and the instance in the LLM
+// Proxy's, so ranking a class next to an instance needs both named outright.
+func TestSampleMeteringLabelsInstanceAndEnvironment(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	instanceID := uuid.NewString()
+	environmentID := uuid.NewString()
+
+	workload := &runnersv1.Workload{
+		Meta:           &runnersv1.EntityMeta{Id: "workload-1", CreatedAt: timestamppb.New(now.Add(-time.Minute))},
+		ThreadId:       instanceID,
+		AgentId:        testAgentID,
+		RunnerId:       "runner-1",
+		OrganizationId: testOrganizationID,
+		Flavor:         "cpu-1x",
+		OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
+		OwnerId:        instanceID,
+	}
+
+	var recorded []*meteringv1.UsageRecord
+	metering := &fakeMeteringClient{record: func(_ context.Context, req *meteringv1.RecordRequest, _ ...grpc.CallOption) (*meteringv1.RecordResponse, error) {
+		recorded = req.GetRecords()
+		return &meteringv1.RecordResponse{}, nil
+	}}
+	runners := &fakeRunnersClient{
+		listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{workload}}, nil
+		},
+		listVolumes: func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{}, nil
+		},
+		batchUpdateWorkload: func(context.Context, *runnersv1.BatchUpdateWorkloadSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error) {
+			return &runnersv1.BatchUpdateWorkloadSampledAtResponse{}, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{
+		ListAgentsFunc: func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error) {
+			return &agentsv1.ListAgentsResponse{Agents: []*agentsv1.Agent{{
+				Meta:           &agentsv1.EntityMeta{Id: testAgentID},
+				OrganizationId: testOrganizationID,
+				EnvironmentId:  environmentID,
+			}}}, nil
+		},
+	}
+
+	reconciler := New(Config{
+		Runners:                runners,
+		Metering:               metering,
+		Agents:                 agents,
+		MeteringSampleInterval: time.Minute,
+	})
+	if err := reconciler.sampleMetering(ctx, now); err != nil {
+		t.Fatalf("sample metering: %v", err)
+	}
+	if len(recorded) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(recorded))
+	}
+	labels := recorded[0].GetLabels()
+	assertLabelValue(t, labels, labelAgentID, testAgentID)
+	assertLabelValue(t, labels, labelAgentInstanceID, instanceID)
+	assertLabelValue(t, labels, labelEnvironmentID, environmentID)
+}
+
+// A sandbox has no agent class to read an environment off, so it comes from
+// the record the owner is already resolved from.
+func TestSampleMeteringLabelsSandboxEnvironment(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	sandboxID := uuid.NewString()
+	environmentID := uuid.NewString()
+
+	workload := &runnersv1.Workload{
+		Meta:           &runnersv1.EntityMeta{Id: "workload-sandbox", CreatedAt: timestamppb.New(now.Add(-time.Minute))},
+		RunnerId:       "runner-1",
+		OrganizationId: testOrganizationID,
+		Flavor:         "cpu-1x",
+		OwnerKind:      runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX,
+		OwnerId:        sandboxID,
+	}
+
+	var recorded []*meteringv1.UsageRecord
+	metering := &fakeMeteringClient{record: func(_ context.Context, req *meteringv1.RecordRequest, _ ...grpc.CallOption) (*meteringv1.RecordResponse, error) {
+		recorded = req.GetRecords()
+		return &meteringv1.RecordResponse{}, nil
+	}}
+	runners := &fakeRunnersClient{
+		listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{workload}}, nil
+		},
+		listVolumes: func(context.Context, *runnersv1.ListVolumesRequest, ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{}, nil
+		},
+		batchUpdateWorkload: func(context.Context, *runnersv1.BatchUpdateWorkloadSampledAtRequest, ...grpc.CallOption) (*runnersv1.BatchUpdateWorkloadSampledAtResponse, error) {
+			return &runnersv1.BatchUpdateWorkloadSampledAtResponse{}, nil
+		},
+	}
+	agents := &testutil.FakeAgentsClient{
+		ListAgentsFunc: defaultListAgentsFunc(),
+		GetSandboxFunc: func(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error) {
+			return &agentsv1.GetSandboxResponse{Sandbox: &agentsv1.Sandbox{
+				Meta:           &agentsv1.EntityMeta{Id: sandboxID},
+				OrganizationId: testOrganizationID,
+				OwnerId:        uuid.NewString(),
+				EnvironmentId:  environmentID,
+			}}, nil
+		},
+	}
+
+	reconciler := New(Config{
+		Runners:                runners,
+		Metering:               metering,
+		Agents:                 agents,
+		MeteringSampleInterval: time.Minute,
+	})
+	if err := reconciler.sampleMetering(ctx, now); err != nil {
+		t.Fatalf("sample metering: %v", err)
+	}
+	if len(recorded) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(recorded))
+	}
+	labels := recorded[0].GetLabels()
+	assertLabelValue(t, labels, labelEnvironmentID, environmentID)
+	if _, ok := labels[labelAgentInstanceID]; ok {
+		t.Errorf("a sandbox is not an instance, got agent_instance_id=%q", labels[labelAgentInstanceID])
+	}
+}

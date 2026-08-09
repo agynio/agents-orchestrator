@@ -49,12 +49,6 @@ type Subscriber struct {
 }
 
 func New(client notificationsv1.NotificationsServiceClient, agents agentsClient) *Subscriber {
-	return NewWithSandboxOrganizations(client, agents)
-}
-
-// NewWithSandboxOrganizations additionally watches the org-level sandbox rooms
-// of organizations that carry no agent, which the agent listing cannot surface.
-func NewWithSandboxOrganizations(client notificationsv1.NotificationsServiceClient, agents agentsClient) *Subscriber {
 	return &Subscriber{
 		client:              client,
 		agents:              agents,
@@ -241,8 +235,13 @@ func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscrip
 			break
 		}
 	}
-	if len(roomsByIdentity) == 0 {
-		return nil, "", fmt.Errorf("no agent instance rooms available")
+	// Not fatal: losing the sandbox rooms costs a wake, while failing here would
+	// drop the agent rooms that were built successfully.
+	if err := s.addSandboxOrganizations(ctx, sandboxOrgIdentities); err != nil {
+		log.Printf("subscriber: warn: sandbox organizations: %v", err)
+	}
+	if len(roomsByIdentity) == 0 && len(sandboxOrgIdentities) == 0 {
+		return nil, "", fmt.Errorf("no agent instance or sandbox rooms available")
 	}
 	sandboxOrgRooms, err := s.sandboxOrgRooms(roomsByIdentity, sandboxOrgIdentities)
 	if err != nil {
@@ -389,4 +388,47 @@ func nextBackoff(current time.Duration) time.Duration {
 		return 30 * time.Second
 	}
 	return next
+}
+
+// addSandboxOrganizations elects an identity to watch each organization that
+// runs a sandbox. The election used to read only agent instances, so an
+// organization with sandboxes and no agent got no room at all -- its sandbox
+// state changes then waited for the reconcile tick rather than waking it, which
+// on the default interval is a minute per transition.
+func (s *Subscriber) addSandboxOrganizations(ctx context.Context, sandboxOrgIdentities map[string]uuid.UUID) error {
+	pageToken := ""
+	for {
+		resp, err := s.agents.ListSandboxes(ctx, &agentsv1.ListSandboxesRequest{
+			PageSize:  listInstancesPageSize,
+			PageToken: pageToken,
+		})
+		if err != nil {
+			return fmt.Errorf("list sandboxes: %w", err)
+		}
+		for _, sandbox := range resp.GetSandboxes() {
+			orgID := strings.TrimSpace(sandbox.GetOrganizationId())
+			if orgID == "" {
+				continue
+			}
+			parsedOrgID, err := uuidutil.ParseUUID(orgID, "sandbox.organization_id")
+			if err != nil {
+				return err
+			}
+			if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; ok {
+				continue
+			}
+			// The room is org-scoped rather than identity-scoped, so the sandbox
+			// itself can hold the subscription when no agent exists to elect.
+			ownerID := strings.TrimSpace(sandbox.GetMeta().GetId())
+			parsedOwnerID, err := uuidutil.ParseUUID(ownerID, "sandbox.meta.id")
+			if err != nil {
+				return err
+			}
+			sandboxOrgIdentities[parsedOrgID.String()] = parsedOwnerID
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return nil
+		}
+	}
 }
