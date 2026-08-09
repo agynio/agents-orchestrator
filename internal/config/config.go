@@ -120,7 +120,7 @@ func FromEnv() (Config, error) {
 	cfg.AgentGatewayAddress = os.Getenv("AGENT_GATEWAY_ADDRESS")
 	if cfg.AgentGatewayAddress == "" {
 		if cfg.ZitiEnabled {
-			cfg.AgentGatewayAddress = "gateway.ziti:443"
+			cfg.AgentGatewayAddress = "gateway.agyn:443"
 		} else {
 			cfg.AgentGatewayAddress = "gateway:8080"
 		}
@@ -128,7 +128,7 @@ func FromEnv() (Config, error) {
 	cfg.AgentTracingAddress = os.Getenv("AGENT_TRACING_ADDRESS")
 	if cfg.AgentTracingAddress == "" {
 		if cfg.ZitiEnabled {
-			cfg.AgentTracingAddress = "tracing.ziti:443"
+			cfg.AgentTracingAddress = "tracing.agyn:443"
 		} else {
 			cfg.AgentTracingAddress = "tracing:50051"
 		}
@@ -136,7 +136,7 @@ func FromEnv() (Config, error) {
 	cfg.AgentLLMBaseURL = os.Getenv("AGENT_LLM_BASE_URL")
 	if cfg.AgentLLMBaseURL == "" {
 		if cfg.ZitiEnabled {
-			cfg.AgentLLMBaseURL = "http://llm-proxy.ziti/v1"
+			cfg.AgentLLMBaseURL = "http://llm-proxy.agyn/v1"
 		} else {
 			cfg.AgentLLMBaseURL = "http://llm-proxy-llm-proxy.platform.svc.cluster.local:8080/v1"
 		}
