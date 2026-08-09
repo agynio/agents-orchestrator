@@ -19,25 +19,36 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LLMService_CreateLLMProvider_FullMethodName = "/agynio.api.llm.v1.LLMService/CreateLLMProvider"
-	LLMService_GetLLMProvider_FullMethodName    = "/agynio.api.llm.v1.LLMService/GetLLMProvider"
-	LLMService_UpdateLLMProvider_FullMethodName = "/agynio.api.llm.v1.LLMService/UpdateLLMProvider"
-	LLMService_DeleteLLMProvider_FullMethodName = "/agynio.api.llm.v1.LLMService/DeleteLLMProvider"
-	LLMService_ListLLMProviders_FullMethodName  = "/agynio.api.llm.v1.LLMService/ListLLMProviders"
-	LLMService_CreateModel_FullMethodName       = "/agynio.api.llm.v1.LLMService/CreateModel"
-	LLMService_GetModel_FullMethodName          = "/agynio.api.llm.v1.LLMService/GetModel"
-	LLMService_UpdateModel_FullMethodName       = "/agynio.api.llm.v1.LLMService/UpdateModel"
-	LLMService_DeleteModel_FullMethodName       = "/agynio.api.llm.v1.LLMService/DeleteModel"
-	LLMService_ListModels_FullMethodName        = "/agynio.api.llm.v1.LLMService/ListModels"
-	LLMService_TestModel_FullMethodName         = "/agynio.api.llm.v1.LLMService/TestModel"
-	LLMService_ResolveModel_FullMethodName      = "/agynio.api.llm.v1.LLMService/ResolveModel"
+	LLMService_CreateLLMProvider_FullMethodName                   = "/agynio.api.llm.v1.LLMService/CreateLLMProvider"
+	LLMService_GetLLMProvider_FullMethodName                      = "/agynio.api.llm.v1.LLMService/GetLLMProvider"
+	LLMService_UpdateLLMProvider_FullMethodName                   = "/agynio.api.llm.v1.LLMService/UpdateLLMProvider"
+	LLMService_DeleteLLMProvider_FullMethodName                   = "/agynio.api.llm.v1.LLMService/DeleteLLMProvider"
+	LLMService_ListLLMProviders_FullMethodName                    = "/agynio.api.llm.v1.LLMService/ListLLMProviders"
+	LLMService_CreateModel_FullMethodName                         = "/agynio.api.llm.v1.LLMService/CreateModel"
+	LLMService_GetModel_FullMethodName                            = "/agynio.api.llm.v1.LLMService/GetModel"
+	LLMService_UpdateModel_FullMethodName                         = "/agynio.api.llm.v1.LLMService/UpdateModel"
+	LLMService_DeleteModel_FullMethodName                         = "/agynio.api.llm.v1.LLMService/DeleteModel"
+	LLMService_ListModels_FullMethodName                          = "/agynio.api.llm.v1.LLMService/ListModels"
+	LLMService_CreateSubscription_FullMethodName                  = "/agynio.api.llm.v1.LLMService/CreateSubscription"
+	LLMService_GetSubscription_FullMethodName                     = "/agynio.api.llm.v1.LLMService/GetSubscription"
+	LLMService_UpdateSubscription_FullMethodName                  = "/agynio.api.llm.v1.LLMService/UpdateSubscription"
+	LLMService_DeleteSubscription_FullMethodName                  = "/agynio.api.llm.v1.LLMService/DeleteSubscription"
+	LLMService_ListSubscriptions_FullMethodName                   = "/agynio.api.llm.v1.LLMService/ListSubscriptions"
+	LLMService_CreateSubscriptionAttachment_FullMethodName        = "/agynio.api.llm.v1.LLMService/CreateSubscriptionAttachment"
+	LLMService_DeleteSubscriptionAttachment_FullMethodName        = "/agynio.api.llm.v1.LLMService/DeleteSubscriptionAttachment"
+	LLMService_ListSubscriptionAttachments_FullMethodName         = "/agynio.api.llm.v1.LLMService/ListSubscriptionAttachments"
+	LLMService_TestModel_FullMethodName                           = "/agynio.api.llm.v1.LLMService/TestModel"
+	LLMService_ResolveModel_FullMethodName                        = "/agynio.api.llm.v1.LLMService/ResolveModel"
+	LLMService_ResolveSubscription_FullMethodName                 = "/agynio.api.llm.v1.LLMService/ResolveSubscription"
+	LLMService_CountSubscriptionsReferencingSecret_FullMethodName = "/agynio.api.llm.v1.LLMService/CountSubscriptionsReferencingSecret"
 )
 
 // LLMServiceClient is the client API for LLMService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// LLMService manages provider and model resources and resolves models.
+// LLMService manages provider, model, and subscription resources and resolves
+// them for the LLM Proxy.
 type LLMServiceClient interface {
 	// --- Providers ---
 	CreateLLMProvider(ctx context.Context, in *CreateLLMProviderRequest, opts ...grpc.CallOption) (*CreateLLMProviderResponse, error)
@@ -51,10 +62,24 @@ type LLMServiceClient interface {
 	UpdateModel(ctx context.Context, in *UpdateModelRequest, opts ...grpc.CallOption) (*UpdateModelResponse, error)
 	DeleteModel(ctx context.Context, in *DeleteModelRequest, opts ...grpc.CallOption) (*DeleteModelResponse, error)
 	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
+	// --- Subscriptions ---
+	CreateSubscription(ctx context.Context, in *CreateSubscriptionRequest, opts ...grpc.CallOption) (*CreateSubscriptionResponse, error)
+	GetSubscription(ctx context.Context, in *GetSubscriptionRequest, opts ...grpc.CallOption) (*GetSubscriptionResponse, error)
+	UpdateSubscription(ctx context.Context, in *UpdateSubscriptionRequest, opts ...grpc.CallOption) (*UpdateSubscriptionResponse, error)
+	DeleteSubscription(ctx context.Context, in *DeleteSubscriptionRequest, opts ...grpc.CallOption) (*DeleteSubscriptionResponse, error)
+	ListSubscriptions(ctx context.Context, in *ListSubscriptionsRequest, opts ...grpc.CallOption) (*ListSubscriptionsResponse, error)
+	// --- Subscription attachments ---
+	CreateSubscriptionAttachment(ctx context.Context, in *CreateSubscriptionAttachmentRequest, opts ...grpc.CallOption) (*CreateSubscriptionAttachmentResponse, error)
+	DeleteSubscriptionAttachment(ctx context.Context, in *DeleteSubscriptionAttachmentRequest, opts ...grpc.CallOption) (*DeleteSubscriptionAttachmentResponse, error)
+	ListSubscriptionAttachments(ctx context.Context, in *ListSubscriptionAttachmentsRequest, opts ...grpc.CallOption) (*ListSubscriptionAttachmentsResponse, error)
 	// --- Test ---
 	TestModel(ctx context.Context, in *TestModelRequest, opts ...grpc.CallOption) (*TestModelResponse, error)
 	// --- Resolution ---
 	ResolveModel(ctx context.Context, in *ResolveModelRequest, opts ...grpc.CallOption) (*ResolveModelResponse, error)
+	ResolveSubscription(ctx context.Context, in *ResolveSubscriptionRequest, opts ...grpc.CallOption) (*ResolveSubscriptionResponse, error)
+	// --- Internal ---
+	// Secrets -> refuse deleting a secret a subscription references.
+	CountSubscriptionsReferencingSecret(ctx context.Context, in *CountSubscriptionsReferencingSecretRequest, opts ...grpc.CallOption) (*CountSubscriptionsReferencingSecretResponse, error)
 }
 
 type lLMServiceClient struct {
@@ -165,6 +190,86 @@ func (c *lLMServiceClient) ListModels(ctx context.Context, in *ListModelsRequest
 	return out, nil
 }
 
+func (c *lLMServiceClient) CreateSubscription(ctx context.Context, in *CreateSubscriptionRequest, opts ...grpc.CallOption) (*CreateSubscriptionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateSubscriptionResponse)
+	err := c.cc.Invoke(ctx, LLMService_CreateSubscription_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMServiceClient) GetSubscription(ctx context.Context, in *GetSubscriptionRequest, opts ...grpc.CallOption) (*GetSubscriptionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSubscriptionResponse)
+	err := c.cc.Invoke(ctx, LLMService_GetSubscription_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMServiceClient) UpdateSubscription(ctx context.Context, in *UpdateSubscriptionRequest, opts ...grpc.CallOption) (*UpdateSubscriptionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateSubscriptionResponse)
+	err := c.cc.Invoke(ctx, LLMService_UpdateSubscription_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMServiceClient) DeleteSubscription(ctx context.Context, in *DeleteSubscriptionRequest, opts ...grpc.CallOption) (*DeleteSubscriptionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSubscriptionResponse)
+	err := c.cc.Invoke(ctx, LLMService_DeleteSubscription_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMServiceClient) ListSubscriptions(ctx context.Context, in *ListSubscriptionsRequest, opts ...grpc.CallOption) (*ListSubscriptionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSubscriptionsResponse)
+	err := c.cc.Invoke(ctx, LLMService_ListSubscriptions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMServiceClient) CreateSubscriptionAttachment(ctx context.Context, in *CreateSubscriptionAttachmentRequest, opts ...grpc.CallOption) (*CreateSubscriptionAttachmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateSubscriptionAttachmentResponse)
+	err := c.cc.Invoke(ctx, LLMService_CreateSubscriptionAttachment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMServiceClient) DeleteSubscriptionAttachment(ctx context.Context, in *DeleteSubscriptionAttachmentRequest, opts ...grpc.CallOption) (*DeleteSubscriptionAttachmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSubscriptionAttachmentResponse)
+	err := c.cc.Invoke(ctx, LLMService_DeleteSubscriptionAttachment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMServiceClient) ListSubscriptionAttachments(ctx context.Context, in *ListSubscriptionAttachmentsRequest, opts ...grpc.CallOption) (*ListSubscriptionAttachmentsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSubscriptionAttachmentsResponse)
+	err := c.cc.Invoke(ctx, LLMService_ListSubscriptionAttachments_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *lLMServiceClient) TestModel(ctx context.Context, in *TestModelRequest, opts ...grpc.CallOption) (*TestModelResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TestModelResponse)
@@ -185,11 +290,32 @@ func (c *lLMServiceClient) ResolveModel(ctx context.Context, in *ResolveModelReq
 	return out, nil
 }
 
+func (c *lLMServiceClient) ResolveSubscription(ctx context.Context, in *ResolveSubscriptionRequest, opts ...grpc.CallOption) (*ResolveSubscriptionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveSubscriptionResponse)
+	err := c.cc.Invoke(ctx, LLMService_ResolveSubscription_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMServiceClient) CountSubscriptionsReferencingSecret(ctx context.Context, in *CountSubscriptionsReferencingSecretRequest, opts ...grpc.CallOption) (*CountSubscriptionsReferencingSecretResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CountSubscriptionsReferencingSecretResponse)
+	err := c.cc.Invoke(ctx, LLMService_CountSubscriptionsReferencingSecret_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LLMServiceServer is the server API for LLMService service.
 // All implementations should embed UnimplementedLLMServiceServer
 // for forward compatibility.
 //
-// LLMService manages provider and model resources and resolves models.
+// LLMService manages provider, model, and subscription resources and resolves
+// them for the LLM Proxy.
 type LLMServiceServer interface {
 	// --- Providers ---
 	CreateLLMProvider(context.Context, *CreateLLMProviderRequest) (*CreateLLMProviderResponse, error)
@@ -203,10 +329,24 @@ type LLMServiceServer interface {
 	UpdateModel(context.Context, *UpdateModelRequest) (*UpdateModelResponse, error)
 	DeleteModel(context.Context, *DeleteModelRequest) (*DeleteModelResponse, error)
 	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
+	// --- Subscriptions ---
+	CreateSubscription(context.Context, *CreateSubscriptionRequest) (*CreateSubscriptionResponse, error)
+	GetSubscription(context.Context, *GetSubscriptionRequest) (*GetSubscriptionResponse, error)
+	UpdateSubscription(context.Context, *UpdateSubscriptionRequest) (*UpdateSubscriptionResponse, error)
+	DeleteSubscription(context.Context, *DeleteSubscriptionRequest) (*DeleteSubscriptionResponse, error)
+	ListSubscriptions(context.Context, *ListSubscriptionsRequest) (*ListSubscriptionsResponse, error)
+	// --- Subscription attachments ---
+	CreateSubscriptionAttachment(context.Context, *CreateSubscriptionAttachmentRequest) (*CreateSubscriptionAttachmentResponse, error)
+	DeleteSubscriptionAttachment(context.Context, *DeleteSubscriptionAttachmentRequest) (*DeleteSubscriptionAttachmentResponse, error)
+	ListSubscriptionAttachments(context.Context, *ListSubscriptionAttachmentsRequest) (*ListSubscriptionAttachmentsResponse, error)
 	// --- Test ---
 	TestModel(context.Context, *TestModelRequest) (*TestModelResponse, error)
 	// --- Resolution ---
 	ResolveModel(context.Context, *ResolveModelRequest) (*ResolveModelResponse, error)
+	ResolveSubscription(context.Context, *ResolveSubscriptionRequest) (*ResolveSubscriptionResponse, error)
+	// --- Internal ---
+	// Secrets -> refuse deleting a secret a subscription references.
+	CountSubscriptionsReferencingSecret(context.Context, *CountSubscriptionsReferencingSecretRequest) (*CountSubscriptionsReferencingSecretResponse, error)
 }
 
 // UnimplementedLLMServiceServer should be embedded to have
@@ -246,11 +386,41 @@ func (UnimplementedLLMServiceServer) DeleteModel(context.Context, *DeleteModelRe
 func (UnimplementedLLMServiceServer) ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListModels not implemented")
 }
+func (UnimplementedLLMServiceServer) CreateSubscription(context.Context, *CreateSubscriptionRequest) (*CreateSubscriptionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSubscription not implemented")
+}
+func (UnimplementedLLMServiceServer) GetSubscription(context.Context, *GetSubscriptionRequest) (*GetSubscriptionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSubscription not implemented")
+}
+func (UnimplementedLLMServiceServer) UpdateSubscription(context.Context, *UpdateSubscriptionRequest) (*UpdateSubscriptionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateSubscription not implemented")
+}
+func (UnimplementedLLMServiceServer) DeleteSubscription(context.Context, *DeleteSubscriptionRequest) (*DeleteSubscriptionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSubscription not implemented")
+}
+func (UnimplementedLLMServiceServer) ListSubscriptions(context.Context, *ListSubscriptionsRequest) (*ListSubscriptionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSubscriptions not implemented")
+}
+func (UnimplementedLLMServiceServer) CreateSubscriptionAttachment(context.Context, *CreateSubscriptionAttachmentRequest) (*CreateSubscriptionAttachmentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSubscriptionAttachment not implemented")
+}
+func (UnimplementedLLMServiceServer) DeleteSubscriptionAttachment(context.Context, *DeleteSubscriptionAttachmentRequest) (*DeleteSubscriptionAttachmentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSubscriptionAttachment not implemented")
+}
+func (UnimplementedLLMServiceServer) ListSubscriptionAttachments(context.Context, *ListSubscriptionAttachmentsRequest) (*ListSubscriptionAttachmentsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSubscriptionAttachments not implemented")
+}
 func (UnimplementedLLMServiceServer) TestModel(context.Context, *TestModelRequest) (*TestModelResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TestModel not implemented")
 }
 func (UnimplementedLLMServiceServer) ResolveModel(context.Context, *ResolveModelRequest) (*ResolveModelResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResolveModel not implemented")
+}
+func (UnimplementedLLMServiceServer) ResolveSubscription(context.Context, *ResolveSubscriptionRequest) (*ResolveSubscriptionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolveSubscription not implemented")
+}
+func (UnimplementedLLMServiceServer) CountSubscriptionsReferencingSecret(context.Context, *CountSubscriptionsReferencingSecretRequest) (*CountSubscriptionsReferencingSecretResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CountSubscriptionsReferencingSecret not implemented")
 }
 func (UnimplementedLLMServiceServer) testEmbeddedByValue() {}
 
@@ -452,6 +622,150 @@ func _LLMService_ListModels_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LLMService_CreateSubscription_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSubscriptionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).CreateSubscription(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_CreateSubscription_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).CreateSubscription(ctx, req.(*CreateSubscriptionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_GetSubscription_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSubscriptionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).GetSubscription(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_GetSubscription_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).GetSubscription(ctx, req.(*GetSubscriptionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_UpdateSubscription_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateSubscriptionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).UpdateSubscription(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_UpdateSubscription_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).UpdateSubscription(ctx, req.(*UpdateSubscriptionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_DeleteSubscription_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSubscriptionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).DeleteSubscription(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_DeleteSubscription_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).DeleteSubscription(ctx, req.(*DeleteSubscriptionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_ListSubscriptions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSubscriptionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).ListSubscriptions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_ListSubscriptions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).ListSubscriptions(ctx, req.(*ListSubscriptionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_CreateSubscriptionAttachment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSubscriptionAttachmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).CreateSubscriptionAttachment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_CreateSubscriptionAttachment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).CreateSubscriptionAttachment(ctx, req.(*CreateSubscriptionAttachmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_DeleteSubscriptionAttachment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSubscriptionAttachmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).DeleteSubscriptionAttachment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_DeleteSubscriptionAttachment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).DeleteSubscriptionAttachment(ctx, req.(*DeleteSubscriptionAttachmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_ListSubscriptionAttachments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSubscriptionAttachmentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).ListSubscriptionAttachments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_ListSubscriptionAttachments_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).ListSubscriptionAttachments(ctx, req.(*ListSubscriptionAttachmentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LLMService_TestModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TestModelRequest)
 	if err := dec(in); err != nil {
@@ -484,6 +798,42 @@ func _LLMService_ResolveModel_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LLMServiceServer).ResolveModel(ctx, req.(*ResolveModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_ResolveSubscription_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveSubscriptionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).ResolveSubscription(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_ResolveSubscription_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).ResolveSubscription(ctx, req.(*ResolveSubscriptionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMService_CountSubscriptionsReferencingSecret_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CountSubscriptionsReferencingSecretRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).CountSubscriptionsReferencingSecret(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_CountSubscriptionsReferencingSecret_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).CountSubscriptionsReferencingSecret(ctx, req.(*CountSubscriptionsReferencingSecretRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -536,12 +886,52 @@ var LLMService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _LLMService_ListModels_Handler,
 		},
 		{
+			MethodName: "CreateSubscription",
+			Handler:    _LLMService_CreateSubscription_Handler,
+		},
+		{
+			MethodName: "GetSubscription",
+			Handler:    _LLMService_GetSubscription_Handler,
+		},
+		{
+			MethodName: "UpdateSubscription",
+			Handler:    _LLMService_UpdateSubscription_Handler,
+		},
+		{
+			MethodName: "DeleteSubscription",
+			Handler:    _LLMService_DeleteSubscription_Handler,
+		},
+		{
+			MethodName: "ListSubscriptions",
+			Handler:    _LLMService_ListSubscriptions_Handler,
+		},
+		{
+			MethodName: "CreateSubscriptionAttachment",
+			Handler:    _LLMService_CreateSubscriptionAttachment_Handler,
+		},
+		{
+			MethodName: "DeleteSubscriptionAttachment",
+			Handler:    _LLMService_DeleteSubscriptionAttachment_Handler,
+		},
+		{
+			MethodName: "ListSubscriptionAttachments",
+			Handler:    _LLMService_ListSubscriptionAttachments_Handler,
+		},
+		{
 			MethodName: "TestModel",
 			Handler:    _LLMService_TestModel_Handler,
 		},
 		{
 			MethodName: "ResolveModel",
 			Handler:    _LLMService_ResolveModel_Handler,
+		},
+		{
+			MethodName: "ResolveSubscription",
+			Handler:    _LLMService_ResolveSubscription_Handler,
+		},
+		{
+			MethodName: "CountSubscriptionsReferencingSecret",
+			Handler:    _LLMService_CountSubscriptionsReferencingSecret_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

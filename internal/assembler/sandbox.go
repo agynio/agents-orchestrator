@@ -36,6 +36,8 @@ type SandboxAssembleResult struct {
 	GrantedImageIDs        []string
 	AllocatedCPUMillicores int32
 	AllocatedRAMBytes      int64
+	// LLMRoleAttributes opt the sandbox's identity into vendor interception.
+	LLMRoleAttributes []string
 }
 
 func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandbox) (*SandboxAssembleResult, error) {
@@ -110,6 +112,15 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 
 	mainEnv := mergeEnvVars(a.baseSandboxEnvVars(sandbox, environment), environmentEnvVars, fmt.Sprintf("sandbox %s", sandboxID.String()))
 	mainEnv = appendEgressCAEnvVars(mainEnv)
+
+	// A sandbox has no agent, so it sees the environment's attachments and
+	// nothing else, and pins no model -- the person driving it is right there.
+	llmMode, err := a.resolveLLMMode(ctx, environment, "", "")
+	if err != nil {
+		return nil, err
+	}
+	mainEnv = mergeEnvVars(append(llmMode.EnvVars, mainEnv...), nil, "llm mode")
+
 	main := &runnerv1.ContainerSpec{
 		Image:            mainImage,
 		Name:             fmt.Sprintf("sandbox-%s", sandboxID.String()[:8]),
@@ -228,6 +239,7 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		EnvironmentID:          environmentID,
 		OwnerID:                ownerID,
 		RunnerID:               flavor.GetRunnerId(),
+		LLMRoleAttributes:      llmMode.RoleAttributes,
 		Flavor:                 flavor.GetName(),
 		GrantedImageIDs:        rewriter.GrantedImageIDs(),
 		AllocatedCPUMillicores: allocatedCPU,

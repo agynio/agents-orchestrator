@@ -6,7 +6,24 @@ func appendEgressCAEnvVars(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
 	for _, env := range egressCAEnvVars() {
 		envs = appendPlatformEnvVar(envs, env)
 	}
-	return envs
+	return appendWorkloadPathEnvVar(envs)
+}
+
+// appendWorkloadPathEnvVar puts the platform's binaries on PATH for everything
+// that runs in the container, including a shell nobody here started.
+//
+// agynd prepends this for the subprocess it spawns, which covers an agent but
+// not a sandbox: holder mode spawns nothing, and an interactive session comes
+// from the runner's Exec against the pod, inheriting the container spec's
+// environment rather than any process's. Without it a person at the shell finds
+// agyn, agynd and the agent CLI present on disk and none of them on PATH.
+func appendWorkloadPathEnvVar(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
+	return appendPlatformEnvVar(envs, &runnerv1.EnvVar{
+		Name: "PATH",
+		// The image's own PATH is not knowable here, so the default login set
+		// is spelled out after the platform's own directory.
+		Value: agynBinDir + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+	})
 }
 
 func egressCAEnvVars() []*runnerv1.EnvVar {

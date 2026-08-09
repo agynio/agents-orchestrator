@@ -4,6 +4,7 @@ import (
 	"context"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	llmv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/llm/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	secretsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/secrets/v1"
 	"google.golang.org/grpc"
@@ -23,4 +24,11 @@ type secretsClient interface {
 
 type runnersClient interface {
 	ListFlavors(context.Context, *runnersv1.ListFlavorsRequest, ...grpc.CallOption) (*runnersv1.ListFlavorsResponse, error)
+}
+
+// llmClient answers which vendors a workload has a subscription for. Optional:
+// without it a native-mode environment fails assembly rather than starting a
+// workload whose first model call would fail.
+type llmClient interface {
+	ListSubscriptionAttachments(context.Context, *llmv1.ListSubscriptionAttachmentsRequest, ...grpc.CallOption) (*llmv1.ListSubscriptionAttachmentsResponse, error)
 }

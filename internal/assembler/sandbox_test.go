@@ -160,7 +160,7 @@ func TestAssembleSandboxFailsWhenImageProxyIsUnconfigured(t *testing.T) {
 	}
 
 	assembler := NewWithRunnersAndEgressCA(fixture.agents, fixture.runners, fixture.secrets, fixture.cfg, fixture.egressCACert)
-	_, err := assembler.AssembleSandbox(context.Background(), fixture.sandbox, fixture.workspaceVolumeID)
+	_, err := assembler.AssembleSandbox(context.Background(), fixture.sandbox)
 	if err == nil {
 		t.Fatal("expected assembly to fail when the environment names a runtime image the proxy cannot resolve")
 	}

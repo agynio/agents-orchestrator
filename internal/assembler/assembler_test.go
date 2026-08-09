@@ -2064,6 +2064,11 @@ func TestAssemblerUsesEnvironmentImageAndRunner(t *testing.T) {
 	if initContainer == nil || initContainer.GetImage() != "agent-init-image" {
 		t.Fatalf("expected the agent's init image, got %+v", initContainer)
 	}
+	// Carried out of assembly so the reconciler can record it on the workload's
+	// OpenZiti identity.
+	if result.EnvironmentID != fixture.agent.GetEnvironmentId() {
+		t.Fatalf("expected environment id %q, got %q", fixture.agent.GetEnvironmentId(), result.EnvironmentID)
+	}
 }
 
 func TestAssemblerWithoutEnvironmentKeepsAgentImageAndPlacement(t *testing.T) {

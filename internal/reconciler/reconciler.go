@@ -199,7 +199,7 @@ func (i *identityInfo) idPtr() *string {
 	return &i.id
 }
 
-func (r *Reconciler) createIdentity(ctx context.Context, target AgentInstanceTarget, workloadID uuid.UUID, organizationID string) (*identityInfo, error) {
+func (r *Reconciler) createIdentity(ctx context.Context, target AgentInstanceTarget, workloadID uuid.UUID, organizationID string, environmentID string, llmRoleAttributes []string) (*identityInfo, error) {
 	if r.zitiMgmt == nil {
 		return nil, nil
 	}
@@ -207,10 +207,17 @@ func (r *Reconciler) createIdentity(ctx context.Context, target AgentInstanceTar
 	if err != nil {
 		return nil, fmt.Errorf("list groups for agent %s instance %s: %w", target.AgentID.String(), target.AgentInstanceID.String(), err)
 	}
+	// The llm-native-<vendor> attributes are the only thing that opts a workload
+	// into vendor interception; nothing is provisioned per workload.
+	roleAttributes = append(roleAttributes, llmRoleAttributes...)
+	// AgentId is the instance -- that is what the identity resolves to.
+	// AgentClassId and EnvironmentId are recorded alongside it.
 	identityResp, err := r.zitiMgmt.CreateAgentIdentity(ctx, &zitimgmtv1.CreateAgentIdentityRequest{
 		AgentId:                  target.AgentInstanceID.String(),
 		WorkloadId:               workloadID.String(),
 		AdditionalRoleAttributes: roleAttributes,
+		AgentClassId:             target.AgentID.String(),
+		EnvironmentId:            environmentID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create ziti identity for agent %s instance %s: %w", target.AgentID.String(), target.AgentInstanceID.String(), err)
@@ -319,7 +326,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarg
 	} else if len(credentials) > 0 {
 		request.ImagePullCredentials = credentials
 	}
-	identity, err := r.createIdentity(ctx, target, workloadID, assembled.OrganizationID)
+	identity, err := r.createIdentity(ctx, target, workloadID, assembled.OrganizationID, assembled.EnvironmentID, assembled.LLMRoleAttributes)
 	if err != nil {
 		log.Printf("reconciler: %v", err)
 		return
