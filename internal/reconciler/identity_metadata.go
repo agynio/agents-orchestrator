@@ -44,10 +44,20 @@ func internalContext(ctx context.Context) context.Context {
 }
 
 func (r *Reconciler) agentIdentityByOrg(ctx context.Context) (map[string]string, error) {
+	agents, err := r.listAllAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return agentIdentityByOrgFrom(agents)
+}
+
+// listAllAgents pages every agent the platform knows about. Callers that need
+// more than one thing per agent derive them from this rather than listing again.
+func (r *Reconciler) listAllAgents(ctx context.Context) ([]*agentsv1.Agent, error) {
 	if r.agents == nil {
 		return nil, fmt.Errorf("agents client is nil")
 	}
-	orgIdentities := map[string]string{}
+	agents := []*agentsv1.Agent{}
 	pageToken := ""
 	for {
 		resp, err := r.agents.ListAgents(ctx, &agentsv1.ListAgentsRequest{
@@ -57,33 +67,39 @@ func (r *Reconciler) agentIdentityByOrg(ctx context.Context) (map[string]string,
 		if err != nil {
 			return nil, fmt.Errorf("list agents: %w", err)
 		}
-		for _, agent := range resp.GetAgents() {
-			if agent == nil {
-				return nil, fmt.Errorf("agent is nil")
-			}
-			meta := agent.GetMeta()
-			if meta == nil {
-				return nil, fmt.Errorf("agent meta missing")
-			}
-			agentID := strings.TrimSpace(meta.GetId())
-			parsedAgentID, err := uuidutil.ParseUUID(agentID, "agent.meta.id")
-			if err != nil {
-				return nil, err
-			}
-			orgID := strings.TrimSpace(agent.GetOrganizationId())
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent.organization_id")
-			if err != nil {
-				return nil, err
-			}
-			orgIDValue := parsedOrgID.String()
-			if _, ok := orgIdentities[orgIDValue]; ok {
-				continue
-			}
-			orgIdentities[orgIDValue] = parsedAgentID.String()
-		}
+		agents = append(agents, resp.GetAgents()...)
 		pageToken = resp.GetNextPageToken()
 		if pageToken == "" {
-			return orgIdentities, nil
+			return agents, nil
 		}
 	}
+}
+
+func agentIdentityByOrgFrom(agents []*agentsv1.Agent) (map[string]string, error) {
+	orgIdentities := map[string]string{}
+	for _, agent := range agents {
+		if agent == nil {
+			return nil, fmt.Errorf("agent is nil")
+		}
+		meta := agent.GetMeta()
+		if meta == nil {
+			return nil, fmt.Errorf("agent meta missing")
+		}
+		agentID := strings.TrimSpace(meta.GetId())
+		parsedAgentID, err := uuidutil.ParseUUID(agentID, "agent.meta.id")
+		if err != nil {
+			return nil, err
+		}
+		orgID := strings.TrimSpace(agent.GetOrganizationId())
+		parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent.organization_id")
+		if err != nil {
+			return nil, err
+		}
+		orgIDValue := parsedOrgID.String()
+		if _, ok := orgIdentities[orgIDValue]; ok {
+			continue
+		}
+		orgIdentities[orgIDValue] = parsedAgentID.String()
+	}
+	return orgIdentities, nil
 }
