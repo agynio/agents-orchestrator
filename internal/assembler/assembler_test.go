@@ -266,23 +266,15 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringSlice(request.DnsConfig.Searches, expectedSearches) {
 		t.Fatalf("expected dns searches %+v, got %+v", expectedSearches, request.DnsConfig.Searches)
 	}
-	if len(request.InitContainers) != 5 {
-		t.Fatalf("expected 5 init containers, got %d", len(request.InitContainers))
+	if len(request.InitContainers) != 4 {
+		t.Fatalf("expected 4 init containers, got %d", len(request.InitContainers))
 	}
-	if request.InitContainers[0].GetName() != ZitiEnrollContainerName {
-		t.Fatalf("expected %s to be first init container", ZitiEnrollContainerName)
-	}
-	if request.InitContainers[1].GetName() != ZitiSidecarContainerName {
-		t.Fatalf("expected %s to be second init container", ZitiSidecarContainerName)
-	}
-	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName {
-		t.Fatalf("expected %s to be third init container", zitiGatewayWaitContainerName)
-	}
-	if request.InitContainers[3].GetName() != zitiServiceWaitContainerName {
-		t.Fatalf("expected %s to be fourth init container", zitiServiceWaitContainerName)
-	}
-	if request.InitContainers[4].GetName() != agentRuntimeInit {
-		t.Fatalf("expected %s to be fifth init container", agentRuntimeInit)
+	// The binaries land while the overlay comes up, so the wait is last and
+	// usually has nothing left to wait for by the time it runs.
+	for i, expected := range []string{ZitiEnrollContainerName, ZitiSidecarContainerName, agentRuntimeInit, zitiWaitContainerName} {
+		if request.InitContainers[i].GetName() != expected {
+			t.Fatalf("expected init container %d to be %s, got %s", i, expected, request.InitContainers[i].GetName())
+		}
 	}
 	initContainer := testutil.FindInitContainer(request.InitContainers, agentRuntimeInit)
 	if initContainer == nil {
@@ -400,57 +392,51 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 	if !equalStringMap(zitiSidecar.AdditionalProperties, expectedProperties) {
 		t.Fatalf("expected ziti sidecar properties %+v, got %+v", expectedProperties, zitiSidecar.AdditionalProperties)
 	}
-	if request.InitContainers[2].GetName() != zitiGatewayWaitContainerName || request.InitContainers[3].GetName() != zitiServiceWaitContainerName || request.InitContainers[4].GetName() != agentRuntimeInit {
-		t.Fatalf("expected restartable ziti sidecar init to be followed by ziti wait containers and %s, got %s, %s, then %s", agentRuntimeInit, request.InitContainers[2].GetName(), request.InitContainers[3].GetName(), request.InitContainers[4].GetName())
+	if request.InitContainers[2].GetName() != agentRuntimeInit || request.InitContainers[3].GetName() != zitiWaitContainerName {
+		t.Fatalf("expected the restartable ziti sidecar to be followed by %s then %s, got %s then %s", agentRuntimeInit, zitiWaitContainerName, request.InitContainers[2].GetName(), request.InitContainers[3].GetName())
 	}
 	assertSameZitiIdentityMount(t, zitiSidecar)
-	zitiGatewayWait := testutil.FindInitContainer(request.InitContainers, zitiGatewayWaitContainerName)
-	if zitiGatewayWait == nil {
-		t.Fatal("expected ziti-gateway-wait init container")
+	zitiWait := testutil.FindInitContainer(request.InitContainers, zitiWaitContainerName)
+	if zitiWait == nil {
+		t.Fatal("expected ziti-wait init container")
 	}
-	if zitiGatewayWait.Image != cfg.ZitiSidecarImage {
-		t.Fatalf("expected ziti gateway wait image %q, got %q", cfg.ZitiSidecarImage, zitiGatewayWait.Image)
+	if zitiWait.Image != cfg.ZitiSidecarImage {
+		t.Fatalf("expected ziti wait image %q, got %q", cfg.ZitiSidecarImage, zitiWait.Image)
 	}
-	if zitiGatewayWait.Entrypoint != zitiSidecarEntrypoint {
-		t.Fatalf("expected ziti gateway wait entrypoint %q, got %q", zitiSidecarEntrypoint, zitiGatewayWait.Entrypoint)
+	if zitiWait.Entrypoint != zitiSidecarEntrypoint {
+		t.Fatalf("expected ziti wait entrypoint %q, got %q", zitiSidecarEntrypoint, zitiWait.Entrypoint)
 	}
-	expectedWaitCmd := buildZitiGatewayWaitCommand(cfg.AgentGatewayAddress, cfg.WorkloadDNSUpstream)
-	if !equalStringSlice(zitiGatewayWait.Cmd, expectedWaitCmd) {
-		t.Fatalf("expected ziti gateway wait cmd %+v, got %+v", expectedWaitCmd, zitiGatewayWait.Cmd)
+	llmTarget, err := zitiServiceWaitTarget(cfg.AgentLLMBaseURL)
+	if err != nil {
+		t.Fatalf("llm proxy wait target: %v", err)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[1], "getent ahostsv4 gateway.agyn") {
-		t.Fatalf("expected ziti gateway wait to resolve gateway.agyn through pod resolver, got %+v", zitiGatewayWait.Cmd)
+	expectedWaitCmd := buildZitiWaitCommand(cfg.AgentGatewayAddress, llmTarget, cfg.WorkloadDNSUpstream)
+	if !equalStringSlice(zitiWait.Cmd, expectedWaitCmd) {
+		t.Fatalf("expected ziti wait cmd %+v, got %+v", expectedWaitCmd, zitiWait.Cmd)
 	}
-	if strings.Contains(zitiGatewayWait.Cmd[1], "gateway.agyn 127.0.0.1") {
-		t.Fatalf("expected ziti gateway wait not to bypass pod resolver config, got %+v", zitiGatewayWait.Cmd)
+	// One container waits for both, so both targets appear in the one script.
+	if !strings.Contains(zitiWait.Cmd[1], "gateway.agyn:443") {
+		t.Fatalf("expected ziti wait to name gateway.agyn:443, got %+v", zitiWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[1], "/dev/tcp/gateway.agyn/443") {
-		t.Fatalf("expected ziti gateway wait to connect to gateway.agyn through tunnel, got %+v", zitiGatewayWait.Cmd)
+	if !strings.Contains(zitiWait.Cmd[1], llmTarget.host+":"+llmTarget.port) {
+		t.Fatalf("expected ziti wait to name the llm proxy target, got %+v", zitiWait.Cmd)
+	}
+	if !strings.Contains(zitiWait.Cmd[1], `getent ahostsv4 "${h}"`) {
+		t.Fatalf("expected ziti wait to resolve each target through the pod resolver, got %+v", zitiWait.Cmd)
+	}
+	if !strings.Contains(zitiWait.Cmd[1], `/dev/tcp/${h}/${p}`) {
+		t.Fatalf("expected ziti wait to connect to each target through the tunnel, got %+v", zitiWait.Cmd)
 	}
 	resolverConfig := "nameserver 127.0.0.1\nnameserver " + cfg.WorkloadDNSUpstream + "\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1\n"
-	if !strings.Contains(zitiGatewayWait.Cmd[1], strconv.Quote(resolverConfig)) {
-		t.Fatalf("expected ziti gateway wait to make tunnel DNS first in resolv.conf, got %+v", zitiGatewayWait.Cmd)
+	if !strings.Contains(zitiWait.Cmd[1], strconv.Quote(resolverConfig)) {
+		t.Fatalf("expected ziti wait to make tunnel DNS first in resolv.conf, got %+v", zitiWait.Cmd)
 	}
-	if !strings.Contains(zitiGatewayWait.Cmd[1], "dns lookup failed for gateway.agyn") || !strings.Contains(zitiGatewayWait.Cmd[1], "tcp connect failed for gateway.agyn:443") {
-		t.Fatalf("expected ziti gateway wait diagnostics to distinguish DNS and TCP failures, got %+v", zitiGatewayWait.Cmd)
+	if !strings.Contains(zitiWait.Cmd[1], "dns lookup failed for") || !strings.Contains(zitiWait.Cmd[1], "tcp connect failed for") {
+		t.Fatalf("expected ziti wait diagnostics to distinguish DNS and TCP failures, got %+v", zitiWait.Cmd)
 	}
-	zitiServiceWait := testutil.FindInitContainer(request.InitContainers, zitiServiceWaitContainerName)
-	if zitiServiceWait == nil {
-		t.Fatal("expected ziti-service-wait init container")
-	}
-	if zitiServiceWait.Image != cfg.ZitiSidecarImage {
-		t.Fatalf("expected ziti service wait to use ziti tools image %q, got %q", cfg.ZitiSidecarImage, zitiServiceWait.Image)
-	}
-	if zitiServiceWait.Entrypoint != zitiSidecarEntrypoint {
-		t.Fatalf("expected ziti service wait entrypoint %q, got %q", zitiSidecarEntrypoint, zitiServiceWait.Entrypoint)
-	}
-	llmProxyTarget, err := zitiServiceWaitTarget(cfg.AgentLLMBaseURL)
-	if err != nil {
-		t.Fatalf("build llm proxy wait target: %v", err)
-	}
-	expectedServiceWaitCmd := buildZitiServiceWaitCommand(llmProxyTarget, cfg.WorkloadDNSUpstream)
-	if !equalStringSlice(zitiServiceWait.Cmd, expectedServiceWaitCmd) {
-		t.Fatalf("expected ziti service wait cmd %+v, got %+v", expectedServiceWaitCmd, zitiServiceWait.Cmd)
+	// A miss overshoots by a quarter second, not a full one.
+	if !strings.Contains(zitiWait.Cmd[1], "sleep 0.25") {
+		t.Fatalf("expected ziti wait to poll sub-second, got %+v", zitiWait.Cmd)
 	}
 	if len(request.Volumes) != 2 {
 		t.Fatalf("expected 2 volumes, got %d", len(request.Volumes))
@@ -473,6 +459,7 @@ func TestAssemblerAddsZitiSidecar(t *testing.T) {
 
 func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("PLATFORM_IDENTITY_ID", "a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10")
 	t.Setenv("THREADS_ADDRESS", "")
 	t.Setenv("NOTIFICATIONS_ADDRESS", "")
 	t.Setenv("AGENTS_ADDRESS", "")
@@ -1651,15 +1638,9 @@ func TestZitiServiceWaitTargetsLLMProxyTCP(t *testing.T) {
 	if target.host != "llm-proxy.agyn" || target.port != "80" {
 		t.Fatalf("expected llm-proxy.agyn:80, got %s:%s", target.host, target.port)
 	}
-	cmd := buildZitiServiceWaitCommand(target, "10.43.0.10")
-	if !strings.Contains(cmd[1], "getent ahostsv4 llm-proxy.agyn") {
-		t.Fatalf("expected ziti service wait to resolve llm-proxy.agyn through pod resolver, got %+v", cmd)
-	}
-	if strings.Contains(cmd[1], "llm-proxy.agyn 127.0.0.1") {
-		t.Fatalf("expected ziti service wait not to bypass pod resolver config, got %+v", cmd)
-	}
-	if !strings.Contains(cmd[1], "/dev/tcp/llm-proxy.agyn/80") {
-		t.Fatalf("expected ziti service wait to connect to llm-proxy.agyn:80 through tunnel, got %+v", cmd)
+	cmd := buildZitiWaitCommand("gateway.agyn:443", target, "10.43.0.10")
+	if !strings.Contains(cmd[1], "llm-proxy.agyn:80") {
+		t.Fatalf("expected ziti wait to name llm-proxy.agyn:80, got %+v", cmd)
 	}
 	if strings.Contains(cmd[1], "/v1/models") || strings.Contains(cmd[1], "curl") {
 		t.Fatalf("expected ziti service wait not to use HTTP/model-list readiness, got %+v", cmd)

@@ -318,10 +318,13 @@ exec "/usr/local/bin/ziti" "tunnel" "tproxy" --identity "${identity_file}" --svc
 	zitiRestartPolicyAlways        = "Always"
 	zitiDNSSearchService           = "svc.cluster.local"
 	zitiDNSSearchCluster           = "cluster.local"
-	zitiGatewayWaitContainerName   = "ziti-gateway-wait"
-	zitiGatewayWaitTimeoutSeconds  = 180
-	zitiServiceWaitContainerName   = "ziti-service-wait"
-	zitiServiceWaitTimeoutSeconds  = 60
+	zitiWaitContainerName          = "ziti-wait"
+	// The overlay budget, not a per-target one: the targets come up together.
+	zitiWaitTimeoutSeconds = 180
+	// Four polls a second, so a miss overshoots by a quarter second rather than
+	// a full one. Attempt counts are scaled by this, leaving timeouts in seconds.
+	zitiWaitPollsPerSecond = 4
+	zitiWaitPollInterval   = "0.25"
 )
 
 var reservedEnvNames = map[string]struct{}{
@@ -590,25 +593,27 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 			// up while Kubernetes continues to later init containers and main.
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		}
-		zitiGatewayWait := &runnerv1.ContainerSpec{
+		zitiWait := &runnerv1.ContainerSpec{
 			Image:      a.cfg.ZitiSidecarImage,
-			Name:       zitiGatewayWaitContainerName,
+			Name:       zitiWaitContainerName,
 			Entrypoint: zitiSidecarEntrypoint,
-			Cmd:        buildZitiGatewayWaitCommand(a.cfg.AgentGatewayAddress, a.cfg.WorkloadDNSUpstream),
-		}
-		zitiServiceWait := &runnerv1.ContainerSpec{
-			Image:      a.cfg.ZitiSidecarImage,
-			Name:       zitiServiceWaitContainerName,
-			Entrypoint: zitiSidecarEntrypoint,
-			Cmd:        buildZitiServiceWaitCommand(llmProxyTarget, a.cfg.WorkloadDNSUpstream),
+			Cmd:        buildZitiWaitCommand(a.cfg.AgentGatewayAddress, llmProxyTarget, a.cfg.WorkloadDNSUpstream),
 		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
-		applyEgressCA(zitiGatewayWait, a.egressCACert)
-		applyEgressCA(zitiServiceWait, a.egressCACert)
-		// Ziti runs before the binaries land, so the agyn-bin init containers
-		// follow it rather than being replaced by it.
-		initContainers = append([]*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, zitiServiceWait}, initContainers...)
+		applyEgressCA(zitiWait, a.egressCACert)
+		// The binaries land while the overlay is coming up, not after it.
+		//
+		// Kubernetes runs blocking init containers one at a time, so ordering is
+		// the whole lever here. The agyn-bin containers only unload binaries into
+		// a shared volume -- they need no mesh and no network -- and putting them
+		// behind the wait meant their seconds were spent after the tunnel was
+		// already up rather than during. The wait goes last, by which time it
+		// usually has nothing left to wait for.
+		initContainers = append(
+			append([]*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar}, initContainers...),
+			zitiWait,
+		)
 	}
 
 	mcps, err := a.listMcps(ctx, agentID)
@@ -975,12 +980,12 @@ func gatewayHost(address string) (string, error) {
 	return host, nil
 }
 
-func buildZitiGatewayWaitCommand(address, workloadDNSUpstream string) []string {
+func buildZitiWaitCommand(address string, llmProxy zitiServiceTarget, workloadDNSUpstream string) []string {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		panic(fmt.Sprintf("parse gateway address %q: %v", address, err))
 	}
-	return buildZitiTCPWaitCommand(zitiGatewayWaitTimeoutSeconds, host, port, workloadDNSUpstream)
+	return buildZitiTCPWaitCommand(zitiWaitTimeoutSeconds, []zitiServiceTarget{{host: host, port: port}, llmProxy}, workloadDNSUpstream)
 }
 
 type zitiServiceTarget struct {
@@ -1017,30 +1022,33 @@ func zitiServiceWaitTarget(rawURL string) (zitiServiceTarget, error) {
 	return zitiServiceTarget{host: host, port: port}, nil
 }
 
-func buildZitiServiceWaitCommand(target zitiServiceTarget, workloadDNSUpstream string) []string {
-	return buildZitiTCPWaitCommand(zitiServiceWaitTimeoutSeconds, target.host, target.port, workloadDNSUpstream)
-}
-
-func buildZitiTCPWaitCommand(timeoutSeconds int, host, port, workloadDNSUpstream string) []string {
+// buildZitiTCPWaitCommand waits for every target to answer through the overlay.
+//
+// One container for all of them rather than one each: they become reachable
+// together, when the sidecar finishes bringing the tunnel up, so waiting for
+// them in sequence bought nothing and cost a container start per target.
+//
+// The poll is deliberately sub-second. The check runs before the sleep, so a
+// target that is already up costs nothing -- but each miss used to overshoot by
+// a full second past the moment the mesh became ready. The attempt count is
+// scaled by the same factor, so the timeout budget in seconds is unchanged.
+func buildZitiTCPWaitCommand(timeoutSeconds int, targets []zitiServiceTarget, workloadDNSUpstream string) []string {
 	resolverConfig := fmt.Sprintf(
 		"nameserver %s\nnameserver %s\nsearch svc.cluster.local cluster.local\noptions ndots:5 timeout:1 attempts:1\n",
 		zitiDNSNameserver,
 		workloadDNSUpstream,
 	)
-	tcpProbe := strconv.Quote(fmt.Sprintf("cat </dev/null >/dev/tcp/%s/%s", host, port))
+	specs := make([]string, 0, len(targets))
+	for _, target := range targets {
+		specs = append(specs, target.host+":"+target.port)
+	}
 	script := fmt.Sprintf(
-		`i=0; reason="not checked"; while [ $i -lt %d ]; do printf %s > /etc/resolv.conf; if ! getent ahostsv4 %s >/tmp/ziti-wait-dns.out 2>/tmp/ziti-wait-dns.err; then reason="dns lookup failed for %s through pod resolver: $(cat /tmp/ziti-wait-dns.err)"; elif timeout 5 bash -c %s >/tmp/ziti-wait-tcp.out 2>/tmp/ziti-wait-tcp.err; then exit 0; else reason="tcp connect failed for %s:%s: $(cat /tmp/ziti-wait-tcp.err)"; fi; if [ $((i %% 15)) -eq 0 ]; then echo "waiting for %s:%s attempt=${i} reason=${reason}; resolv.conf=$(tr "\n" ";" </etc/resolv.conf); dns=$(cat /tmp/ziti-wait-dns.out 2>/dev/null)" >&2; fi; i=$((i+1)); sleep 1; done; echo "timeout waiting for %s:%s (${reason}); resolv.conf=$(tr "\n" ";" </etc/resolv.conf); dns=$(cat /tmp/ziti-wait-dns.out 2>/dev/null)" >&2; exit 1`,
-		timeoutSeconds,
+		`targets=%s; i=0; reason="not checked"; while [ $i -lt %d ]; do printf %s > /etc/resolv.conf; ready=1; for t in ${targets}; do h="${t%%%%:*}"; p="${t##*:}"; if ! getent ahostsv4 "${h}" >/tmp/ziti-wait-dns.out 2>/tmp/ziti-wait-dns.err; then ready=0; reason="dns lookup failed for ${h} through pod resolver: $(cat /tmp/ziti-wait-dns.err)"; break; fi; if ! timeout 5 bash -c "cat </dev/null >/dev/tcp/${h}/${p}" >/tmp/ziti-wait-tcp.out 2>/tmp/ziti-wait-tcp.err; then ready=0; reason="tcp connect failed for ${h}:${p}: $(cat /tmp/ziti-wait-tcp.err)"; break; fi; done; if [ "${ready}" -eq 1 ]; then exit 0; fi; if [ $((i %% %d)) -eq 0 ]; then echo "waiting for ${targets} attempt=${i} reason=${reason}; resolv.conf=$(tr "\n" ";" </etc/resolv.conf); dns=$(cat /tmp/ziti-wait-dns.out 2>/dev/null)" >&2; fi; i=$((i+1)); sleep %s; done; echo "timeout waiting for ${targets} (${reason}); resolv.conf=$(tr "\n" ";" </etc/resolv.conf); dns=$(cat /tmp/ziti-wait-dns.out 2>/dev/null)" >&2; exit 1`,
+		strconv.Quote(strings.Join(specs, " ")),
+		timeoutSeconds*zitiWaitPollsPerSecond,
 		strconv.Quote(resolverConfig),
-		host,
-		host,
-		tcpProbe,
-		host,
-		port,
-		host,
-		port,
-		host,
-		port,
+		15*zitiWaitPollsPerSecond,
+		zitiWaitPollInterval,
 	)
 	return []string{"-c", script}
 }
