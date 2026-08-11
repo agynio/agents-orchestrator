@@ -66,6 +66,14 @@ containerPorts: []
 command: []
 args: []
 env:
+  # The identity this service acts as when it calls a platform service that
+  # authorizes its caller. Internal plumbing, not an installation choice: it is
+  # a constant the platform provisions itself with, and Identity registers it
+  # and grants it cluster admin from the same value. Defaulted here so the
+  # service runs out of the box; override only if the platform's admin identity
+  # was installed under a different id.
+  - name: PLATFORM_IDENTITY_ID
+    value: "a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10"
   - name: THREADS_ADDRESS
     value: "threads:50051"
   - name: NOTIFICATIONS_ADDRESS
