@@ -5,225 +5,196 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
-	"github.com/agynio/agents-orchestrator/internal/testutil"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
+// testPlatformIdentityID stands for the identity Identity registers from
+// configuration and grants cluster admin.
+var testPlatformIdentityID = uuid.MustParse("a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10")
+
 func TestSubscriberWakeOnMessageCreated(t *testing.T) {
-	responses := make(chan *notificationsv1.SubscribeResponse, 1)
-	ack := make(chan struct{}, 1)
-	instanceID := "11111111-1111-1111-1111-111111111111"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
+	harness := newSubscriberHarness(t, 1)
 	defer harness.cancel()
-	waitForSubscribe(t, harness.subscribeReqs, 1)
+	waitForSubscribe(t, harness.subscribeReqs)
 
-	responses <- messageEnvelope("message.created")
-	waitForAck(t, ack, 1)
+	harness.responses <- messageEnvelope("message.created")
+	waitForAck(t, harness.ack, 1)
 
-	select {
-	case <-harness.subscriber.Wake():
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected wake signal")
-	}
-
-	harness.cancel()
-	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected run error: %v", err)
-	}
+	harness.expectWake(t)
+	harness.stop(t)
 }
 
 func TestSubscriberWakeOnInstanceUpdated(t *testing.T) {
-	responses := make(chan *notificationsv1.SubscribeResponse, 1)
-	ack := make(chan struct{}, 1)
-	instanceID := "22222222-2222-2222-2222-222222222222"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
+	harness := newSubscriberHarness(t, 1)
 	defer harness.cancel()
-	waitForSubscribe(t, harness.subscribeReqs, 1)
+	waitForSubscribe(t, harness.subscribeReqs)
 
-	responses <- messageEnvelope("instance.updated")
-	waitForAck(t, ack, 1)
+	harness.responses <- messageEnvelope("instance.updated")
+	waitForAck(t, harness.ack, 1)
 
-	select {
-	case <-harness.subscriber.Wake():
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected wake signal")
-	}
-
-	harness.cancel()
-	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected run error: %v", err)
-	}
+	harness.expectWake(t)
+	harness.stop(t)
 }
 
 func TestSubscriberIgnoresOtherEvents(t *testing.T) {
-	responses := make(chan *notificationsv1.SubscribeResponse, 1)
-	ack := make(chan struct{}, 1)
-	instanceID := "33333333-3333-3333-3333-333333333333"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
+	harness := newSubscriberHarness(t, 1)
 	defer harness.cancel()
-	waitForSubscribe(t, harness.subscribeReqs, 1)
+	waitForSubscribe(t, harness.subscribeReqs)
 
-	responses <- messageEnvelope("thread.updated")
-	waitForAck(t, ack, 1)
+	harness.responses <- messageEnvelope("thread.updated")
+	waitForAck(t, harness.ack, 1)
 
 	select {
 	case <-harness.subscriber.Wake():
 		t.Fatal("unexpected wake signal")
 	case <-time.After(200 * time.Millisecond):
 	}
-
-	harness.cancel()
-	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected run error: %v", err)
-	}
+	harness.stop(t)
 }
 
 func TestSubscriberCoalescesWake(t *testing.T) {
-	responses := make(chan *notificationsv1.SubscribeResponse, 2)
-	ack := make(chan struct{}, 2)
-	instanceID := "44444444-4444-4444-4444-444444444444"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
+	harness := newSubscriberHarness(t, 2)
 	defer harness.cancel()
-	waitForSubscribe(t, harness.subscribeReqs, 1)
+	waitForSubscribe(t, harness.subscribeReqs)
 
-	responses <- messageEnvelope("message.created")
-	responses <- messageEnvelope("message.created")
-	waitForAck(t, ack, 2)
+	harness.responses <- messageEnvelope("message.created")
+	harness.responses <- messageEnvelope("message.created")
+	waitForAck(t, harness.ack, 2)
 
-	select {
-	case <-harness.subscriber.Wake():
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected wake signal")
-	}
-
+	harness.expectWake(t)
 	select {
 	case <-harness.subscriber.Wake():
 		t.Fatal("expected wake to be coalesced")
 	case <-time.After(200 * time.Millisecond):
 	}
-
-	harness.cancel()
-	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected run error: %v", err)
-	}
+	harness.stop(t)
 }
 
-func TestSubscriberSubscribesWithRooms(t *testing.T) {
-	responses := make(chan *notificationsv1.SubscribeResponse, 1)
-	ack := make(chan struct{}, 1)
-	instanceID := "55555555-5555-5555-5555-555555555555"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, time.Hour)
+// A workload backs either kind of owner and the event does not say which, so
+// the report the runner sends wakes both loops.
+func TestSubscriberWakesBothLoopsOnWorkloadStatusChanged(t *testing.T) {
+	harness := newSubscriberHarness(t, 1)
+	defer harness.cancel()
+	waitForSubscribe(t, harness.subscribeReqs)
+
+	harness.responses <- messageEnvelope("workload.status_changed")
+	waitForAck(t, harness.ack, 1)
+
+	harness.expectWake(t)
+	select {
+	case <-harness.subscriber.SandboxWake():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected sandbox wake signal")
+	}
+	harness.stop(t)
+}
+
+func TestSubscriberWakesSandboxOnSandboxUpdated(t *testing.T) {
+	harness := newSubscriberHarness(t, 1)
+	defer harness.cancel()
+	waitForSubscribe(t, harness.subscribeReqs)
+
+	harness.responses <- messageEnvelope("sandbox.updated")
+	waitForAck(t, harness.ack, 1)
+
+	select {
+	case <-harness.subscriber.SandboxWake():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected sandbox wake signal")
+	}
+	select {
+	case <-harness.subscriber.Wake():
+		t.Fatal("sandbox.updated must not wake the agent loop")
+	case <-time.After(200 * time.Millisecond):
+	}
+	harness.stop(t)
+}
+
+// The rooms are named outright rather than derived from the instances and
+// sandboxes that exist. A derived set cannot cover the organization whose first
+// sandbox is the very event that would have announced it.
+func TestSubscriberSubscribesToConstantRooms(t *testing.T) {
+	harness := newSubscriberHarness(t, 1)
 	defer harness.cancel()
 
-	req := waitForSubscribe(t, harness.subscribeReqs, 1)
-	expected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID}
+	req := waitForSubscribe(t, harness.subscribeReqs)
+	expected := []string{"agent_instances", "sandboxes", "workloads"}
 	if !reflect.DeepEqual(req.req.GetRooms(), expected) {
 		t.Fatalf("expected rooms %v, got %v", expected, req.req.GetRooms())
 	}
-	assertSubscribeIdentity(t, req, instanceID)
-
-	harness.cancel()
-	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected run error: %v", err)
-	}
+	harness.stop(t)
 }
 
-func TestSubscriberResubscribesOnInstanceChange(t *testing.T) {
-	responses := make(chan *notificationsv1.SubscribeResponse)
-	ack := make(chan struct{}, 1)
-	instanceID := "66666666-6666-6666-6666-666666666666"
-	updatedInstanceID := "77777777-7777-7777-7777-777777777777"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceFixture(instanceID)}, 10*time.Millisecond)
+// The Orchestrator used to name an agent instance as itself so that instance's
+// rooms would admit it. It says what it is now, and Notifications settles that
+// against the cluster admin relation behind it.
+func TestSubscriberSubscribesAsThePlatform(t *testing.T) {
+	harness := newSubscriberHarness(t, 1)
 	defer harness.cancel()
 
-	firstReq := waitForSubscribe(t, harness.subscribeReqs, 1)
-	firstExpected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID}
-	if !reflect.DeepEqual(firstReq.req.GetRooms(), firstExpected) {
-		t.Fatalf("expected initial rooms %v, got %v", firstExpected, firstReq.req.GetRooms())
+	req := waitForSubscribe(t, harness.subscribeReqs)
+	if req.identityType != platformIdentityType {
+		t.Fatalf("expected identity type %q, got %q", platformIdentityType, req.identityType)
 	}
-
-	harness.store.set([]*agentsv1.AgentInstance{instanceFixture(instanceID), instanceFixture(updatedInstanceID)})
-	secondReqs := waitForSubscribeRequests(t, harness.subscribeReqs, 2)
-	assertSubscribeRequestForIdentity(t, secondReqs, instanceID)
-	assertSubscribeRequestForIdentity(t, secondReqs, updatedInstanceID)
-
-	harness.cancel()
-	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected run error: %v", err)
+	if req.identityID != testPlatformIdentityID.String() {
+		t.Fatalf("expected identity %s, got %q", testPlatformIdentityID, req.identityID)
 	}
+	harness.stop(t)
 }
 
-// One instance the platform can no longer resolve used to end every other
-// instance's stream too, and a wake delivered during the rebuild was lost.
-func TestSubscriberKeepsHealthySubscriptionsWhenOneFails(t *testing.T) {
-	failing := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-	healthy := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+// Reading what an instance was sent is the instance's business. The wake the
+// Orchestrator needs reaches the cluster-wide room, so it has no reason to hold
+// an inbox and must not ask for one.
+func TestSubscriberNeverSubscribesToAnInbox(t *testing.T) {
+	harness := newSubscriberHarness(t, 1)
+	defer harness.cancel()
 
+	req := waitForSubscribe(t, harness.subscribeReqs)
+	for _, room := range req.req.GetRooms() {
+		if strings.HasPrefix(room, "instance_inbox") {
+			t.Fatalf("subscribed to an inbox room: %q", room)
+		}
+	}
+	harness.stop(t)
+}
+
+// A refused Subscribe is retried rather than abandoned, and the retry is paced.
+func TestSubscriberRetriesARefusedSubscribe(t *testing.T) {
 	responses := make(chan *notificationsv1.SubscribeResponse)
 	var mu sync.Mutex
-	calls := map[string]int{}
+	calls := 0
 
-	agentsClient := &testutil.FakeAgentsClient{ListInstancesFunc: func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
-		return &agentsv1.ListInstancesResponse{Instances: []*agentsv1.AgentInstance{
-			instanceFixture(failing), instanceFixture(healthy),
-		}}, nil
-	}}
 	client := &fakeNotificationsClient{subscribe: func(ctx context.Context, req *notificationsv1.SubscribeRequest, opts ...grpc.CallOption) (notificationsv1.NotificationsService_SubscribeClient, error) {
-		identity := ""
-		if md, ok := metadata.FromOutgoingContext(ctx); ok {
-			if values := md.Get(identityMetadataKey); len(values) > 0 {
-				identity = values[0]
-			}
-		}
 		mu.Lock()
-		calls[identity]++
+		calls++
+		refuse := calls < 3
 		mu.Unlock()
-		if identity == failing {
+		if refuse {
 			return nil, status.Error(codes.PermissionDenied, "permission denied")
 		}
 		return &fakeSubscribeStream{fakeClientStream: fakeClientStream{ctx: ctx}, responses: responses}, nil
 	}}
 
-	subscriber := New(client, agentsClient)
-	subscriber.roomRefreshInterval = time.Hour
+	subscriber := New(client, testPlatformIdentityID)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- subscriber.Run(ctx) }()
 
-	// Long enough for the failing subscription to retry past its first backoff.
-	deadline := time.After(10 * time.Second)
-	for {
-		mu.Lock()
-		failed, ok := calls[failing], calls[healthy]
-		mu.Unlock()
-		if failed >= 3 {
-			if ok != 1 {
-				t.Fatalf("healthy subscription was rebuilt %d times while the other failed %d times", ok, failed)
-			}
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("failing subscription only retried %d times", failed)
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
-
-	// The surviving stream still delivers.
 	select {
 	case responses <- messageEnvelope("message.created"):
-	case <-time.After(time.Second):
-		t.Fatal("healthy subscription was not receiving")
+	case <-time.After(10 * time.Second):
+		t.Fatal("subscriber never established a stream after the refusals")
 	}
 	select {
 	case <-subscriber.Wake():
@@ -237,24 +208,28 @@ func TestSubscriberKeepsHealthySubscriptionsWhenOneFails(t *testing.T) {
 	}
 }
 
-func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.SubscribeResponse, ack chan struct{}, initialInstances []*agentsv1.AgentInstance, refreshInterval time.Duration) *subscriberHarness {
-	t.Helper()
+type subscriberHarness struct {
+	subscriber    *Subscriber
+	cancel        context.CancelFunc
+	done          chan error
+	responses     chan *notificationsv1.SubscribeResponse
+	ack           chan struct{}
+	subscribeReqs chan subscribeCall
+}
+
+func newSubscriberHarness(t *testing.T, buffer int) *subscriberHarness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	store := &instanceStore{instances: initialInstances}
-	agentsClient := &testutil.FakeAgentsClient{ListInstancesFunc: func(ctx context.Context, req *agentsv1.ListInstancesRequest, opts ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error) {
-		return &agentsv1.ListInstancesResponse{Instances: store.list()}, nil
-	}}
+	responses := make(chan *notificationsv1.SubscribeResponse, buffer)
+	ack := make(chan struct{}, buffer)
 	subscribeReqs := make(chan subscribeCall, 4)
 	client := &fakeNotificationsClient{subscribe: func(ctx context.Context, req *notificationsv1.SubscribeRequest, opts ...grpc.CallOption) (notificationsv1.NotificationsService_SubscribeClient, error) {
 		call := subscribeCall{req: req}
 		if md, ok := metadata.FromOutgoingContext(ctx); ok {
-			values := md.Get(identityMetadataKey)
-			if len(values) > 0 {
+			if values := md.Get(identityMetadataKey); len(values) > 0 {
 				call.identityID = values[0]
 			}
-			types := md.Get(identityTypeMetadataKey)
-			if len(types) > 0 {
+			if types := md.Get(identityTypeMetadataKey); len(types) > 0 {
 				call.identityType = types[0]
 			}
 		}
@@ -265,18 +240,33 @@ func newSubscriberHarness(t *testing.T, responses chan *notificationsv1.Subscrib
 			ack:              ack,
 		}, nil
 	}}
-	subscriber := New(client, agentsClient)
-	subscriber.roomRefreshInterval = refreshInterval
+	subscriber := New(client, testPlatformIdentityID)
 	done := make(chan error, 1)
-	go func() {
-		done <- subscriber.Run(ctx)
-	}()
+	go func() { done <- subscriber.Run(ctx) }()
 	return &subscriberHarness{
 		subscriber:    subscriber,
 		cancel:        cancel,
 		done:          done,
-		store:         store,
+		responses:     responses,
+		ack:           ack,
 		subscribeReqs: subscribeReqs,
+	}
+}
+
+func (h *subscriberHarness) expectWake(t *testing.T) {
+	t.Helper()
+	select {
+	case <-h.subscriber.Wake():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected wake signal")
+	}
+}
+
+func (h *subscriberHarness) stop(t *testing.T) {
+	t.Helper()
+	h.cancel()
+	if err := <-h.done; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected run error: %v", err)
 	}
 }
 
@@ -292,65 +282,15 @@ type subscribeCall struct {
 	identityType string
 }
 
-func waitForSubscribe(t *testing.T, subscribeReqs <-chan subscribeCall, count int) subscribeCall {
+func waitForSubscribe(t *testing.T, subscribeReqs <-chan subscribeCall) subscribeCall {
 	t.Helper()
-	reqs := waitForSubscribeRequests(t, subscribeReqs, count)
-	return reqs[len(reqs)-1]
-}
-
-func waitForSubscribeRequests(t *testing.T, subscribeReqs <-chan subscribeCall, count int) []subscribeCall {
-	t.Helper()
-	reqs := make([]subscribeCall, 0, count)
-	for i := 0; i < count; i++ {
-		select {
-		case req := <-subscribeReqs:
-			reqs = append(reqs, req)
-		case <-time.After(500 * time.Millisecond):
-			t.Fatalf("timeout waiting for subscribe %d", i)
-		}
+	select {
+	case req := <-subscribeReqs:
+		return req
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for subscribe")
 	}
-	return reqs
-}
-
-// assertSubscribeRooms finds the one subscription whose rooms match exactly.
-// Subscriptions run concurrently, so arrival order says nothing.
-func assertSubscribeRooms(t *testing.T, reqs []subscribeCall, expected []string) {
-	t.Helper()
-	for _, req := range reqs {
-		if reflect.DeepEqual(req.req.GetRooms(), expected) {
-			return
-		}
-	}
-	got := make([][]string, 0, len(reqs))
-	for _, req := range reqs {
-		got = append(got, req.req.GetRooms())
-	}
-	t.Fatalf("expected a subscription for rooms %v, got %v", expected, got)
-}
-
-func assertSubscribeRequestForIdentity(t *testing.T, reqs []subscribeCall, instanceID string) {
-	t.Helper()
-	expected := []string{"agent_instance:" + instanceID, "instance_inbox:" + instanceID}
-	for _, req := range reqs {
-		if reflect.DeepEqual(req.req.GetRooms(), expected) {
-			assertSubscribeIdentity(t, req, instanceID)
-			return
-		}
-	}
-	t.Fatalf("expected subscribe request for instance %s in %+v", instanceID, reqs)
-}
-
-func assertSubscribeIdentity(t *testing.T, req subscribeCall, instanceID string) {
-	t.Helper()
-	// Notifications settles an instance inbox room by identity *and* type;
-	// sending only the id had every inbox subscription denied, so no inbox
-	// delivery ever woke the reconciler.
-	if req.identityType != agentInstanceIdentityType {
-		t.Fatalf("expected subscribe identity type %q, got %q", agentInstanceIdentityType, req.identityType)
-	}
-	if req.identityID != instanceID {
-		t.Fatalf("expected subscribe identity %s, got %q", instanceID, req.identityID)
-	}
+	return subscribeCall{}
 }
 
 func waitForAck(t *testing.T, ack <-chan struct{}, count int) {
@@ -412,74 +352,3 @@ func (f fakeClientStream) Context() context.Context { return f.ctx }
 func (f fakeClientStream) SendMsg(any) error { return nil }
 
 func (f fakeClientStream) RecvMsg(any) error { return nil }
-
-type instanceStore struct {
-	mu        sync.RWMutex
-	instances []*agentsv1.AgentInstance
-}
-
-func (s *instanceStore) list() []*agentsv1.AgentInstance {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	instances := make([]*agentsv1.AgentInstance, len(s.instances))
-	copy(instances, s.instances)
-	return instances
-}
-
-func (s *instanceStore) set(instances []*agentsv1.AgentInstance) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.instances = instances
-}
-
-type subscriberHarness struct {
-	subscriber    *Subscriber
-	cancel        context.CancelFunc
-	done          chan error
-	store         *instanceStore
-	subscribeReqs chan subscribeCall
-}
-
-func instanceFixture(id string) *agentsv1.AgentInstance {
-	return &agentsv1.AgentInstance{Meta: &agentsv1.EntityMeta{Id: id}}
-}
-
-func TestSubscriberWakesSandboxOnSandboxUpdated(t *testing.T) {
-	responses := make(chan *notificationsv1.SubscribeResponse, 1)
-	ack := make(chan struct{}, 1)
-	instanceID := "88888888-8888-8888-8888-888888888888"
-	orgID := "99999999-9999-9999-9999-999999999999"
-	harness := newSubscriberHarness(t, responses, ack, []*agentsv1.AgentInstance{instanceInOrgFixture(instanceID, orgID)}, time.Hour)
-	defer harness.cancel()
-
-	// Two subscriptions, not one: an instance identity cannot hold
-	// can_list_sandboxes, and Notifications refuses a whole Subscribe when any
-	// room in it is unauthorized. Bundled, the sandbox room took the instance's
-	// own inbox down with it.
-	reqs := waitForSubscribeRequests(t, harness.subscribeReqs, 2)
-	assertSubscribeRequestForIdentity(t, reqs, instanceID)
-	assertSubscribeRooms(t, reqs, []string{"sandbox_org:" + orgID})
-
-	responses <- messageEnvelope("sandbox.updated")
-	waitForAck(t, ack, 1)
-
-	select {
-	case <-harness.subscriber.SandboxWake():
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected sandbox wake signal")
-	}
-	select {
-	case <-harness.subscriber.Wake():
-		t.Fatal("sandbox.updated must not wake the agent loop")
-	case <-time.After(200 * time.Millisecond):
-	}
-
-	harness.cancel()
-	if err := <-harness.done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected run error: %v", err)
-	}
-}
-
-func instanceInOrgFixture(id, organizationID string) *agentsv1.AgentInstance {
-	return &agentsv1.AgentInstance{Meta: &agentsv1.EntityMeta{Id: id}, OrganizationId: organizationID}
-}
