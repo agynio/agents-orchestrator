@@ -13,11 +13,11 @@ import (
 const activeWorkloadPageSize int32 = 100
 
 func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, error) {
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	organizations, err := r.agentOrganizations(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tracked, err := r.listActiveWorkloads(ctx, orgIdentities)
+	tracked, err := r.listActiveWorkloads(ctx, organizations)
 	if err != nil {
 		return nil, err
 	}
@@ -33,9 +33,9 @@ func (r *Reconciler) fetchActual(ctx context.Context) ([]*runnersv1.Workload, er
 	return actual, nil
 }
 
-func (r *Reconciler) listActiveWorkloads(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Workload, error) {
+func (r *Reconciler) listActiveWorkloads(ctx context.Context, organizations map[string]struct{}) ([]*runnersv1.Workload, error) {
 	active := []*runnersv1.Workload{}
-	if len(orgIdentities) == 0 {
+	if len(organizations) == 0 {
 		return active, nil
 	}
 	pageToken := ""
@@ -45,7 +45,7 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context, orgIdentities map[
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
 	}
 	for {
-		resp, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
+		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
@@ -79,7 +79,7 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context, orgIdentities map[
 			if err != nil {
 				return nil, err
 			}
-			if _, ok := orgIdentities[parsedOrgID.String()]; !ok {
+			if _, ok := organizations[parsedOrgID.String()]; !ok {
 				continue
 			}
 			active = append(active, workload)

@@ -50,44 +50,29 @@ func isSandboxVolume(volume *runnersv1.Volume) bool {
 	return volume.GetOwnerKind() == runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX
 }
 
-func runnerIdentityForVolumes(runnerID string, runnerOrganizationID string, orgIdentities map[string]string, volumes map[string]*runnersv1.Volume) (string, error) {
+// runnerInScopeForVolumes is runnerInScope for the volume loop; see the note
+// there on why this no longer yields an identity.
+func runnerInScopeForVolumes(runnerID string, runnerOrganizationID string, organizations map[string]struct{}, volumes map[string]*runnersv1.Volume) (bool, error) {
 	orgID := strings.TrimSpace(runnerOrganizationID)
 	if orgID != "" {
-		identityID, ok := orgIdentities[orgID]
-		if !ok {
-			return "", fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
-		}
-		return identityID, nil
+		_, ok := organizations[orgID]
+		return ok, nil
 	}
 	if len(volumes) == 0 {
-		return "", fmt.Errorf("runner %s organization id missing", runnerID)
+		return false, fmt.Errorf("runner %s organization id missing", runnerID)
 	}
-	var identityID string
-	for volumeID, volume := range volumes {
-		volumeIdentityID := volumeIdentityID(volume)
-		if volumeIdentityID == "" {
-			return "", fmt.Errorf("volume %s missing owner identity", volumeID)
-		}
-		if identityID == "" {
-			identityID = volumeIdentityID
-			continue
-		}
-		if identityID != volumeIdentityID {
-			return "", fmt.Errorf("runner %s has volumes for multiple identities", runnerID)
-		}
-	}
-	return identityID, nil
+	return true, nil
 }
 
 func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 	if r.agents == nil {
 		return fmt.Errorf("agents client not configured")
 	}
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	organizations, err := r.agentOrganizations(ctx)
 	if err != nil {
 		return err
 	}
-	tracked, ignoredVolumeKeysByRunner, err := r.listActiveVolumes(ctx, orgIdentities)
+	tracked, ignoredVolumeKeysByRunner, err := r.listActiveVolumes(ctx, organizations)
 	if err != nil {
 		return err
 	}
@@ -118,7 +103,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			runnerIdentities[runnerID] = identityID
 		}
 	}
-	runners, err := r.listRunnersByOrg(ctx, orgIdentities)
+	runners, err := r.listRunnersByOrg(ctx, organizations)
 	if err != nil {
 		return err
 	}
@@ -142,29 +127,23 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		if runner.GetOrganizationId() == "" && len(volumesByRunner[runnerID]) == 0 {
 			continue
 		}
-		identityID, err := runnerIdentityForVolumes(runnerID, runner.GetOrganizationId(), orgIdentities, volumesByRunner[runnerID])
+		inScope, err := runnerInScopeForVolumes(runnerID, runner.GetOrganizationId(), organizations, volumesByRunner[runnerID])
 		if err != nil {
 			return err
 		}
+		if !inScope {
+			continue
+		}
 		runnerIDs[runnerID] = struct{}{}
-		runnerIdentities[runnerID] = identityID
 	}
 
 	volumeInfoCache := map[string]volumeTTLInfo{}
 	instanceCache := map[string]instanceActivity{}
 	for runnerID := range runnerIDs {
 		trackedVolumes := volumesByRunner[runnerID]
-		identityID, ok := runnerIdentities[runnerID]
-		if !ok {
-			return fmt.Errorf("runner %s missing identity", runnerID)
-		}
 		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
 			for volumeID, volume := range trackedVolumes {
-				volumeCtx, err := runnerIdentityContext(ctx, volumeIdentityID(volume))
-				if err != nil {
-					return err
-				}
-				if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
+				if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s on unenrolled runner: %v", volumeID, err)
 				}
 				// A sandbox has no instance to pause; its own reconciler owns
@@ -172,23 +151,15 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 				if isSandboxVolume(volume) {
 					continue
 				}
-				r.pauseInstance(volumeCtx, volumeIdentityID(volume), pauseReasonRunnerDeprovisioned)
+				r.pauseInstance(ctx, volumeIdentityID(volume), pauseReasonRunnerDeprovisioned)
 			}
 			continue
-		}
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return err
 		}
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for volumeID, volume := range trackedVolumes {
-					volumeCtx, err := runnerIdentityContext(ctx, volumeIdentityID(volume))
-					if err != nil {
-						return err
-					}
-					if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
+					if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 						log.Printf("reconciler: warn: handle missing volume %s after runner dial failure: %v", volumeID, err)
 					}
 				}
@@ -197,15 +168,11 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			log.Printf("reconciler: warn: dial runner %s for volume reconciliation: %v", runnerID, err)
 			continue
 		}
-		resp, err := runnerClient.ListVolumes(runnerCtx, &runnerv1.ListVolumesRequest{})
+		resp, err := runnerClient.ListVolumes(ctx, &runnerv1.ListVolumesRequest{})
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for volumeID, volume := range trackedVolumes {
-					volumeCtx, err := runnerIdentityContext(ctx, volumeIdentityID(volume))
-					if err != nil {
-						return err
-					}
-					if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
+					if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 						log.Printf("reconciler: warn: handle missing volume %s after runner list failure: %v", volumeID, err)
 					}
 				}
@@ -235,13 +202,9 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 
 		for volumeID, volume := range trackedVolumes {
-			volumeCtx, err := runnerIdentityContext(ctx, volumeIdentityID(volume))
-			if err != nil {
-				return err
-			}
 			item, ok := runnerVolumes[volumeID]
 			if !ok {
-				if err := r.handleMissingRunnerVolume(volumeCtx, volume); err != nil {
+				if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 					log.Printf("reconciler: warn: handle missing volume %s: %v", volumeID, err)
 				}
 				if volume.GetStatus() == runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
@@ -252,13 +215,13 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 							log.Printf("reconciler: warn: fail sandbox %s after lost workspace volume %s: %v", volume.GetOwnerId(), volumeID, err)
 						}
 					} else {
-						r.pauseInstance(volumeCtx, volumeIdentityID(volume), pauseReasonVolumeLost)
+						r.pauseInstance(ctx, volumeIdentityID(volume), pauseReasonVolumeLost)
 					}
 				}
 				continue
 			}
 			delete(runnerVolumes, volumeID)
-			if err := r.handlePresentRunnerVolume(volumeCtx, runnerClient, volume, item, volumeInfoCache, instanceCache); err != nil {
+			if err := r.handlePresentRunnerVolume(ctx, runnerClient, volume, item, volumeInfoCache, instanceCache); err != nil {
 				log.Printf("reconciler: warn: handle volume %s on runner %s: %v", volumeID, runnerID, err)
 			}
 		}
@@ -269,7 +232,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 				log.Printf("reconciler: warn: runner %s orphan volume missing instance id", runnerID)
 				continue
 			}
-			if err := r.removeRunnerVolume(runnerCtx, runnerClient, instanceID); err != nil {
+			if err := r.removeRunnerVolume(ctx, runnerClient, instanceID); err != nil {
 				log.Printf("reconciler: warn: remove orphan volume %s on runner %s: %v", instanceID, runnerID, err)
 			}
 		}
@@ -277,10 +240,10 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 	return nil
 }
 
-func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Volume, map[string]map[string]struct{}, error) {
+func (r *Reconciler) listActiveVolumes(ctx context.Context, organizations map[string]struct{}) ([]*runnersv1.Volume, map[string]map[string]struct{}, error) {
 	active := []*runnersv1.Volume{}
 	ignoredVolumeKeysByRunner := map[string]map[string]struct{}{}
-	if len(orgIdentities) == 0 {
+	if len(organizations) == 0 {
 		return active, ignoredVolumeKeysByRunner, nil
 	}
 	pageToken := ""
@@ -290,7 +253,7 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 		runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING,
 	}
 	for {
-		resp, err := r.runners.ListVolumes(internalContext(ctx), &runnersv1.ListVolumesRequest{
+		resp, err := r.runners.ListVolumes(ctx, &runnersv1.ListVolumesRequest{
 			PageSize:  activeVolumePageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListVolumesFilter{
@@ -319,7 +282,7 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, orgIdentities map[st
 			if err != nil {
 				return nil, nil, err
 			}
-			if _, ok := orgIdentities[parsedOrgID.String()]; !ok {
+			if _, ok := organizations[parsedOrgID.String()]; !ok {
 				continue
 			}
 			active = append(active, volume)
@@ -344,7 +307,7 @@ func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runn
 		return nil
 	case runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
-		_, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
 			Id:        volumeID,
 			Status:    &status,
 			RemovedAt: timestamppb.New(time.Now().UTC()),
@@ -367,7 +330,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 	switch volume.GetStatus() {
 	case runnersv1.VolumeStatus_VOLUME_STATUS_PROVISIONING:
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE
-		_, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
 			Id:         volumeID,
 			Status:     &status,
 			InstanceId: stringPtr(instanceID),
@@ -375,7 +338,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 		return err
 	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE:
 		if volume.GetInstanceId() != instanceID {
-			if _, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
+			if _, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
 				Id:         volumeID,
 				InstanceId: stringPtr(instanceID),
 			}); err != nil {
@@ -395,7 +358,7 @@ func (r *Reconciler) handlePresentRunnerVolume(ctx context.Context, runnerClient
 			return nil
 		}
 		status := runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING
-		if _, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{Id: volumeID, Status: &status}); err != nil {
+		if _, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{Id: volumeID, Status: &status}); err != nil {
 			return err
 		}
 		return r.removeRunnerVolume(ctx, runnerClient, instanceID)

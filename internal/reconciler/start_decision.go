@@ -22,11 +22,7 @@ var startBackoffSchedule = []time.Duration{
 }
 
 func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentInstanceTarget, now time.Time, agentUpdatedAt map[uuid.UUID]time.Time) (bool, error) {
-	runnerCtx, err := runnerIdentityContext(ctx, target.AgentInstanceID.String())
-	if err != nil {
-		return false, err
-	}
-	active, err := r.listWorkloadsByAgentInstance(runnerCtx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
+	active, err := r.listWorkloadsByAgentInstance(ctx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
@@ -37,7 +33,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentInstan
 	if len(active) > 0 {
 		return false, nil
 	}
-	latest, err := r.latestWorkloadByAgentInstance(runnerCtx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
+	latest, err := r.latestWorkloadByAgentInstance(ctx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 	})
@@ -58,7 +54,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentInstan
 	if updatedAt.After(latestRemovedAt) {
 		return true, nil
 	}
-	lastStopped, err := r.latestWorkloadByAgentInstance(runnerCtx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
+	lastStopped, err := r.latestWorkloadByAgentInstance(ctx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
 	})
 	if err != nil {
@@ -74,7 +70,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentInstan
 			resetFloor = stoppedAt
 		}
 	}
-	recentFailures, err := r.listWorkloadsByAgentInstance(runnerCtx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
+	recentFailures, err := r.listWorkloadsByAgentInstance(ctx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 	}, maxStartAttempts+1)
 	if err != nil {
@@ -92,7 +88,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentInstan
 		consecutiveFailures++
 	}
 	if consecutiveFailures >= maxStartAttempts {
-		r.pauseInstance(runnerCtx, target.AgentInstanceID.String(), pauseReasonStartFailuresExhausted)
+		r.pauseInstance(ctx, target.AgentInstanceID.String(), pauseReasonStartFailuresExhausted)
 		return false, nil
 	}
 	if consecutiveFailures == 0 {
@@ -137,7 +133,7 @@ func (r *Reconciler) listWorkloadsByAgentInstance(ctx context.Context, agentInst
 				pageSize = int32(remaining)
 			}
 		}
-		resp, err := r.runners.ListWorkloadsByAgentInstance(internalContext(ctx), &runnersv1.ListWorkloadsByAgentInstanceRequest{
+		resp, err := r.runners.ListWorkloadsByAgentInstance(ctx, &runnersv1.ListWorkloadsByAgentInstanceRequest{
 			AgentInstanceId: agentInstanceID,
 			Statuses:        statuses,
 			PageSize:        pageSize,
@@ -183,7 +179,7 @@ func (r *Reconciler) pauseInstance(ctx context.Context, agentInstanceID, reason 
 	if agentInstanceID == "" {
 		return
 	}
-	ctx = internalContext(ctx)
+	ctx = ctx
 	if _, err := r.agents.PauseInstance(ctx, &agentsv1.PauseInstanceRequest{Id: agentInstanceID, PauseReason: reason}); err != nil {
 		log.Printf("reconciler: pause agent instance %s: %v", agentInstanceID, err)
 	}

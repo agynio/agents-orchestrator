@@ -72,15 +72,15 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	orgIdentities, err := agentIdentityByOrgFrom(agents)
+	organizations, err := agentOrganizationsFrom(agents)
 	if err != nil {
 		return err
 	}
-	workloads, err := r.listPendingSampleWorkloads(ctx, orgIdentities)
+	workloads, err := r.listPendingSampleWorkloads(ctx, organizations)
 	if err != nil {
 		return err
 	}
-	volumes, err := r.listPendingSampleVolumes(ctx, orgIdentities)
+	volumes, err := r.listPendingSampleVolumes(ctx, organizations)
 	if err != nil {
 		return err
 	}
@@ -126,26 +126,26 @@ func (r *Reconciler) sampleMetering(ctx context.Context, now time.Time) error {
 		}
 	}
 	if len(workloadUpdates) > 0 {
-		if _, err := r.runners.BatchUpdateWorkloadSampledAt(internalContext(ctx), &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: workloadUpdates}); err != nil {
+		if _, err := r.runners.BatchUpdateWorkloadSampledAt(ctx, &runnersv1.BatchUpdateWorkloadSampledAtRequest{Entries: workloadUpdates}); err != nil {
 			return fmt.Errorf("update workloads sampled_at: %w", err)
 		}
 	}
 	if len(volumeUpdates) > 0 {
-		if _, err := r.runners.BatchUpdateVolumeSampledAt(internalContext(ctx), &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: volumeUpdates}); err != nil {
+		if _, err := r.runners.BatchUpdateVolumeSampledAt(ctx, &runnersv1.BatchUpdateVolumeSampledAtRequest{Entries: volumeUpdates}); err != nil {
 			return fmt.Errorf("update volumes sampled_at: %w", err)
 		}
 	}
 	return nil
 }
 
-func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Workload, error) {
+func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, organizations map[string]struct{}) ([]*runnersv1.Workload, error) {
 	workloads := []*runnersv1.Workload{}
-	if len(orgIdentities) == 0 {
+	if len(organizations) == 0 {
 		return workloads, nil
 	}
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
+		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  meteringSamplePageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
@@ -174,7 +174,7 @@ func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, orgIdentiti
 			if err != nil {
 				return nil, err
 			}
-			if _, ok := orgIdentities[parsedOrgID.String()]; !ok {
+			if _, ok := organizations[parsedOrgID.String()]; !ok {
 				continue
 			}
 			workloads = append(workloads, workload)
@@ -187,14 +187,14 @@ func (r *Reconciler) listPendingSampleWorkloads(ctx context.Context, orgIdentiti
 	return workloads, nil
 }
 
-func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Volume, error) {
+func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, organizations map[string]struct{}) ([]*runnersv1.Volume, error) {
 	volumes := []*runnersv1.Volume{}
-	if len(orgIdentities) == 0 {
+	if len(organizations) == 0 {
 		return volumes, nil
 	}
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListVolumes(internalContext(ctx), &runnersv1.ListVolumesRequest{
+		resp, err := r.runners.ListVolumes(ctx, &runnersv1.ListVolumesRequest{
 			PageSize:  meteringSamplePageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListVolumesFilter{
@@ -223,7 +223,7 @@ func (r *Reconciler) listPendingSampleVolumes(ctx context.Context, orgIdentities
 			if err != nil {
 				return nil, err
 			}
-			if _, ok := orgIdentities[parsedOrgID.String()]; !ok {
+			if _, ok := organizations[parsedOrgID.String()]; !ok {
 				continue
 			}
 			volumes = append(volumes, volume)

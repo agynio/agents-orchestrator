@@ -60,6 +60,11 @@ type Config struct {
 	LeaseName                 string
 	LeaseNamespace            string
 	EgressCANamespace         string
+	// PlatformIdentityID is the identity this process acts as when it calls a
+	// service that authorizes its caller. Identity registers it from the same
+	// value and grants it admin on the cluster; nothing here may act as anyone
+	// else.
+	PlatformIdentityID uuid.UUID
 }
 
 func FromEnv() (Config, error) {
@@ -256,6 +261,19 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("ZITI_RUNTIME_CONTROLLER_PORT must be greater than 0")
 		}
 	}
+	// Required, and deliberately not defaulted: this process subscribes and
+	// calls as this identity, and a wrong or absent one should stop it here
+	// rather than surface later as a permission denied nobody can place.
+	platformIdentityID := strings.TrimSpace(os.Getenv("PLATFORM_IDENTITY_ID"))
+	if platformIdentityID == "" {
+		return Config{}, fmt.Errorf("PLATFORM_IDENTITY_ID is required")
+	}
+	parsedPlatformIdentityID, err := uuid.Parse(platformIdentityID)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse PLATFORM_IDENTITY_ID: %w", err)
+	}
+	cfg.PlatformIdentityID = parsedPlatformIdentityID
+
 	pollInterval := os.Getenv("POLL_INTERVAL")
 	if pollInterval == "" {
 		cfg.PollInterval = 30 * time.Second

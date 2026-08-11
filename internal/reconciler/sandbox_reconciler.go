@@ -189,7 +189,7 @@ func (r *Reconciler) listSandboxWorkloads(ctx context.Context, sandboxID string)
 	pageToken := ""
 	var workloads []*runnersv1.Workload
 	for {
-		resp, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
+		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
@@ -212,7 +212,7 @@ func (r *Reconciler) listSandboxVolumes(ctx context.Context, sandboxID string) (
 	pageToken := ""
 	var volumes []*runnersv1.Volume
 	for {
-		resp, err := r.runners.ListVolumes(internalContext(ctx), &runnersv1.ListVolumesRequest{
+		resp, err := r.runners.ListVolumes(ctx, &runnersv1.ListVolumesRequest{
 			PageSize:  activeVolumePageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListVolumesFilter{
@@ -244,10 +244,6 @@ func (r *Reconciler) reconcileActiveSandboxWorkload(ctx context.Context, plan *s
 	if ownerID == "" {
 		return fmt.Errorf("sandbox workload %s owner id missing", workload.GetMeta().GetId())
 	}
-	runnerCtx, err := runnerIdentityContext(ctx, ownerID)
-	if err != nil {
-		return err
-	}
 	runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 	if err != nil {
 		return fmt.Errorf("dial runner %s for sandbox workload %s: %w", runnerID, workload.GetMeta().GetId(), err)
@@ -256,7 +252,7 @@ func (r *Reconciler) reconcileActiveSandboxWorkload(ctx context.Context, plan *s
 	if instanceID == "" {
 		return nil
 	}
-	if err := r.handlePresentRunnerWorkload(runnerCtx, runnerClient, workload, &runnerv1.WorkloadListItem{
+	if err := r.handlePresentRunnerWorkload(ctx, runnerClient, workload, &runnerv1.WorkloadListItem{
 		InstanceId:  instanceID,
 		WorkloadKey: workload.GetMeta().GetId(),
 	}); err != nil {
@@ -305,10 +301,6 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 	if err != nil {
 		return fmt.Errorf("dial runner %s: %w", runnerID, err)
 	}
-	runnerCtx, err := runnerIdentityContext(ctx, assembled.OwnerID.String())
-	if err != nil {
-		return err
-	}
 	workloadID := uuid.NewString()
 	request := assembled.Request
 	request.WorkloadId = workloadID
@@ -337,18 +329,18 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		}
 	}
 	if plan.workspaceVolume == nil {
-		if err := r.createSandboxVolumeRecords(runnerCtx, assembled, runnerID); err != nil {
+		if err := r.createSandboxVolumeRecords(ctx, assembled, runnerID); err != nil {
 			r.compensateIdentity(ctx, zitiIdentityID, "sandbox workspace record failure")
 			return err
 		}
 	}
-	if err := r.createSandboxWorkloadRecord(runnerCtx, workloadID, runnerID, assembled, zitiIdentityID); err != nil {
+	if err := r.createSandboxWorkloadRecord(ctx, workloadID, runnerID, assembled, zitiIdentityID); err != nil {
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload record failure")
 		return err
 	}
-	resp, err := runnerClient.StartWorkload(runnerCtx, request)
+	resp, err := runnerClient.StartWorkload(ctx, request)
 	if err != nil {
-		r.markWorkloadFailed(runnerCtx, workloadID, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, err.Error(), nil)
+		r.markWorkloadFailed(ctx, workloadID, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, err.Error(), nil)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox start failure")
 		return err
 	}
@@ -357,21 +349,21 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 	if resp.GetStatus() == runnerv1.WorkloadStatus_WORKLOAD_STATUS_FAILED {
 		failureMessage := failureSummary(resp.GetFailure())
 		if instanceID != "" {
-			if err := r.stopRunnerWorkload(runnerCtx, runnerClient, instanceID); err != nil {
+			if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
 				log.Printf("reconciler: stop sandbox workload %s after failure: %v", instanceID, err)
 			}
 		}
-		r.markWorkloadFailed(runnerCtx, workloadID, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, failureMessage, containers)
+		r.markWorkloadFailed(ctx, workloadID, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, failureMessage, containers)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload failure")
 		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
 	}
 	if resp.GetId() != workloadID {
 		if resp.GetId() != "" {
-			if err := r.stopRunnerWorkload(runnerCtx, runnerClient, resp.GetId()); err != nil {
+			if err := r.stopRunnerWorkload(ctx, runnerClient, resp.GetId()); err != nil {
 				log.Printf("reconciler: stop sandbox workload %s after id mismatch: %v", resp.GetId(), err)
 			}
 		}
-		r.markWorkloadFailed(runnerCtx, workloadID, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "workload id mismatch", containers)
+		r.markWorkloadFailed(ctx, workloadID, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "workload id mismatch", containers)
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload id mismatch")
 		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
 	}
@@ -384,7 +376,7 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
 		updateReq.Status = &status
 	}
-	if _, err = r.runners.UpdateWorkload(internalContext(runnerCtx), updateReq); err != nil {
+	if _, err = r.runners.UpdateWorkload(ctx, updateReq); err != nil {
 		return err
 	}
 	if resp.GetStatus() == runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
@@ -466,7 +458,7 @@ func (r *Reconciler) createSandboxWorkloadRecord(ctx context.Context, workloadID
 	if zitiIdentityID != nil {
 		zitiIdentityValue = *zitiIdentityID
 	}
-	_, err := r.runners.CreateWorkload(internalContext(ctx), &runnersv1.CreateWorkloadRequest{
+	_, err := r.runners.CreateWorkload(ctx, &runnersv1.CreateWorkloadRequest{
 		Id:                     workloadID,
 		RunnerId:               runnerID,
 		OrganizationId:         assembled.OrganizationID,
@@ -487,7 +479,7 @@ func (r *Reconciler) createSandboxVolumeRecords(ctx context.Context, assembled *
 		return err
 	}
 	for _, record := range records {
-		if _, err := r.runners.CreateVolume(internalContext(ctx), &runnersv1.CreateVolumeRequest{
+		if _, err := r.runners.CreateVolume(ctx, &runnersv1.CreateVolumeRequest{
 			Id:                 record.id,
 			RunnerId:           runnerID,
 			OrganizationId:     assembled.OrganizationID,
@@ -545,11 +537,7 @@ func (r *Reconciler) stopSandboxWorkload(ctx context.Context, workload *runnersv
 	if ownerID == "" {
 		ownerID = strings.TrimSpace(workload.GetAgentId())
 	}
-	runnerCtx, err := runnerIdentityContext(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	if err := r.stopWorkloadWithContext(runnerCtx, workload); err != nil {
+	if err := r.stopWorkloadWithContext(ctx, workload); err != nil {
 		return err
 	}
 	if r.zitiMgmt == nil || workload.GetZitiIdentityId() == "" {
@@ -583,21 +571,17 @@ func (r *Reconciler) deleteSandboxWorkspace(ctx context.Context, plan *sandboxWo
 	if ownerID == "" {
 		ownerID = strings.TrimSpace(volume.GetAgentId())
 	}
-	runnerCtx, err := runnerIdentityContext(ctx, ownerID)
-	if err != nil {
-		return err
-	}
 	if volume.GetRunnerId() != "" {
 		runnerClient, err := r.runnerDialer.Dial(ctx, volume.GetRunnerId())
 		if err != nil {
 			return err
 		}
-		if _, err := runnerClient.RemoveVolume(runnerCtx, &runnerv1.RemoveVolumeRequest{VolumeName: volume.GetMeta().GetId(), Force: true}); err != nil {
+		if _, err := runnerClient.RemoveVolume(ctx, &runnerv1.RemoveVolumeRequest{VolumeName: volume.GetMeta().GetId(), Force: true}); err != nil {
 			return err
 		}
 	}
 	status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
-	_, err = r.runners.UpdateVolume(internalContext(runnerCtx), &runnersv1.UpdateVolumeRequest{
+	_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
 		Id:        volume.GetMeta().GetId(),
 		Status:    &status,
 		RemovedAt: timestamppb.New(time.Now().UTC()),
@@ -613,7 +597,7 @@ func (r *Reconciler) markSandboxWorkspaceFailed(ctx context.Context, existing *r
 		return
 	}
 	status := runnersv1.VolumeStatus_VOLUME_STATUS_FAILED
-	_, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
+	_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
 		Id:        volumeID,
 		Status:    &status,
 		RemovedAt: timestamppb.New(time.Now().UTC()),

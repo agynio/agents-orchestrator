@@ -159,7 +159,7 @@ func run() error {
 		defer closeConn(groupsConn)
 		groupsClient = groupsv1.NewGroupsServiceClient(groupsConn)
 	}
-	subscriber := subscriber.New(notificationsClient, agentsClient)
+	subscriber := subscriber.New(notificationsClient, cfg.PlatformIdentityID)
 	egressCANamespace, err := k8sclient.ResolveNamespace(cfg.EgressCANamespace, "egress CA")
 	if err != nil {
 		return err
@@ -225,6 +225,7 @@ func run() error {
 		Idle:                      cfg.IdleTimeout,
 		StopSec:                   cfg.StopTimeoutSec,
 		MeteringSampleInterval:    cfg.MeteringSampleInterval,
+		PlatformIdentityID:        cfg.PlatformIdentityID,
 	})
 	if imageProxyClient != nil {
 		reconciler.WithImageProxy(imageProxyClient, cfg.ImageProxyHost)

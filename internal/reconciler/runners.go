@@ -26,7 +26,7 @@ func (r *Reconciler) listRunners(ctx context.Context, organizationID string) ([]
 	var runners []*runnersv1.Runner
 	pageToken := ""
 	for {
-		resp, err := r.runners.ListRunners(internalContext(ctx), &runnersv1.ListRunnersRequest{
+		resp, err := r.runners.ListRunners(ctx, &runnersv1.ListRunnersRequest{
 			PageSize:       runnerPageSize,
 			PageToken:      pageToken,
 			OrganizationId: &orgID,
@@ -43,12 +43,12 @@ func (r *Reconciler) listRunners(ctx context.Context, organizationID string) ([]
 	return runners, nil
 }
 
-func (r *Reconciler) listRunnersByOrg(ctx context.Context, orgIdentities map[string]string) ([]*runnersv1.Runner, error) {
-	if len(orgIdentities) == 0 {
+func (r *Reconciler) listRunnersByOrg(ctx context.Context, organizations map[string]struct{}) ([]*runnersv1.Runner, error) {
+	if len(organizations) == 0 {
 		return nil, nil
 	}
 	var runners []*runnersv1.Runner
-	for orgID := range orgIdentities {
+	for orgID := range organizations {
 		orgRunners, err := r.listRunners(ctx, orgID)
 		if err != nil {
 			return nil, err

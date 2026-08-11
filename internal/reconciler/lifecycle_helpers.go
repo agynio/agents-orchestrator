@@ -49,7 +49,7 @@ func (r *Reconciler) markWorkloadFailed(ctx context.Context, workloadID string, 
 	if len(containers) > 0 {
 		req.Containers = containers
 	}
-	if _, err := r.runners.UpdateWorkload(internalContext(ctx), req); err != nil {
+	if _, err := r.runners.UpdateWorkload(ctx, req); err != nil {
 		log.Printf("reconciler: update workload %s to failed: %v", workloadID, err)
 	}
 }
@@ -64,7 +64,7 @@ func (r *Reconciler) markVolumeRecordsFailed(ctx context.Context, records []volu
 		if record.id == "" {
 			continue
 		}
-		_, err := r.runners.UpdateVolume(internalContext(ctx), &runnersv1.UpdateVolumeRequest{
+		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
 			Id:        record.id,
 			Status:    &status,
 			RemovedAt: removedAt,
@@ -83,7 +83,7 @@ func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runne
 	}
 	agentClassID := target.AgentID.String()
 	agentInstanceID := target.AgentInstanceID.String()
-	_, err := r.runners.CreateWorkload(internalContext(ctx), &runnersv1.CreateWorkloadRequest{
+	_, err := r.runners.CreateWorkload(ctx, &runnersv1.CreateWorkloadRequest{
 		Id:                     workloadID,
 		RunnerId:               runnerID,
 		ThreadId:               agentInstanceID,
@@ -134,7 +134,7 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 			AgentClassId:       &agentClassID,
 			AgentInstanceId:    &agentInstanceID,
 		}
-		if _, err := r.runners.CreateVolume(internalContext(ctx), req); err != nil {
+		if _, err := r.runners.CreateVolume(ctx, req); err != nil {
 			if status.Code(err) != codes.AlreadyExists {
 				return created, err
 			}
@@ -149,7 +149,7 @@ func (r *Reconciler) createVolumeRecords(ctx context.Context, records []volumeRe
 }
 
 func (r *Reconciler) prepareExistingVolumeRecord(ctx context.Context, req *runnersv1.CreateVolumeRequest) error {
-	resp, err := r.runners.GetVolume(internalContext(ctx), &runnersv1.GetVolumeRequest{Id: req.GetId()})
+	resp, err := r.runners.GetVolume(ctx, &runnersv1.GetVolumeRequest{Id: req.GetId()})
 	if err != nil {
 		return err
 	}

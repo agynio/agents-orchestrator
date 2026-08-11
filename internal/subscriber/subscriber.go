@@ -6,55 +6,56 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"sort"
-	"strings"
 	"time"
 
-	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/notifications/v1"
-	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/metadata"
 )
 
 const (
-	messageCreatedEvent     = "message.created"
-	instanceUpdatedEvent    = "instance.updated"
-	sandboxUpdatedEvent     = "sandbox.updated"
-	agentInstanceRoomPrefix = "agent_instance:"
-	instanceInboxRoomPrefix = "instance_inbox:"
-	sandboxOrgRoomPrefix    = "sandbox_org:"
-	identityMetadataKey     = "x-identity-id"
-	// Notifications settles an instance's own rooms by identity, and reads the
-	// type as well: only an agent_instance may subscribe to an instance inbox.
-	// The Gateway attaches this for callers that arrive through it; this
-	// subscriber reaches Notifications over the mesh and has to say so itself.
-	identityTypeMetadataKey          = "x-identity-type"
-	agentInstanceIdentityType        = "agent_instance"
-	listInstancesPageSize      int32 = 100
-	defaultRoomRefreshInterval       = 30 * time.Second
+	messageCreatedEvent  = "message.created"
+	instanceUpdatedEvent = "instance.updated"
+	sandboxUpdatedEvent  = "sandbox.updated"
+	// The runner reporting what it saw, rather than the platform having asked.
+	workloadStatusChangedEvent = "workload.status_changed"
+	identityMetadataKey        = "x-identity-id"
+	identityTypeMetadataKey    = "x-identity-type"
+	// The Orchestrator subscribes as itself. It reaches Notifications over the
+	// mesh rather than through the Gateway, so it states its own identity, and
+	// Notifications settles the claim against admin on cluster:global rather
+	// than taking the header for it.
+	platformIdentityType = "platform"
 )
 
-type roomSubscription struct {
-	identityID uuid.UUID
-	rooms      []string
-}
+// rooms is the whole subscription, and it is a constant.
+//
+// It used to be derived: one room per active instance, plus one per
+// organization that had a sandbox, rebuilt every thirty seconds from a full
+// listing of both. That cannot be made correct. The Orchestrator reconciles
+// every instance and sandbox in the cluster, and the event announcing one in an
+// organization it had not yet enumerated went to a room nobody held -- these
+// are Redis pub/sub, so it was simply dropped, and the sandbox waited for the
+// reconcile tick instead. Naming the rooms outright removes the listing, the
+// re-derivation, the resubscribe on every change, and the gap.
+var rooms = []string{"agent_instances", "sandboxes", "workloads"}
 
 type Subscriber struct {
-	client              notificationsv1.NotificationsServiceClient
-	agents              agentsClient
-	wake                chan struct{}
-	sandboxWake         chan struct{}
-	roomRefreshInterval time.Duration
+	client      notificationsv1.NotificationsServiceClient
+	identityID  uuid.UUID
+	wake        chan struct{}
+	sandboxWake chan struct{}
 }
 
-func New(client notificationsv1.NotificationsServiceClient, agents agentsClient) *Subscriber {
+// New builds the subscriber. identityID is the platform identity this process
+// runs as -- the one Identity registers from configuration and grants cluster
+// admin -- and the subscription is made as it.
+func New(client notificationsv1.NotificationsServiceClient, identityID uuid.UUID) *Subscriber {
 	return &Subscriber{
-		client:              client,
-		agents:              agents,
-		wake:                make(chan struct{}, 1),
-		sandboxWake:         make(chan struct{}, 1),
-		roomRefreshInterval: defaultRoomRefreshInterval,
+		client:      client,
+		identityID:  identityID,
+		wake:        make(chan struct{}, 1),
+		sandboxWake: make(chan struct{}, 1),
 	}
 }
 
@@ -64,35 +65,20 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		subscriptions, fingerprint, err := s.buildRoomSubscriptions(ctx)
-		if err != nil {
-			log.Printf("subscriber: build rooms failed: %v", err)
-			if err := waitWithBackoff(ctx, backoff); err != nil {
-				return err
-			}
-			backoff = nextBackoff(backoff)
-			continue
-		}
-
-		runCtx, cancel := context.WithCancel(ctx)
-		roomsUpdated := make(chan struct{})
-		go s.watchRooms(runCtx, fingerprint, roomsUpdated, cancel)
-
-		err = s.runSubscriptions(runCtx, subscriptions, roomsUpdated)
-		cancel()
+		err := s.runSubscription(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if errors.Is(err, errRoomsChanged) {
-			log.Printf("subscriber: agent instance rooms changed, resubscribing")
-			backoff = time.Second
-			continue
+		if err != nil {
+			log.Printf("subscriber: %v", err)
+		}
+		// Paced whether or not that was an error: a stream closed cleanly the
+		// moment it opens is still a reconnect loop, and reconnecting with no
+		// delay at all would spin on it.
+		if waitErr := waitWithBackoff(ctx, backoff); waitErr != nil {
+			return waitErr
 		}
 		if err != nil {
-			log.Printf("subscriber: subscriptions failed: %v", err)
-			if err := waitWithBackoff(ctx, backoff); err != nil {
-				return err
-			}
 			backoff = nextBackoff(backoff)
 			continue
 		}
@@ -100,54 +86,15 @@ func (s *Subscriber) Run(ctx context.Context) error {
 	}
 }
 
-var errRoomsChanged = errors.New("rooms changed")
-
-// runSubscriptions holds every room until the room set changes or the context
-// ends. Each subscription reconnects on its own: one instance the platform can
-// no longer resolve used to end the whole set, and every wake delivered while
-// the rest were being rebuilt was lost.
-func (s *Subscriber) runSubscriptions(ctx context.Context, subscriptions []roomSubscription, roomsUpdated <-chan struct{}) error {
-	for _, subscription := range subscriptions {
-		subscription := subscription
-		go s.keepSubscribed(ctx, subscription)
-	}
-
-	select {
-	case <-roomsUpdated:
-		return errRoomsChanged
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// keepSubscribed reconnects a single subscription until its context ends.
-func (s *Subscriber) keepSubscribed(ctx context.Context, subscription roomSubscription) {
-	backoff := time.Second
-	for {
-		err := s.runSubscription(ctx, subscription)
-		if ctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			log.Printf("subscriber: %v", err)
-		}
-		if waitWithBackoff(ctx, backoff) != nil {
-			return
-		}
-		backoff = nextBackoff(backoff)
-	}
-}
-
-func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubscription) error {
+func (s *Subscriber) runSubscription(ctx context.Context) error {
 	streamCtx := metadata.AppendToOutgoingContext(ctx,
-		identityMetadataKey, subscription.identityID.String(),
-		identityTypeMetadataKey, agentInstanceIdentityType,
+		identityMetadataKey, s.identityID.String(),
+		identityTypeMetadataKey, platformIdentityType,
 	)
-	stream, err := s.client.Subscribe(streamCtx, &notificationsv1.SubscribeRequest{Rooms: subscription.rooms})
+	stream, err := s.client.Subscribe(streamCtx, &notificationsv1.SubscribeRequest{Rooms: rooms})
 	if err != nil {
-		return fmt.Errorf("subscribe as agent instance %s: %w", subscription.identityID.String(), err)
+		return fmt.Errorf("subscribe: %w", err)
 	}
-
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
@@ -158,7 +105,7 @@ func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubsc
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			return fmt.Errorf("stream recv for agent instance %s: %w", subscription.identityID.String(), err)
+			return fmt.Errorf("stream recv: %w", err)
 		}
 		envelope := resp.GetEnvelope()
 		if envelope == nil {
@@ -175,181 +122,17 @@ func (s *Subscriber) runSubscription(ctx context.Context, subscription roomSubsc
 			case s.sandboxWake <- struct{}{}:
 			default:
 			}
-		}
-	}
-}
-
-func (s *Subscriber) buildRoomSubscriptions(ctx context.Context) ([]roomSubscription, string, error) {
-	if s.agents == nil {
-		return nil, "", errors.New("agents client not configured")
-	}
-	roomsByIdentity := map[uuid.UUID]map[string]struct{}{}
-	sandboxOrgIdentities := map[string]uuid.UUID{}
-	pageToken := ""
-	for {
-		resp, err := s.agents.ListInstances(ctx, &agentsv1.ListInstancesRequest{
-			PageSize:  listInstancesPageSize,
-			PageToken: pageToken,
-			StateIn:   []agentsv1.AgentInstanceState{agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_ACTIVE},
-		})
-		if err != nil {
-			return nil, "", fmt.Errorf("list agent instances: %w", err)
-		}
-		for _, instance := range resp.GetInstances() {
-			if instance == nil {
-				return nil, "", fmt.Errorf("agent instance is nil")
+		// A workload backs an agent instance or a sandbox, and the event does
+		// not say which, so both loops are woken. Each is a cheap no-op when the
+		// workload was not its own.
+		case workloadStatusChangedEvent:
+			select {
+			case s.wake <- struct{}{}:
+			default:
 			}
-			meta := instance.GetMeta()
-			if meta == nil {
-				return nil, "", fmt.Errorf("agent instance meta missing")
-			}
-			instanceID := strings.TrimSpace(meta.GetId())
-			parsedInstanceID, err := uuidutil.ParseUUID(instanceID, "agent_instance.meta.id")
-			if err != nil {
-				return nil, "", err
-			}
-			rooms := roomsByIdentity[parsedInstanceID]
-			if rooms == nil {
-				rooms = map[string]struct{}{}
-				roomsByIdentity[parsedInstanceID] = rooms
-			}
-			instanceID = parsedInstanceID.String()
-			rooms[agentInstanceRoomPrefix+instanceID] = struct{}{}
-			rooms[instanceInboxRoomPrefix+instanceID] = struct{}{}
-			// Sandbox rooms are per organization, so one instance identity per
-			// org is elected to hold the subscription.
-			orgID := strings.TrimSpace(instance.GetOrganizationId())
-			if orgID == "" {
-				continue
-			}
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "agent_instance.organization_id")
-			if err != nil {
-				return nil, "", err
-			}
-			if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; !ok {
-				sandboxOrgIdentities[parsedOrgID.String()] = parsedInstanceID
-			}
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
-		}
-	}
-	// Not fatal: losing the sandbox rooms costs a wake, while failing here would
-	// drop the agent rooms that were built successfully.
-	if err := s.addSandboxOrganizations(ctx, sandboxOrgIdentities); err != nil {
-		log.Printf("subscriber: warn: sandbox organizations: %v", err)
-	}
-	if len(roomsByIdentity) == 0 && len(sandboxOrgIdentities) == 0 {
-		return nil, "", fmt.Errorf("no agent instance or sandbox rooms available")
-	}
-	sandboxOrgRooms, err := s.sandboxOrgRooms(roomsByIdentity, sandboxOrgIdentities)
-	if err != nil {
-		return nil, "", err
-	}
-
-	identityIDs := make([]uuid.UUID, 0, len(roomsByIdentity))
-	for identityID := range roomsByIdentity {
-		identityIDs = append(identityIDs, identityID)
-	}
-	sort.Slice(identityIDs, func(i, j int) bool { return identityIDs[i].String() < identityIDs[j].String() })
-
-	subscriptions := make([]roomSubscription, 0, len(identityIDs))
-	fingerprints := make([]string, 0, len(identityIDs))
-	for _, identityID := range identityIDs {
-		rooms := sortedRooms(roomsByIdentity[identityID])
-		fingerprint := identityID.String() + ":" + strings.Join(rooms, ",")
-		subscriptions = append(subscriptions, roomSubscription{
-			identityID: identityID,
-			rooms:      rooms,
-		})
-		fingerprints = append(fingerprints, fingerprint)
-	}
-	// Kept out of the subscriptions above rather than folded into them.
-	// Notifications refuses a whole Subscribe when any one room is
-	// unauthorized, and an instance identity cannot hold can_list_sandboxes --
-	// it is a member of its organization, and that room wants the owner. Bundled
-	// together, the sandbox room took the instance's own inbox down with it and
-	// no delivery ever woke the reconciler.
-	for _, identityID := range sortedIdentities(sandboxOrgRooms) {
-		rooms := sortedRooms(sandboxOrgRooms[identityID])
-		subscriptions = append(subscriptions, roomSubscription{
-			identityID: identityID,
-			rooms:      rooms,
-		})
-		fingerprints = append(fingerprints, identityID.String()+":"+strings.Join(rooms, ","))
-	}
-	return subscriptions, strings.Join(fingerprints, "|"), nil
-}
-
-func sortedIdentities(roomsByIdentity map[uuid.UUID]map[string]struct{}) []uuid.UUID {
-	identityIDs := make([]uuid.UUID, 0, len(roomsByIdentity))
-	for identityID := range roomsByIdentity {
-		identityIDs = append(identityIDs, identityID)
-	}
-	sort.Slice(identityIDs, func(i, j int) bool { return identityIDs[i].String() < identityIDs[j].String() })
-	return identityIDs
-}
-
-// sandboxOrgRooms elects one identity per organization to watch its org-level
-// sandbox room, so sandbox status changes wake the sandbox loop without waiting
-// for the next poll tick. The result is subscribed separately from the instance
-// rooms; see the caller.
-func (s *Subscriber) sandboxOrgRooms(roomsByIdentity map[uuid.UUID]map[string]struct{}, sandboxOrgIdentities map[string]uuid.UUID) (map[uuid.UUID]map[string]struct{}, error) {
-	roomsByElected := map[uuid.UUID]map[string]struct{}{}
-	for orgID, identityID := range sandboxOrgIdentities {
-		if _, ok := roomsByIdentity[identityID]; !ok {
-			continue
-		}
-		rooms, ok := roomsByElected[identityID]
-		if !ok {
-			rooms = map[string]struct{}{}
-			roomsByElected[identityID] = rooms
-		}
-		rooms[sandboxOrgRoomPrefix+orgID] = struct{}{}
-	}
-	return roomsByElected, nil
-}
-
-func lowestIdentity(roomsByIdentity map[uuid.UUID]map[string]struct{}) uuid.UUID {
-	var lowest uuid.UUID
-	for identityID := range roomsByIdentity {
-		if lowest == uuid.Nil || identityID.String() < lowest.String() {
-			lowest = identityID
-		}
-	}
-	return lowest
-}
-
-func sortedRooms(rooms map[string]struct{}) []string {
-	ordered := make([]string, 0, len(rooms))
-	for room := range rooms {
-		ordered = append(ordered, room)
-	}
-	sort.Strings(ordered)
-	return ordered
-}
-
-func (s *Subscriber) watchRooms(ctx context.Context, fingerprint string, updated chan<- struct{}, cancel context.CancelFunc) {
-	if s.roomRefreshInterval <= 0 {
-		return
-	}
-	ticker := time.NewTicker(s.roomRefreshInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			_, nextFingerprint, err := s.buildRoomSubscriptions(ctx)
-			if err != nil {
-				log.Printf("subscriber: refresh rooms failed: %v", err)
-				continue
-			}
-			if nextFingerprint != fingerprint {
-				close(updated)
-				cancel()
-				return
+			select {
+			case s.sandboxWake <- struct{}{}:
+			default:
 			}
 		}
 	}
@@ -388,47 +171,4 @@ func nextBackoff(current time.Duration) time.Duration {
 		return 30 * time.Second
 	}
 	return next
-}
-
-// addSandboxOrganizations elects an identity to watch each organization that
-// runs a sandbox. The election used to read only agent instances, so an
-// organization with sandboxes and no agent got no room at all -- its sandbox
-// state changes then waited for the reconcile tick rather than waking it, which
-// on the default interval is a minute per transition.
-func (s *Subscriber) addSandboxOrganizations(ctx context.Context, sandboxOrgIdentities map[string]uuid.UUID) error {
-	pageToken := ""
-	for {
-		resp, err := s.agents.ListSandboxes(ctx, &agentsv1.ListSandboxesRequest{
-			PageSize:  listInstancesPageSize,
-			PageToken: pageToken,
-		})
-		if err != nil {
-			return fmt.Errorf("list sandboxes: %w", err)
-		}
-		for _, sandbox := range resp.GetSandboxes() {
-			orgID := strings.TrimSpace(sandbox.GetOrganizationId())
-			if orgID == "" {
-				continue
-			}
-			parsedOrgID, err := uuidutil.ParseUUID(orgID, "sandbox.organization_id")
-			if err != nil {
-				return err
-			}
-			if _, ok := sandboxOrgIdentities[parsedOrgID.String()]; ok {
-				continue
-			}
-			// The room is org-scoped rather than identity-scoped, so the sandbox
-			// itself can hold the subscription when no agent exists to elect.
-			ownerID := strings.TrimSpace(sandbox.GetMeta().GetId())
-			parsedOwnerID, err := uuidutil.ParseUUID(ownerID, "sandbox.meta.id")
-			if err != nil {
-				return err
-			}
-			sandboxOrgIdentities[parsedOrgID.String()] = parsedOwnerID
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			return nil
-		}
-	}
 }

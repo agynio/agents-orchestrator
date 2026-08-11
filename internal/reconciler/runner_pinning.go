@@ -18,7 +18,7 @@ func (r *Reconciler) pinnedRunnerForAgentInstance(ctx context.Context, agentInst
 	pageToken := ""
 	runnerID := ""
 	for {
-		resp, err := r.runners.ListVolumesByAgentInstance(internalContext(ctx), &runnersv1.ListVolumesByAgentInstanceRequest{
+		resp, err := r.runners.ListVolumesByAgentInstance(ctx, &runnersv1.ListVolumesByAgentInstanceRequest{
 			AgentInstanceId: agentInstanceID,
 			PageSize:        volumesByAgentInstancePageSize,
 			PageToken:       pageToken,
@@ -72,7 +72,7 @@ func (r *Reconciler) getRunnerIfEnrolled(ctx context.Context, runnerID string) (
 	if runnerID == "" {
 		return nil, false, fmt.Errorf("runner id missing")
 	}
-	resp, err := r.runners.GetRunner(internalContext(ctx), &runnersv1.GetRunnerRequest{Id: runnerID})
+	resp, err := r.runners.GetRunner(ctx, &runnersv1.GetRunnerRequest{Id: runnerID})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil, false, nil

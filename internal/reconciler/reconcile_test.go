@@ -1428,37 +1428,57 @@ func TestReconcileVolumesKeepsReusedPersistentVolume(t *testing.T) {
 	}
 }
 
-func TestRunnerIdentityForWorkloadsUsesTrackedWorkloadForClusterRunner(t *testing.T) {
+func TestRunnerInScopeAcceptsClusterRunnerWithTrackedWorkloads(t *testing.T) {
 	workloads := map[string]*runnersv1.Workload{
 		"workload-1": {AgentId: testAgentID, AgentInstanceId: stringPtr(testAgentID)},
 	}
-	identityID, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, workloads)
+	inScope, err := runnerInScope("runner-1", "", map[string]struct{}{testOrganizationID: {}}, workloads)
 	if err != nil {
-		t.Fatalf("runner identity: %v", err)
+		t.Fatalf("runner in scope: %v", err)
 	}
-	if identityID != testAgentID {
-		t.Fatalf("expected workload identity %s, got %s", testAgentID, identityID)
+	if !inScope {
+		t.Fatal("expected a cluster runner carrying tracked workloads to be in scope")
 	}
 }
 
-func TestRunnerIdentityForWorkloadsIgnoresUntrackedClusterRunner(t *testing.T) {
-	identityID, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, nil)
+func TestRunnerInScopeIgnoresUntrackedClusterRunner(t *testing.T) {
+	inScope, err := runnerInScope("runner-1", "", map[string]struct{}{testOrganizationID: {}}, nil)
 	if err == nil {
 		t.Fatal("expected missing organization error")
 	}
-	if identityID != "" {
-		t.Fatalf("expected empty identity, got %s", identityID)
+	if inScope {
+		t.Fatal("expected a runner with no organization and no workloads to be out of scope")
 	}
 }
 
-func TestRunnerIdentityForWorkloadsRejectsAmbiguousClusterRunner(t *testing.T) {
+// A runner whose organization has no agents is simply not this reconciler's,
+// and skipping it is not an error -- it used to be one, because there was no
+// identity to borrow for that organization.
+func TestRunnerInScopeSkipsUnknownOrganization(t *testing.T) {
+	inScope, err := runnerInScope("runner-1", uuid.New().String(), map[string]struct{}{testOrganizationID: {}}, nil)
+	if err != nil {
+		t.Fatalf("runner in scope: %v", err)
+	}
+	if inScope {
+		t.Fatal("expected a runner in an organization with no agents to be out of scope")
+	}
+}
+
+// Two owners on one runner used to be rejected outright: there was no single
+// identity to impersonate for calls about it. Nothing is impersonated now, so
+// the runner is reconciled like any other.
+func TestRunnerInScopeAcceptsMixedOwnersOnClusterRunner(t *testing.T) {
 	otherAgentID := uuid.New().String()
 	workloads := map[string]*runnersv1.Workload{
 		"workload-1": {AgentId: testAgentID, AgentInstanceId: stringPtr(testAgentID)},
 		"workload-2": {AgentId: otherAgentID, AgentInstanceId: stringPtr(otherAgentID)},
 	}
-	if _, err := runnerIdentityForWorkloads("runner-1", "", map[string]string{testOrganizationID: testAgentID}, workloads); err == nil {
-		t.Fatal("expected multiple identities error")
+	inScope, err := runnerInScope("runner-1", "", map[string]struct{}{testOrganizationID: {}}, workloads)
+	if err != nil {
+		t.Fatalf("runner in scope: %v", err)
+	}
+	if !inScope {
+		t.Fatal("expected a runner carrying two owners to be in scope")
 	}
 }
 

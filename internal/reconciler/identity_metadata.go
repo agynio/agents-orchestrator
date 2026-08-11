@@ -7,48 +7,36 @@ import (
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
-	"github.com/google/uuid"
 	"google.golang.org/grpc/metadata"
 )
 
-const identityMetadataKey = "x-identity-id"
+// The reconciler names no principal on any call it makes.
+//
+// It used to. Every call to Runners carried an x-identity-id, and the id was
+// whichever agent happened to be convenient -- the instance whose workload was
+// being placed, or the first agent found in the organization being listed. That
+// is a platform service claiming to be one of the things it manages, done so the
+// callee's per-principal checks would let it through.
+//
+// Runners and Agents already serve an absent x-identity-id as a platform call:
+// see identityFromMetadataOptional in Runners, which skips the organization
+// filter entirely when no caller is named. So the reconciler names none, which
+// is both honest and what lets it list the whole cluster in one call instead of
+// once per organization. Groups is the exception -- it needs a caller -- and
+// there the Orchestrator sends its own platform identity, which Groups settles
+// against cluster admin.
 
-func runnerIdentityContext(ctx context.Context, identityID string) (context.Context, error) {
-	identityID = strings.TrimSpace(identityID)
-	if _, err := uuidutil.ParseUUID(identityID, "identity_id"); err != nil {
-		return nil, err
-	}
-	return metadata.NewOutgoingContext(ctx, metadata.Pairs(identityMetadataKey, identityID)), nil
-}
-
-func (r *Reconciler) runnerIdentityContextForAgent(ctx context.Context, agentID uuid.UUID) (context.Context, error) {
-	return runnerIdentityContext(ctx, agentID.String())
-}
-
-// internalContext drops the caller identity so the callee serves this as a
-// platform call rather than one made on some principal's behalf. Runners and
-// Agents both read an absent x-identity-id that way; the reconciler acts for
-// the platform, and the identities it does carry elsewhere belong to the agent
-// instance whose workload it is placing, not to it.
-func internalContext(ctx context.Context) context.Context {
-	md, ok := metadata.FromOutgoingContext(ctx)
-	if !ok {
-		return ctx
-	}
-	if len(md.Get(identityMetadataKey)) == 0 {
-		return ctx
-	}
-	cleaned := md.Copy()
-	cleaned.Delete(identityMetadataKey)
-	return metadata.NewOutgoingContext(ctx, cleaned)
-}
-
-func (r *Reconciler) agentIdentityByOrg(ctx context.Context) (map[string]string, error) {
+// agentOrganizations is the set of organizations that have at least one agent.
+//
+// This used to be a map of organization to a borrowed agent identity, and both
+// halves were used: the keys to decide which workloads this reconciler owns, and
+// the values as a credential. Only the keys were ever legitimate.
+func (r *Reconciler) agentOrganizations(ctx context.Context) (map[string]struct{}, error) {
 	agents, err := r.listAllAgents(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return agentIdentityByOrgFrom(agents)
+	return agentOrganizationsFrom(agents)
 }
 
 // listAllAgents pages every agent the platform knows about. Callers that need
@@ -75,8 +63,8 @@ func (r *Reconciler) listAllAgents(ctx context.Context) ([]*agentsv1.Agent, erro
 	}
 }
 
-func agentIdentityByOrgFrom(agents []*agentsv1.Agent) (map[string]string, error) {
-	orgIdentities := map[string]string{}
+func agentOrganizationsFrom(agents []*agentsv1.Agent) (map[string]struct{}, error) {
+	organizations := map[string]struct{}{}
 	for _, agent := range agents {
 		if agent == nil {
 			return nil, fmt.Errorf("agent is nil")
@@ -85,9 +73,7 @@ func agentIdentityByOrgFrom(agents []*agentsv1.Agent) (map[string]string, error)
 		if meta == nil {
 			return nil, fmt.Errorf("agent meta missing")
 		}
-		agentID := strings.TrimSpace(meta.GetId())
-		parsedAgentID, err := uuidutil.ParseUUID(agentID, "agent.meta.id")
-		if err != nil {
+		if _, err := uuidutil.ParseUUID(strings.TrimSpace(meta.GetId()), "agent.meta.id"); err != nil {
 			return nil, err
 		}
 		orgID := strings.TrimSpace(agent.GetOrganizationId())
@@ -95,11 +81,22 @@ func agentIdentityByOrgFrom(agents []*agentsv1.Agent) (map[string]string, error)
 		if err != nil {
 			return nil, err
 		}
-		orgIDValue := parsedOrgID.String()
-		if _, ok := orgIdentities[orgIDValue]; ok {
-			continue
-		}
-		orgIdentities[orgIDValue] = parsedAgentID.String()
+		organizations[parsedOrgID.String()] = struct{}{}
 	}
-	return orgIdentities, nil
+	return organizations, nil
 }
+
+// platformContext names the Orchestrator's own identity, for the callees that
+// require a caller rather than serving an absent one as the platform.
+func (r *Reconciler) platformContext(ctx context.Context) context.Context {
+	return metadata.NewOutgoingContext(ctx, metadata.Pairs(
+		identityMetadataKey, r.platformIdentityID.String(),
+		identityTypeMetadataKey, platformIdentityType,
+	))
+}
+
+const (
+	identityMetadataKey     = "x-identity-id"
+	identityTypeMetadataKey = "x-identity-type"
+	platformIdentityType    = "platform"
+)

@@ -182,25 +182,21 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 			RequiredCapabilities: []string{zitiRequiredCapabilityNetAdmin},
 			AdditionalProperties: map[string]string{zitiRestartPolicyKey: zitiRestartPolicyAlways},
 		}
-		zitiGatewayWait := &runnerv1.ContainerSpec{
+		zitiWait := &runnerv1.ContainerSpec{
 			Image:      a.cfg.ZitiSidecarImage,
-			Name:       zitiGatewayWaitContainerName,
+			Name:       zitiWaitContainerName,
 			Entrypoint: zitiSidecarEntrypoint,
-			Cmd:        buildZitiGatewayWaitCommand(a.cfg.AgentGatewayAddress, a.cfg.WorkloadDNSUpstream),
-		}
-		zitiServiceWait := &runnerv1.ContainerSpec{
-			Image:      a.cfg.ZitiSidecarImage,
-			Name:       zitiServiceWaitContainerName,
-			Entrypoint: zitiSidecarEntrypoint,
-			Cmd:        buildZitiServiceWaitCommand(llmProxyTarget, a.cfg.WorkloadDNSUpstream),
+			Cmd:        buildZitiWaitCommand(a.cfg.AgentGatewayAddress, llmProxyTarget, a.cfg.WorkloadDNSUpstream),
 		}
 		applyEgressCA(zitiEnroll, a.egressCACert)
 		applyEgressCA(zitiSidecar, a.egressCACert)
-		applyEgressCA(zitiGatewayWait, a.egressCACert)
-		applyEgressCA(zitiServiceWait, a.egressCACert)
-		// Ziti runs before the binaries land, so the agyn-bin init containers
-		// follow it rather than being replaced by it.
-		initContainers = append([]*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar, zitiGatewayWait, zitiServiceWait}, initContainers...)
+		applyEgressCA(zitiWait, a.egressCACert)
+		// The binaries land while the overlay is coming up; see the agent path
+		// for why the order is the lever.
+		initContainers = append(
+			append([]*runnerv1.ContainerSpec{zitiEnroll, zitiSidecar}, initContainers...),
+			zitiWait,
+		)
 		volumes = append(volumes, &runnerv1.VolumeSpec{Name: zitiIdentityVolumeName, Kind: runnerv1.VolumeKind_VOLUME_KIND_EPHEMERAL})
 	}
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })

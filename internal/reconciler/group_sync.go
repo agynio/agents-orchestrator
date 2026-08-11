@@ -62,10 +62,9 @@ func (r *Reconciler) agentGroupRoleAttributes(ctx context.Context, agentID uuid.
 }
 
 func (r *Reconciler) listAgentGroups(ctx context.Context, agentID uuid.UUID, organizationID string) ([]*groupsv1.Group, error) {
-	groupsCtx, err := r.runnerIdentityContextForAgent(ctx, agentID)
-	if err != nil {
-		return nil, err
-	}
+	// Groups requires a caller, so this names the platform rather than the agent
+	// whose groups are being read. Groups settles it against cluster admin.
+	groupsCtx := r.platformContext(ctx)
 	groups := []*groupsv1.Group{}
 	pageToken := ""
 	for {
@@ -143,7 +142,7 @@ func (r *Reconciler) listLiveAgentWorkloads(ctx context.Context, agentID uuid.UU
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
 	}
 	for {
-		response, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
+		response, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  groupWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
@@ -163,11 +162,11 @@ func (r *Reconciler) listLiveAgentWorkloads(ctx context.Context, agentID uuid.UU
 }
 
 func (r *Reconciler) ReconcileAllAgentGroupRoles(ctx context.Context) error {
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	organizations, err := r.agentOrganizations(ctx)
 	if err != nil {
 		return err
 	}
-	workloads, err := r.listActiveWorkloads(ctx, orgIdentities)
+	workloads, err := r.listActiveWorkloads(ctx, organizations)
 	if err != nil {
 		return err
 	}

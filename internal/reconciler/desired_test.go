@@ -138,10 +138,16 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 		},
 		getUnackedInboxItems: func(ctx context.Context, req *agentsv1.GetUnackedInboxItemsRequest, _ ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error) {
 			inboxReq = req
+			// Read as the platform, not as the instance whose inbox it is.
+			// Sending the instance's own id here was the Orchestrator claiming
+			// to be the thing it reconciles.
 			metadataValues, _ := metadata.FromOutgoingContext(ctx)
 			identityValues := metadataValues.Get(identityMetadataKey)
-			if len(identityValues) != 1 || identityValues[0] != instanceID.String() {
-				t.Fatalf("unexpected identity metadata: %v", identityValues)
+			if len(identityValues) != 1 || identityValues[0] != testPlatformIdentityID.String() {
+				t.Fatalf("expected the platform identity, got %v", identityValues)
+			}
+			if identityValues[0] == instanceID.String() {
+				t.Fatal("read the inbox as the agent instance")
 			}
 			return &agentsv1.GetUnackedInboxItemsResponse{Items: []*agentsv1.InboxItem{{ThreadId: stringPtr(threadID.String())}}}, nil
 		},
@@ -155,7 +161,7 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 			}}, nil
 		},
 	}
-	reconciler := &Reconciler{agents: agents, idle: time.Hour}
+	reconciler := &Reconciler{agents: agents, idle: time.Hour, platformIdentityID: testPlatformIdentityID}
 
 	desired, idleTimeouts, agentUpdatedAt, err := reconciler.fetchDesired(ctx)
 	if err != nil {
@@ -211,7 +217,7 @@ func TestListActiveInstancesWithUnackedInboxPaginates(t *testing.T) {
 			}
 		},
 	}
-	reconciler := &Reconciler{agents: agents}
+	reconciler := &Reconciler{agents: agents, platformIdentityID: testPlatformIdentityID}
 
 	instances, err := reconciler.listActiveInstancesWithUnackedInbox(ctx)
 	if err != nil {

@@ -44,6 +44,9 @@ type Reconciler struct {
 	// pull credentials it already carried.
 	imageProxy     ImageProxyClient
 	imageProxyHost string
+	// The identity this process acts as, for the callees that require a caller
+	// rather than serving an absent one as the platform.
+	platformIdentityID uuid.UUID
 }
 
 // WithImageProxy enables the per-workload pull credential lifecycle.
@@ -69,6 +72,7 @@ type Config struct {
 	Idle                      time.Duration
 	StopSec                   uint32
 	MeteringSampleInterval    time.Duration
+	PlatformIdentityID        uuid.UUID
 }
 
 func New(cfg Config) *Reconciler {
@@ -88,6 +92,7 @@ func New(cfg Config) *Reconciler {
 		workloadReconcileInterval: cfg.WorkloadReconcileInterval,
 		idle:                      cfg.Idle,
 		stopSec:                   cfg.StopSec,
+		platformIdentityID:        cfg.PlatformIdentityID,
 	}
 }
 
@@ -247,25 +252,20 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarg
 		log.Printf("reconciler: assemble workload for agent %s instance %s: %v", target.AgentID.String(), target.AgentInstanceID.String(), err)
 		return
 	}
-	runnerCtx, err := runnerIdentityContext(ctx, target.AgentInstanceID.String())
-	if err != nil {
-		log.Printf("reconciler: build runner identity for agent %s instance %s: %v", target.AgentID.String(), target.AgentInstanceID.String(), err)
-		return
-	}
-	pinnedRunnerID, err := r.pinnedRunnerForAgentInstance(runnerCtx, target.AgentInstanceID.String())
+	pinnedRunnerID, err := r.pinnedRunnerForAgentInstance(ctx, target.AgentInstanceID.String())
 	if err != nil {
 		log.Printf("reconciler: list volumes for agent %s instance %s: %v", target.AgentID.String(), target.AgentInstanceID.String(), err)
 		return
 	}
 	var selectedRunner *runnersv1.Runner
 	if pinnedRunnerID != "" {
-		runner, enrolled, err := r.getRunnerIfEnrolled(runnerCtx, pinnedRunnerID)
+		runner, enrolled, err := r.getRunnerIfEnrolled(ctx, pinnedRunnerID)
 		if err != nil {
 			log.Printf("reconciler: get runner %s for agent %s instance %s: %v", pinnedRunnerID, target.AgentID.String(), target.AgentInstanceID.String(), err)
 			return
 		}
 		if !enrolled {
-			r.pauseInstance(runnerCtx, target.AgentInstanceID.String(), pauseReasonRunnerDeprovisioned)
+			r.pauseInstance(ctx, target.AgentInstanceID.String(), pauseReasonRunnerDeprovisioned)
 			return
 		}
 		selectedRunner = runner
@@ -274,7 +274,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarg
 		// instead of by labels and capabilities. A thread that already has
 		// volumes keeps its pin above: the agent's state physically lives on
 		// that runner and cannot be moved by picking a different one.
-		runner, enrolled, err := r.getRunnerIfEnrolled(runnerCtx, assembled.RunnerID)
+		runner, enrolled, err := r.getRunnerIfEnrolled(ctx, assembled.RunnerID)
 		if err != nil {
 			log.Printf("reconciler: get environment runner %s for agent %s thread %s: %v", assembled.RunnerID, target.AgentID.String(), target.ThreadID.String(), err)
 			return
@@ -336,24 +336,24 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarg
 			return
 		}
 	}
-	createdVolumes, err := r.createVolumeRecords(runnerCtx, volumeRecords, runnerID, target, assembled.OrganizationID)
+	createdVolumes, err := r.createVolumeRecords(ctx, volumeRecords, runnerID, target, assembled.OrganizationID)
 	if err != nil {
 		log.Printf("reconciler: create volume records for agent %s instance %s: %v", target.AgentID.String(), target.AgentInstanceID.String(), err)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
+		r.markVolumeRecordsFailed(ctx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "volume record failure")
 		return
 	}
-	if err := r.createWorkloadRecord(runnerCtx, workloadIDValue, runnerID, target, assembled, zitiIdentityID); err != nil {
+	if err := r.createWorkloadRecord(ctx, workloadIDValue, runnerID, target, assembled, zitiIdentityID); err != nil {
 		log.Printf("reconciler: create workload record %s for agent %s instance %s: %v", workloadIDValue, target.AgentID.String(), target.AgentInstanceID.String(), err)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
+		r.markVolumeRecordsFailed(ctx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "workload record failure")
 		return
 	}
-	resp, err := runnerClient.StartWorkload(runnerCtx, request)
+	resp, err := runnerClient.StartWorkload(ctx, request)
 	if err != nil {
 		log.Printf("reconciler: start workload for agent %s instance %s: %v", target.AgentID.String(), target.AgentInstanceID.String(), err)
-		r.markWorkloadFailed(runnerCtx, workloadIDValue, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, err.Error(), nil)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
+		r.markWorkloadFailed(ctx, workloadIDValue, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, err.Error(), nil)
+		r.markVolumeRecordsFailed(ctx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "start failure")
 		return
 	}
@@ -364,30 +364,30 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarg
 		failureMessage := failureSummary(resp.GetFailure())
 		log.Printf("reconciler: workload failed for agent %s instance %s: %s", target.AgentID.String(), target.AgentInstanceID.String(), failureMessage)
 		if instanceID != "" {
-			if err := r.stopRunnerWorkload(runnerCtx, runnerClient, instanceID); err != nil {
+			if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
 				log.Printf("reconciler: stop workload %s after failure: %v", instanceID, err)
 			}
 		}
-		r.markWorkloadFailed(runnerCtx, workloadIDValue, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, failureMessage, containers)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
+		r.markWorkloadFailed(ctx, workloadIDValue, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, failureMessage, containers)
+		r.markVolumeRecordsFailed(ctx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "workload failure")
 		return
 	}
 	if rawInstanceID == "" {
 		log.Printf("reconciler: workload started without id for agent %s instance %s", target.AgentID.String(), target.AgentInstanceID.String())
-		r.markWorkloadFailed(runnerCtx, workloadIDValue, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "missing workload id", containers)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
+		r.markWorkloadFailed(ctx, workloadIDValue, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "missing workload id", containers)
+		r.markVolumeRecordsFailed(ctx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "missing workload id")
 		return
 	}
 	if resp.GetId() != workloadIDValue {
 		log.Printf("reconciler: workload id mismatch for agent %s instance %s (expected %s got %s)", target.AgentID.String(), target.AgentInstanceID.String(), workloadIDValue, resp.GetId())
 		instanceID := resp.GetId()
-		if err := r.stopRunnerWorkload(runnerCtx, runnerClient, instanceID); err != nil {
+		if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
 			log.Printf("reconciler: stop workload %s after id mismatch: %v", instanceID, err)
 		}
-		r.markWorkloadFailed(runnerCtx, workloadIDValue, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "workload id mismatch", containers)
-		r.markVolumeRecordsFailed(runnerCtx, createdVolumes)
+		r.markWorkloadFailed(ctx, workloadIDValue, stringPtr(instanceID), runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, "workload id mismatch", containers)
+		r.markVolumeRecordsFailed(ctx, createdVolumes)
 		r.compensateIdentity(ctx, zitiIdentityID, "workload id mismatch")
 		return
 	}
@@ -396,7 +396,7 @@ func (r *Reconciler) startWorkload(ctx context.Context, target AgentInstanceTarg
 		InstanceId: stringPtr(instanceID),
 		Containers: containers,
 	}
-	if _, err := r.runners.UpdateWorkload(internalContext(runnerCtx), updateReq); err != nil {
+	if _, err := r.runners.UpdateWorkload(ctx, updateReq); err != nil {
 		log.Printf("reconciler: update workload record %s after start: %v", workloadIDValue, err)
 	}
 }
@@ -407,34 +407,29 @@ func (r *Reconciler) stopWorkload(ctx context.Context, workload *runnersv1.Workl
 		log.Printf("reconciler: workload missing id")
 		return
 	}
-	runnerCtx, err := runnerIdentityContext(ctx, workloadAgentInstanceID(workload))
-	if err != nil {
-		log.Printf("reconciler: build runner identity for workload %s: %v", workload.GetMeta().GetId(), err)
-		return
-	}
-	if err := r.stopWorkloadWithContext(runnerCtx, workload); err != nil {
+	if err := r.stopWorkloadWithContext(ctx, workload); err != nil {
 		log.Printf("reconciler: stop workload %s: %v", workload.GetMeta().GetId(), err)
 	}
 }
 
-func (r *Reconciler) stopWorkloadWithContext(runnerCtx context.Context, workload *runnersv1.Workload) error {
+func (r *Reconciler) stopWorkloadWithContext(ctx context.Context, workload *runnersv1.Workload) error {
 	workloadID := workload.GetMeta().GetId()
 	if workloadID == "" {
 		return fmt.Errorf("workload missing id")
 	}
 	instanceID := normalizeRunnerWorkloadID(workload.GetInstanceId())
 	if instanceID == "" {
-		r.markWorkloadFailed(runnerCtx, workloadID, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST, "missing instance id", nil)
+		r.markWorkloadFailed(ctx, workloadID, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST, "missing instance id", nil)
 		return nil
 	}
 	runnerID := workload.GetRunnerId()
 	if runnerID == "" {
 		return fmt.Errorf("workload %s missing runner id", workloadID)
 	}
-	runnerClient, err := r.runnerDialer.Dial(runnerCtx, runnerID)
+	runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 	if err != nil {
 		if runnerdial.IsNoTerminators(err) {
-			if err := r.handleMissingRunnerWorkload(runnerCtx, workload); err != nil {
+			if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 				return fmt.Errorf("handle missing workload %s after runner dial failure: %w", workloadID, err)
 			}
 			return nil
@@ -442,16 +437,16 @@ func (r *Reconciler) stopWorkloadWithContext(runnerCtx context.Context, workload
 		return fmt.Errorf("dial runner %s for workload %s: %w", runnerID, workloadID, err)
 	}
 	stoppingStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING
-	if _, err := r.runners.UpdateWorkload(internalContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
+	if _, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
 		Id:     workloadID,
 		Status: &stoppingStatus,
 	}); err != nil {
 		return fmt.Errorf("update workload %s to stopping: %w", workloadID, err)
 	}
 	workload.Status = stoppingStatus
-	if err := r.stopRunnerWorkload(runnerCtx, runnerClient, instanceID); err != nil {
+	if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
 		if runnerdial.IsNoTerminators(err) {
-			if err := r.handleMissingRunnerWorkload(runnerCtx, workload); err != nil {
+			if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 				return fmt.Errorf("handle missing workload %s after runner stop failure: %w", workloadID, err)
 			}
 			return nil
@@ -459,7 +454,7 @@ func (r *Reconciler) stopWorkloadWithContext(runnerCtx context.Context, workload
 		return fmt.Errorf("stop workload %s: %w", workloadID, err)
 	}
 	stoppedStatus := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
-	if _, err := r.runners.UpdateWorkload(internalContext(runnerCtx), &runnersv1.UpdateWorkloadRequest{
+	if _, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
 		Id:        workloadID,
 		Status:    &stoppedStatus,
 		RemovedAt: timestamppb.New(time.Now().UTC()),
@@ -468,9 +463,9 @@ func (r *Reconciler) stopWorkloadWithContext(runnerCtx context.Context, workload
 	}
 	// Revoked alongside the OpenZiti identity: both are per-workload grants
 	// that outlive nothing.
-	r.revokePullCredential(runnerCtx, workloadID)
+	r.revokePullCredential(ctx, workloadID)
 	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
-		if err := r.deleteIdentity(runnerCtx, workload.GetZitiIdentityId()); err != nil {
+		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
 			return fmt.Errorf("delete ziti identity %s after stopping workload %s: %w", workload.GetZitiIdentityId(), workloadID, err)
 		}
 	}
