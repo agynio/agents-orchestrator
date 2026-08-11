@@ -118,11 +118,10 @@ func (r *Reconciler) fetchFirstUnackedInboxThreadID(ctx context.Context, instanc
 	if _, err := uuidutil.ParseUUID(agentInstanceID, "agent_instance.meta.id"); err != nil {
 		return uuid.Nil, err
 	}
-	inboxCtx, err := runnerIdentityContext(ctx, agentInstanceID)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	resp, err := r.agents.GetUnackedInboxItems(inboxCtx, &agentsv1.GetUnackedInboxItemsRequest{
+	// As the platform, not as the instance whose inbox this is. Agents admits
+	// cluster admin on the inbox reads for exactly this: the Orchestrator has to
+	// know which thread the work arrived on before it can place a workload.
+	resp, err := r.agents.GetUnackedInboxItems(r.platformContext(ctx), &agentsv1.GetUnackedInboxItemsRequest{
 		AgentInstanceId: agentInstanceID,
 		PageSize:        1,
 	})

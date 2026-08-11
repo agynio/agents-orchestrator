@@ -207,7 +207,8 @@ func TestStartWorkloadCreatesIdentityAndStores(t *testing.T) {
 	if fakeGroups.requests[0].GetMemberId() != agentID.String() {
 		t.Fatalf("expected groups lookup by agent id %s, got %s", agentID, fakeGroups.requests[0].GetMemberId())
 	}
-	assertStringSet(t, fakeGroups.identityIDs, []string{agentID.String()})
+	// Groups is called as the platform, never as the agent being read.
+	assertStringSet(t, fakeGroups.identityIDs, []string{testPlatformIdentityID.String()})
 	if !reflect.DeepEqual(calls, []string{"dial", "create", "create-workload", "start", "update-workload"}) {
 		t.Fatalf("unexpected call order: %v", calls)
 	}
@@ -1550,7 +1551,8 @@ func TestGroupMembershipEventPatchesLiveWorkloads(t *testing.T) {
 	if len(patchRequest.GetRemove()) != 0 {
 		t.Fatalf("expected no removals, got %v", patchRequest.GetRemove())
 	}
-	assertStringSet(t, fakeGroups.identityIDs, []string{agentID.String()})
+	// Groups is called as the platform, never as the agent being read.
+	assertStringSet(t, fakeGroups.identityIDs, []string{testPlatformIdentityID.String()})
 }
 
 func TestGroupMembershipEventsAreDuplicateAndOutOfOrderSafe(t *testing.T) {
@@ -1656,7 +1658,8 @@ func TestReconcileAllAgentGroupRolesPatchesMissingDesiredAttrs(t *testing.T) {
 	if len(patchRequest.GetRemove()) != 0 {
 		t.Fatalf("expected no removals, got %v", patchRequest.GetRemove())
 	}
-	assertStringSet(t, fakeGroups.identityIDs, []string{agentID.String()})
+	// Groups is called as the platform, never as the agent being read.
+	assertStringSet(t, fakeGroups.identityIDs, []string{testPlatformIdentityID.String()})
 }
 
 func TestGroupMembershipConsumerLoopRetriesWithoutBlocking(t *testing.T) {
@@ -1705,7 +1708,14 @@ func TestGroupMembershipConsumerLoopRetriesWithoutBlocking(t *testing.T) {
 		}
 	}
 }
+// testPlatformIdentityID stands for the identity this process runs as. Set on
+// every test reconciler because the calls that name a caller name this one.
+var testPlatformIdentityID = uuid.MustParse("a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10")
+
 func newTestReconciler(cfg Config) *Reconciler {
+	if cfg.PlatformIdentityID == uuid.Nil {
+		cfg.PlatformIdentityID = testPlatformIdentityID
+	}
 	if cfg.Poll == 0 {
 		cfg.Poll = time.Second
 	}

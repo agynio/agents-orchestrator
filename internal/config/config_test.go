@@ -9,6 +9,23 @@ import (
 
 const defaultZitiSidecarImage = "openziti/ziti-tunnel:2.0.0-pre8"
 
+// The identity this process acts as is not something to guess at, so it has no
+// default and an installation that omits it does not start.
+func TestFromEnvRequiresPlatformIdentity(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("ZITI_ENABLED", "false")
+
+	t.Setenv("PLATFORM_IDENTITY_ID", "")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("expected an absent PLATFORM_IDENTITY_ID to be refused")
+	}
+
+	t.Setenv("PLATFORM_IDENTITY_ID", "not-a-uuid")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("expected a malformed PLATFORM_IDENTITY_ID to be refused")
+	}
+}
+
 func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	setBaseEnv(t)
 	t.Setenv("ZITI_ENABLED", "false")
@@ -16,6 +33,9 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.PlatformIdentityID.String() != testPlatformIdentityID {
+		t.Fatalf("expected platform identity %q, got %q", testPlatformIdentityID, cfg.PlatformIdentityID)
 	}
 	if cfg.ZitiEnabled {
 		t.Fatal("expected ZitiEnabled to be false")
@@ -270,9 +290,12 @@ func TestChartLeavesWorkloadAddressesToConfigDefaults(t *testing.T) {
 	}
 }
 
+const testPlatformIdentityID = "a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10"
+
 func setBaseEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("PLATFORM_IDENTITY_ID", testPlatformIdentityID)
 	t.Setenv("THREADS_ADDRESS", "")
 	t.Setenv("NOTIFICATIONS_ADDRESS", "")
 	t.Setenv("AGENTS_ADDRESS", "")

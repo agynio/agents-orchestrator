@@ -14,41 +14,34 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func runnerIdentityForWorkloads(runnerID string, runnerOrganizationID string, orgIdentities map[string]string, workloads map[string]*runnersv1.Workload) (string, error) {
+// runnerInScope reports whether this reconciler owns the runner: its
+// organization must be one that has agents.
+//
+// This used to return an identity to impersonate on calls about the runner, and
+// its stricter failures were artifacts of needing exactly one -- a runner
+// carrying workloads for two owners had no single identity to borrow and was
+// rejected outright. Nothing needs one now, so the question is only whether the
+// runner is in scope. A runner reporting no organization is judged by the
+// workloads already tracked on it, which were filtered to those organizations
+// before they reached here.
+func runnerInScope(runnerID string, runnerOrganizationID string, organizations map[string]struct{}, workloads map[string]*runnersv1.Workload) (bool, error) {
 	orgID := strings.TrimSpace(runnerOrganizationID)
 	if orgID != "" {
-		identityID, ok := orgIdentities[orgID]
-		if !ok {
-			return "", fmt.Errorf("runner %s missing identity for org %s", runnerID, orgID)
-		}
-		return identityID, nil
+		_, ok := organizations[orgID]
+		return ok, nil
 	}
 	if len(workloads) == 0 {
-		return "", fmt.Errorf("runner %s organization id missing", runnerID)
+		return false, fmt.Errorf("runner %s organization id missing", runnerID)
 	}
-	var identityID string
-	for workloadID, workload := range workloads {
-		workloadIdentityID := workloadRunnerIdentityID(workload)
-		if workloadIdentityID == "" {
-			return "", fmt.Errorf("workload %s missing owner identity", workloadID)
-		}
-		if identityID == "" {
-			identityID = workloadIdentityID
-			continue
-		}
-		if identityID != workloadIdentityID {
-			return "", fmt.Errorf("runner %s has workloads for multiple identities", runnerID)
-		}
-	}
-	return identityID, nil
+	return true, nil
 }
 
 func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	organizations, err := r.agentOrganizations(ctx)
 	if err != nil {
 		return err
 	}
-	tracked, err := r.listActiveWorkloads(ctx, orgIdentities)
+	tracked, err := r.listActiveWorkloads(ctx, organizations)
 	if err != nil {
 		return err
 	}
@@ -94,7 +87,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 	// platform running only sandboxes never learned its runner existed -- and
 	// every sandbox was condemned as missing from a runner nothing had asked.
 	// A cluster-scoped runner has no organization to be listed under at all.
-	runners, err := r.runnersForWorkloads(ctx, orgIdentities, workloadsByRunner)
+	runners, err := r.runnersForWorkloads(ctx, organizations, workloadsByRunner)
 	if err != nil {
 		return err
 	}
@@ -111,55 +104,40 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			continue
 		}
 		enrolledRunnerIDs[runnerID] = struct{}{}
-		if _, ok := runnerIdentities[runnerID]; ok {
-			runnerIDs[runnerID] = struct{}{}
+		if _, ok := runnerIDs[runnerID]; ok {
 			continue
 		}
 		if runner.GetOrganizationId() == "" && len(workloadsByRunner[runnerID]) == 0 {
 			continue
 		}
-		identityID, err := runnerIdentityForWorkloads(runnerID, runner.GetOrganizationId(), orgIdentities, workloadsByRunner[runnerID])
+		inScope, err := runnerInScope(runnerID, runner.GetOrganizationId(), organizations, workloadsByRunner[runnerID])
 		if err != nil {
 			return err
 		}
+		if !inScope {
+			continue
+		}
 		runnerIDs[runnerID] = struct{}{}
-		runnerIdentities[runnerID] = identityID
 	}
 
 	for runnerID := range runnerIDs {
 		trackedWorkloads := workloadsByRunner[runnerID]
-		identityID, ok := runnerIdentities[runnerID]
-		if !ok {
-			return fmt.Errorf("runner %s missing identity", runnerID)
-		}
 		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
 			for workloadID, workload := range trackedWorkloads {
-				workloadCtx, err := runnerIdentityContext(ctx, workloadRunnerIdentityID(workload))
-				if err != nil {
-					return err
-				}
-				if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
+				if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 					log.Printf("reconciler: warn: handle missing workload %s on unenrolled runner: %v", workloadID, err)
 				}
 				if instanceID := strings.TrimSpace(workloadAgentInstanceID(workload)); instanceID != "" {
-					r.pauseInstance(workloadCtx, instanceID, pauseReasonRunnerDeprovisioned)
+					r.pauseInstance(ctx, instanceID, pauseReasonRunnerDeprovisioned)
 				}
 			}
 			continue
-		}
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return err
 		}
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for workloadID, workload := range trackedWorkloads {
-					workloadCtx, err := runnerIdentityContext(ctx, workloadRunnerIdentityID(workload))
-					if err != nil {
-						return err
-					}
-					if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
+					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 						log.Printf("reconciler: warn: handle missing workload %s after runner dial failure: %v", workloadID, err)
 					}
 				}
@@ -168,15 +146,11 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			log.Printf("reconciler: warn: dial runner %s for workload reconciliation: %v", runnerID, err)
 			continue
 		}
-		resp, err := runnerClient.ListWorkloads(runnerCtx, &runnerv1.ListWorkloadsRequest{})
+		resp, err := runnerClient.ListWorkloads(ctx, &runnerv1.ListWorkloadsRequest{})
 		if err != nil {
 			if runnerdial.IsNoTerminators(err) {
 				for workloadID, workload := range trackedWorkloads {
-					workloadCtx, err := runnerIdentityContext(ctx, workloadRunnerIdentityID(workload))
-					if err != nil {
-						return err
-					}
-					if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
+					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 						log.Printf("reconciler: warn: handle missing workload %s after runner list failure: %v", workloadID, err)
 					}
 				}
@@ -203,10 +177,6 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 
 		for workloadID, workload := range trackedWorkloads {
-			workloadCtx, err := runnerIdentityContext(ctx, workloadRunnerIdentityID(workload))
-			if err != nil {
-				return err
-			}
 			item, ok := runnerWorkloads[workloadID]
 			if !ok {
 				// Says what the runner actually reported. Marking a workload lost
@@ -219,13 +189,13 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 				sort.Strings(reported)
 				log.Printf("reconciler: workload %s not among the %d the runner %s reported: %v",
 					workloadID, len(reported), runnerID, reported)
-				if err := r.handleMissingRunnerWorkload(workloadCtx, workload); err != nil {
+				if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 					log.Printf("reconciler: warn: handle missing workload %s: %v", workloadID, err)
 				}
 				continue
 			}
 			delete(runnerWorkloads, workloadID)
-			if err := r.handlePresentRunnerWorkload(workloadCtx, runnerClient, workload, item); err != nil {
+			if err := r.handlePresentRunnerWorkload(ctx, runnerClient, workload, item); err != nil {
 				log.Printf("reconciler: warn: handle workload %s on runner %s: %v", workloadID, runnerID, err)
 			}
 		}
@@ -236,7 +206,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 				log.Printf("reconciler: warn: runner %s orphan workload missing instance id", runnerID)
 				continue
 			}
-			if err := r.stopRunnerWorkload(runnerCtx, runnerClient, instanceID); err != nil {
+			if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
 				log.Printf("reconciler: warn: stop orphan workload %s on runner %s: %v", instanceID, runnerID, err)
 			}
 		}
@@ -282,7 +252,7 @@ func (r *Reconciler) handleMissingRunnerWorkload(ctx context.Context, workload *
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
 		missingAt := timestamppb.New(time.Now().UTC())
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
-		_, err := r.runners.UpdateWorkload(internalContext(ctx), &runnersv1.UpdateWorkloadRequest{
+		_, err := r.runners.UpdateWorkload(ctx, &runnersv1.UpdateWorkloadRequest{
 			Id:        workloadID,
 			Status:    &status,
 			RemovedAt: missingAt,
@@ -364,7 +334,7 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	default:
 	}
 	if shouldUpdate {
-		if _, err := r.runners.UpdateWorkload(internalContext(ctx), updateReq); err != nil {
+		if _, err := r.runners.UpdateWorkload(ctx, updateReq); err != nil {
 			return err
 		}
 		if updateReq.Status != nil {
@@ -511,8 +481,8 @@ func containerFailureMessage(container *runnersv1.Container) string {
 
 // runnersForWorkloads lists the runners of every organization that owns an
 // agent, then adds any runner a tracked workload names that the listing missed.
-func (r *Reconciler) runnersForWorkloads(ctx context.Context, orgIdentities map[string]string, workloadsByRunner map[string]map[string]*runnersv1.Workload) ([]*runnersv1.Runner, error) {
-	runners, err := r.listRunnersByOrg(ctx, orgIdentities)
+func (r *Reconciler) runnersForWorkloads(ctx context.Context, organizations map[string]struct{}, workloadsByRunner map[string]map[string]*runnersv1.Workload) ([]*runnersv1.Runner, error) {
+	runners, err := r.listRunnersByOrg(ctx, organizations)
 	if err != nil {
 		return nil, err
 	}
@@ -535,11 +505,7 @@ func (r *Reconciler) runnersForWorkloads(ctx context.Context, orgIdentities map[
 		if identityID == "" {
 			continue
 		}
-		runnerCtx, err := runnerIdentityContext(ctx, identityID)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := r.runners.GetRunner(internalContext(runnerCtx), &runnersv1.GetRunnerRequest{Id: runnerID})
+		resp, err := r.runners.GetRunner(ctx, &runnersv1.GetRunnerRequest{Id: runnerID})
 		if err != nil {
 			// Reported rather than treated as absent: absent means every workload
 			// on it is stopped and its identity deleted.

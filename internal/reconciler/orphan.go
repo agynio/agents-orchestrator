@@ -20,11 +20,11 @@ const managedIdentityPageSize int32 = 100
 const identityCreateGracePeriod = time.Minute
 
 func (r *Reconciler) reconcileOrphanIdentities(ctx context.Context) error {
-	orgIdentities, err := r.agentIdentityByOrg(ctx)
+	organizations, err := r.agentOrganizations(ctx)
 	if err != nil {
 		return err
 	}
-	tracked, err := r.listActiveWorkloads(ctx, orgIdentities)
+	tracked, err := r.listActiveWorkloads(ctx, organizations)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (r *Reconciler) listActiveSandboxWorkloads(ctx context.Context) ([]*runners
 	pageToken := ""
 	var workloads []*runnersv1.Workload
 	for {
-		resp, err := r.runners.ListWorkloads(internalContext(ctx), &runnersv1.ListWorkloadsRequest{
+		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
