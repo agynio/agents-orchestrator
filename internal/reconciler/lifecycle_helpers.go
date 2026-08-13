@@ -94,6 +94,7 @@ func (r *Reconciler) createWorkloadRecord(ctx context.Context, workloadID, runne
 		AllocatedCpuMillicores: assembled.AllocatedCPUMillicores,
 		AllocatedRamBytes:      assembled.AllocatedRAMBytes,
 		Flavor:                 assembled.Flavor,
+		PersistentShells:       assembled.PersistentShells,
 		OwnerKind:              runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_AGENT_INSTANCE,
 		OwnerId:                agentInstanceID,
 		AgentClassId:           &agentClassID,

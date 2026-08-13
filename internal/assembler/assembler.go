@@ -415,7 +415,12 @@ type AssembleResult struct {
 	GrantedImageIDs []string
 	// Flavor names the catalog entry the workload is allocated from, and is
 	// what compute is billed by. Empty for an agent without an environment.
-	Flavor                 string
+	Flavor string
+	// PersistentShells is the environment's answer, carried onto the workload
+	// so the Terminal Proxy can read it without resolving an environment.
+	// True when the workload has no environment: it is the platform default,
+	// and nothing without an environment has a person attaching to it anyway.
+	PersistentShells       bool
 	PersistentVolumes      []PersistentVolumeInfo
 	AllocatedCPUMillicores int32
 	AllocatedRAMBytes      int64
@@ -691,6 +696,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		EnvironmentID:          agent.GetEnvironmentId(),
 		LLMRoleAttributes:      llmMode.RoleAttributes,
 		Flavor:                 flavor.GetName(),
+		PersistentShells:       environment == nil || environment.GetPersistentShells(),
 		PersistentVolumes:      persistentVolumes,
 		AllocatedCPUMillicores: allocatedCPU,
 		AllocatedRAMBytes:      allocatedRAM,
