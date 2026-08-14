@@ -538,6 +538,10 @@ func (r *Reconciler) stopSandboxWorkload(ctx context.Context, workload *runnersv
 	if ownerID == "" {
 		ownerID = strings.TrimSpace(workload.GetAgentId())
 	}
+	// Before the stop, not after: the container is the only thing that knows
+	// where its shells are, and it is about to be gone.
+	r.snapshotShellDirectories(ctx, workload)
+
 	if err := r.stopWorkloadWithContext(ctx, workload); err != nil {
 		return err
 	}
