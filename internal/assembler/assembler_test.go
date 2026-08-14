@@ -1577,6 +1577,119 @@ esac
 	}
 }
 
+// Without an override the port comes from the JWT the controller issued, which
+// is the port its Service listens on. A default here silently sent every
+// workload on a VM that had moved off it to a port nothing answered.
+func TestZitiEnrollScriptTakesControllerPortFromTheJWT(t *testing.T) {
+	workDir := t.TempDir()
+	identityDir := filepath.Join(workDir, "netfoundry")
+	resolvPath := filepath.Join(workDir, "resolv.conf")
+	hostsPath := filepath.Join(workDir, "hosts")
+	logPath := filepath.Join(workDir, "enroll.log")
+	controllerHost := "controller.example.test"
+	resolveHost := "ziti-controller-client.ziti.svc.cluster.local"
+	// Deliberately not the port any default ever used.
+	jwt := testJWTWithIssuer(t, "https://"+controllerHost+":2497")
+
+	if err := os.WriteFile(hostsPath, []byte("127.0.0.1\tlocalhost\n"), 0o600); err != nil {
+		t.Fatalf("write hosts: %v", err)
+	}
+	_ = writeExecutable(t, workDir, "openssl", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+printf 'openssl_args=%%s\n' "$*" >> %s
+case "$1" in
+  s_client)
+    cat <<'CERT'
+-----BEGIN CERTIFICATE-----
+controller-ca
+-----END CERTIFICATE-----
+CERT
+    ;;
+  ecparam)
+    printf 'key\n' > "${@: -1}"
+    ;;
+  req)
+    printf 'csr\n' > "${@: -1}"
+    ;;
+  *)
+    echo "unexpected openssl args" >&2
+    exit 1
+    ;;
+esac
+`, logPath))
+	_ = writeExecutable(t, workDir, "ziti", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+printf 'ziti_args=%%s\n' "$*" >> %s
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out) shift; out="$1" ;;
+  esac
+  shift || true
+done
+printf '{"ztAPI":"https://controller.example.test:2497/edge/client/v1","id":{"cert":"agent-cert","key":"agent-key","ca":"controller-ca"}}' > "${out}"
+`, logPath))
+	_ = writeExecutable(t, workDir, "getent", `#!/usr/bin/env bash
+set -euo pipefail
+case "${2:-}" in
+  ziti-controller-client.ziti.svc.cluster.local) printf '10.43.253.228 STREAM ziti-controller-client.ziti.svc.cluster.local\n' ;;
+  *) exit 2 ;;
+esac
+`)
+	_ = writeExecutable(t, workDir, "jq", `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "-r" ]]; then
+  shift
+fi
+if [[ "$1" == "--arg" ]]; then
+  shift; name="$1"; shift; value="$1"; shift
+  if [[ "${1:-}" == '.ztAPI = $ztAPI | del(.ztAPIs)' ]]; then
+    sed -E "s#\"ztAPI\":\"[^\"]+\"(,\"ztAPIs\":\[[^]]*\])?#\"ztAPI\":\"${value}\"#" "${2:-}"
+    exit 0
+  fi
+fi
+filter="${1:-}"
+file="${2:-}"
+if [[ "$filter" == "has(\"ztAPIs\")" ]]; then
+  if grep -q '"ztAPIs"' "$file"; then exit 0; fi
+  exit 1
+fi
+case "$filter" in
+  ".iss // empty") sed -nE 's/.*"iss":"([^"]+)".*/\1/p' "$file" ;;
+  ".em // empty") sed -nE 's/.*"em":"([^"]+)".*/\1/p' "$file" ;;
+  ".jti // empty") sed -nE 's/.*"jti":"([^"]+)".*/\1/p' "$file" ;;
+  ".sub // empty") sed -nE 's/.*"sub":"([^"]+)".*/\1/p' "$file" ;;
+  ".ztAPI // empty") sed -nE 's/.*"ztAPI":"([^"]+)".*/\1/p' "$file" ;;
+  *) echo "unexpected jq filter: $filter" >&2; exit 1 ;;
+esac
+`)
+
+	cmd := exec.Command(hostBash(t), buildZitiEnrollCommand("10.43.0.10", resolveHost, "", resolveHost, "")...)
+	cmd.Env = append(os.Environ(),
+		"PATH="+workDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		ZitiEnrollmentTokenEnvVar+"="+jwt,
+		ZitiIdentityBasenameEnvVar+"="+ZitiIdentityBasename,
+		ZitiIdentityDirEnvVar+"="+identityDir,
+		"ZITI_RESOLV_CONF="+resolvPath,
+		"ZITI_HOSTS_FILE="+hostsPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run ziti enroll script: %v\n%s", err, string(output))
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read enroll log: %v", err)
+	}
+	log := string(logBytes) + string(output)
+	if !strings.Contains(log, "-connect 10.43.253.228:2497") {
+		t.Fatalf("expected enrollment to dial the port the JWT advertises, got:\n%s", log)
+	}
+	if strings.Contains(log, ":2496") {
+		t.Fatalf("expected no port other than the one the JWT advertises, got:\n%s", log)
+	}
+}
+
 func TestZitiEnrollmentScriptPatchesOnlyRuntimeAPI(t *testing.T) {
 	if !strings.Contains(zitiEnrollScript, `ziti edge enroll --jwt "${jwt_file}" --ca "${ziti_tls_ca_cert}" --out "${identity_file}"`) {
 		t.Fatalf("expected canonical ziti edge enrollment, got %q", zitiEnrollScript)

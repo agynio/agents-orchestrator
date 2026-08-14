@@ -231,10 +231,11 @@ func FromEnv() (Config, error) {
 	if cfg.ZitiEnrollmentControllerResolveHost == "" {
 		cfg.ZitiEnrollmentControllerResolveHost = "ziti-controller-client.ziti.svc.cluster.local"
 	}
+	// Deliberately not defaulted: empty takes the port the JWT advertises, which
+	// is the one the controller's Service listens on -- the Ziti chart derives
+	// both from clientApi.advertisedPort. A default is a second source of truth
+	// for a number the controller already states.
 	cfg.ZitiEnrollmentControllerPort = os.Getenv("ZITI_ENROLLMENT_CONTROLLER_PORT")
-	if cfg.ZitiEnrollmentControllerPort == "" {
-		cfg.ZitiEnrollmentControllerPort = "2496"
-	}
 	if cfg.ZitiEnrollmentControllerPort != "" {
 		parsed, err := strconv.ParseUint(cfg.ZitiEnrollmentControllerPort, 10, 16)
 		if err != nil {
@@ -248,10 +249,8 @@ func FromEnv() (Config, error) {
 	if cfg.ZitiRuntimeControllerResolveHost == "" {
 		cfg.ZitiRuntimeControllerResolveHost = "ziti-controller-client.ziti.svc.cluster.local"
 	}
+	// Not defaulted, for the same reason as the enrollment port above.
 	cfg.ZitiRuntimeControllerPort = os.Getenv("ZITI_RUNTIME_CONTROLLER_PORT")
-	if cfg.ZitiRuntimeControllerPort == "" {
-		cfg.ZitiRuntimeControllerPort = "2496"
-	}
 	if cfg.ZitiRuntimeControllerPort != "" {
 		parsed, err := strconv.ParseUint(cfg.ZitiRuntimeControllerPort, 10, 16)
 		if err != nil {
