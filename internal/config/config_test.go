@@ -184,14 +184,15 @@ func TestFromEnvDefaultsZiti(t *testing.T) {
 	if cfg.ZitiEnrollmentControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
 		t.Fatalf("expected ziti enrollment controller resolve host %q, got %q", "ziti-controller-client.ziti.svc.cluster.local", cfg.ZitiEnrollmentControllerResolveHost)
 	}
-	if cfg.ZitiEnrollmentControllerPort != "2496" {
-		t.Fatalf("expected ziti enrollment controller port %q, got %q", "2496", cfg.ZitiEnrollmentControllerPort)
+	// Unset: the port comes from the JWT the controller issued, not from here.
+	if cfg.ZitiEnrollmentControllerPort != "" {
+		t.Fatalf("expected no ziti enrollment controller port, got %q", cfg.ZitiEnrollmentControllerPort)
 	}
 	if cfg.ZitiRuntimeControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
 		t.Fatalf("expected ziti runtime controller resolve host %q, got %q", "ziti-controller-client.ziti.svc.cluster.local", cfg.ZitiRuntimeControllerResolveHost)
 	}
-	if cfg.ZitiRuntimeControllerPort != "2496" {
-		t.Fatalf("expected ziti runtime controller port %q, got %q", "2496", cfg.ZitiRuntimeControllerPort)
+	if cfg.ZitiRuntimeControllerPort != "" {
+		t.Fatalf("expected no ziti runtime controller port, got %q", cfg.ZitiRuntimeControllerPort)
 	}
 }
 
@@ -421,14 +422,18 @@ func TestFromEnvZitiControllerDefaults(t *testing.T) {
 	if cfg.ZitiEnrollmentControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
 		t.Fatalf("expected default enrollment controller resolve host, got %q", cfg.ZitiEnrollmentControllerResolveHost)
 	}
-	if cfg.ZitiEnrollmentControllerPort != "2496" {
-		t.Fatalf("expected default enrollment controller port, got %q", cfg.ZitiEnrollmentControllerPort)
+	// The resolve hosts default because the in-cluster name genuinely differs
+	// from the advertised one. The ports do not: overriding them would discard
+	// the port the controller put in the JWT, which is the one its Service
+	// listens on.
+	if cfg.ZitiEnrollmentControllerPort != "" {
+		t.Fatalf("expected no enrollment controller port, got %q", cfg.ZitiEnrollmentControllerPort)
 	}
 	if cfg.ZitiRuntimeControllerResolveHost != "ziti-controller-client.ziti.svc.cluster.local" {
 		t.Fatalf("expected default runtime controller resolve host, got %q", cfg.ZitiRuntimeControllerResolveHost)
 	}
-	if cfg.ZitiRuntimeControllerPort != "2496" {
-		t.Fatalf("expected default runtime controller port, got %q", cfg.ZitiRuntimeControllerPort)
+	if cfg.ZitiRuntimeControllerPort != "" {
+		t.Fatalf("expected no runtime controller port, got %q", cfg.ZitiRuntimeControllerPort)
 	}
 }
 

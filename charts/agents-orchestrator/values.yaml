@@ -136,15 +136,16 @@ env:
   # Cluster DNS name that ziti.agyn.dev should resolve to during enrollment.
   - name: ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST
     value: "ziti-controller-client.ziti.svc.cluster.local"
-  # Enrollment controller port used before the workload Ziti tunnel is running.
+  # Empty takes the port the enrollment JWT advertises. Set only where the
+  # in-cluster port differs from it.
   - name: ZITI_ENROLLMENT_CONTROLLER_PORT
-    value: "2496"
+    value: ""
   # Cluster DNS name that ziti.agyn.dev should resolve to for sidecar auth.
   - name: ZITI_RUNTIME_CONTROLLER_RESOLVE_HOST
     value: "ziti-controller-client.ziti.svc.cluster.local"
-  # Runtime controller port for the enrolled identity.
+  # Empty for the same reason as the enrollment port above.
   - name: ZITI_RUNTIME_CONTROLLER_PORT
-    value: "2496"
+    value: ""
   # Deprecated: use WORKLOAD_DNS_UPSTREAM instead.
   - name: CLUSTER_DNS
     value: ""
