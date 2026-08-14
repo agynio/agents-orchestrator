@@ -17,6 +17,7 @@ import (
 
 type fakeAgentsClient struct {
 	testutil.FakeAgentsClient
+	shellDirectories     []*agentsv1.SetSandboxLayoutDirectoriesRequest
 	listAgents           func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
 	listInstances        func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
 	getUnackedInboxItems func(context.Context, *agentsv1.GetUnackedInboxItemsRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error)
@@ -95,6 +96,13 @@ func (f *fakeAgentsClient) ListInstances(ctx context.Context, req *agentsv1.List
 		return f.listInstances(ctx, req, opts...)
 	}
 	return f.FakeAgentsClient.ListInstances(ctx, req, opts...)
+}
+
+// shellDirectories records what the snapshot wrote, so a test can assert the
+// stop path took it.
+func (f *fakeAgentsClient) SetSandboxLayoutDirectories(ctx context.Context, req *agentsv1.SetSandboxLayoutDirectoriesRequest, opts ...grpc.CallOption) (*agentsv1.SetSandboxLayoutDirectoriesResponse, error) {
+	f.shellDirectories = append(f.shellDirectories, req)
+	return &agentsv1.SetSandboxLayoutDirectoriesResponse{}, nil
 }
 
 func (f *fakeAgentsClient) GetUnackedInboxItems(ctx context.Context, req *agentsv1.GetUnackedInboxItemsRequest, opts ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error) {

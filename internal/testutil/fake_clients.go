@@ -12,22 +12,23 @@ import (
 var ErrNotImplemented = errors.New("not implemented")
 
 type FakeAgentsClient struct {
-	GetAgentFunc                  func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
-	GetEnvironmentFunc            func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error)
-	ResolveAgentIdentityFunc      func(context.Context, *agentsv1.ResolveAgentIdentityRequest, ...grpc.CallOption) (*agentsv1.ResolveAgentIdentityResponse, error)
-	ListAgentsFunc                func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
-	ListSkillsFunc                func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
-	ListEnvsFunc                  func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
-	ListInitScriptsFunc           func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
-	ListVolumesFunc               func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error)
-	GetVolumeFunc                 func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
-	ListMcpsFunc                  func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
-	GetSandboxFunc                func(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error)
-	ListSandboxesFunc             func(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
-	UpdateSandboxRuntimeStateFunc func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)
-	DeleteSandboxFunc             func(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error)
-	ListInstancesFunc             func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
-	PauseInstanceFunc             func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
+	SetSandboxLayoutDirectoriesFunc func(context.Context, *agentsv1.SetSandboxLayoutDirectoriesRequest, ...grpc.CallOption) (*agentsv1.SetSandboxLayoutDirectoriesResponse, error)
+	GetAgentFunc                    func(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
+	GetEnvironmentFunc              func(context.Context, *agentsv1.GetEnvironmentRequest, ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error)
+	ResolveAgentIdentityFunc        func(context.Context, *agentsv1.ResolveAgentIdentityRequest, ...grpc.CallOption) (*agentsv1.ResolveAgentIdentityResponse, error)
+	ListAgentsFunc                  func(context.Context, *agentsv1.ListAgentsRequest, ...grpc.CallOption) (*agentsv1.ListAgentsResponse, error)
+	ListSkillsFunc                  func(context.Context, *agentsv1.ListSkillsRequest, ...grpc.CallOption) (*agentsv1.ListSkillsResponse, error)
+	ListEnvsFunc                    func(context.Context, *agentsv1.ListEnvsRequest, ...grpc.CallOption) (*agentsv1.ListEnvsResponse, error)
+	ListInitScriptsFunc             func(context.Context, *agentsv1.ListInitScriptsRequest, ...grpc.CallOption) (*agentsv1.ListInitScriptsResponse, error)
+	ListVolumesFunc                 func(context.Context, *agentsv1.ListVolumesRequest, ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error)
+	GetVolumeFunc                   func(context.Context, *agentsv1.GetVolumeRequest, ...grpc.CallOption) (*agentsv1.GetVolumeResponse, error)
+	ListMcpsFunc                    func(context.Context, *agentsv1.ListMcpsRequest, ...grpc.CallOption) (*agentsv1.ListMcpsResponse, error)
+	GetSandboxFunc                  func(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error)
+	ListSandboxesFunc               func(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
+	UpdateSandboxRuntimeStateFunc   func(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)
+	DeleteSandboxFunc               func(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error)
+	ListInstancesFunc               func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
+	PauseInstanceFunc               func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
 }
 
 func (f *FakeAgentsClient) CreateAgent(context.Context, *agentsv1.CreateAgentRequest, ...grpc.CallOption) (*agentsv1.CreateAgentResponse, error) {
@@ -81,6 +82,16 @@ func (f *FakeAgentsClient) ListMyAgentRoles(context.Context, *agentsv1.ListMyAge
 
 func (f *FakeAgentsClient) CreateEnvironment(context.Context, *agentsv1.CreateEnvironmentRequest, ...grpc.CallOption) (*agentsv1.CreateEnvironmentResponse, error) {
 	return nil, ErrNotImplemented
+}
+
+// The snapshot before a stop is best-effort, so the default here succeeds
+// silently: a test that does not care about shell directories should not have
+// to wire a stub to stop a workload.
+func (f *FakeAgentsClient) SetSandboxLayoutDirectories(ctx context.Context, req *agentsv1.SetSandboxLayoutDirectoriesRequest, opts ...grpc.CallOption) (*agentsv1.SetSandboxLayoutDirectoriesResponse, error) {
+	if f.SetSandboxLayoutDirectoriesFunc != nil {
+		return f.SetSandboxLayoutDirectoriesFunc(ctx, req, opts...)
+	}
+	return &agentsv1.SetSandboxLayoutDirectoriesResponse{}, nil
 }
 
 func (f *FakeAgentsClient) GetEnvironment(ctx context.Context, req *agentsv1.GetEnvironmentRequest, opts ...grpc.CallOption) (*agentsv1.GetEnvironmentResponse, error) {

@@ -31,6 +31,9 @@ type SandboxAssembleResult struct {
 	// Flavor names the catalog entry the workload is allocated from, and is
 	// what compute is billed by.
 	Flavor string
+	// PersistentShells is the environment's answer, carried onto the workload
+	// so the Terminal Proxy can read it without resolving an environment.
+	PersistentShells bool
 	// GrantedImageIDs are the catalog images this sandbox may pull. The
 	// credential is minted against them once the workload id exists.
 	GrantedImageIDs        []string
@@ -231,6 +234,7 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		RunnerID:               flavor.GetRunnerId(),
 		LLMRoleAttributes:      llmMode.RoleAttributes,
 		Flavor:                 flavor.GetName(),
+		PersistentShells:       environment.GetPersistentShells(),
 		GrantedImageIDs:        rewriter.GrantedImageIDs(),
 		AllocatedCPUMillicores: allocatedCPU,
 		AllocatedRAMBytes:      allocatedRAM,

@@ -1,7 +1,7 @@
 version: v2beta1
 
 vars:
-  ORCHESTRATOR_NAMESPACE: platform
+  ORCHESTRATOR_NAMESPACE: agyn-platform
   DEV_IMAGE: ghcr.io/agynio/devcontainer-go:1
 
 functions:
