@@ -6,7 +6,6 @@ func appendEgressCAEnvVars(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
 	for _, env := range egressCAEnvVars() {
 		envs = appendPlatformEnvVar(envs, env)
 	}
-	envs = appendWorkloadPathEnvVar(envs)
 	return appendWorkloadSandboxEnvVar(envs)
 }
 
@@ -24,22 +23,13 @@ func appendWorkloadSandboxEnvVar(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
 	return appendPlatformEnvVar(envs, &runnerv1.EnvVar{Name: "IS_SANDBOX", Value: "1"})
 }
 
-// appendWorkloadPathEnvVar puts the platform's binaries on PATH for everything
-// that runs in the container, including a shell nobody here started.
-//
-// agynd prepends this for the subprocess it spawns, which covers an agent but
-// not a sandbox: holder mode spawns nothing, and an interactive session comes
-// from the runner's Exec against the pod, inheriting the container spec's
-// environment rather than any process's. Without it a person at the shell finds
-// agyn, agynd and the agent CLI present on disk and none of them on PATH.
-func appendWorkloadPathEnvVar(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
-	return appendPlatformEnvVar(envs, &runnerv1.EnvVar{
-		Name: "PATH",
-		// The image's own PATH is not knowable here, so the default login set
-		// is spelled out after the platform's own directory.
-		Value: agynBinDir + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-	})
-}
+// PATH is deliberately not set here. A container env entry replaces the image's
+// ENV PATH outright -- Kubernetes offers no way to prepend to it -- so setting
+// one discards whatever the image put there, and an image that installs into a
+// profile directory loses it. Every route to /agyn/bin prepends inside the
+// container instead, where $PATH is the image's: agynd for the subprocess it
+// spawns, the tmux configuration for a persistent shell, the Terminal Proxy for
+// a session. Machine-invoked commands name their binary by absolute path.
 
 func egressCAEnvVars() []*runnerv1.EnvVar {
 	return []*runnerv1.EnvVar{

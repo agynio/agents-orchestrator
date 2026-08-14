@@ -1,38 +1,26 @@
 package assembler
 
 import (
-	"strings"
 	"testing"
 
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 )
 
-// A sandbox shell comes from the runner's Exec and inherits the container
-// spec's environment, so PATH has to be there rather than in anything agynd
-// assembles for a subprocess it never spawns in holder mode.
-func TestWorkloadPathIncludesThePlatformBinaries(t *testing.T) {
-	envs := appendEgressCAEnvVars(nil)
-	var path string
-	for _, env := range envs {
+// A container env entry replaces the image's ENV PATH rather than extending it,
+// so setting one here loses whatever the image installed -- the devcontainer's
+// nix profile directories among them. Every route to /agyn/bin prepends inside
+// the container, where the image's PATH is what $PATH holds.
+func TestWorkloadEnvLeavesPathToTheImage(t *testing.T) {
+	for _, env := range appendEgressCAEnvVars(nil) {
 		if env.GetName() == "PATH" {
-			path = env.GetValue()
+			t.Fatalf("PATH = %q, want the image's own to survive", env.GetValue())
 		}
-	}
-	if path == "" {
-		t.Fatal("PATH is not set on the container")
-	}
-	if !strings.HasPrefix(path, agynBinDir+":") {
-		t.Fatalf("PATH = %q, want the platform directory first", path)
-	}
-	if !strings.Contains(path, "/usr/bin") {
-		t.Fatalf("PATH = %q, want the default login set after it", path)
 	}
 }
 
-// The platform's value wins, the same way SSL_CERT_FILE does: a workload that
-// set its own PATH would otherwise leave the agent CLI unreachable, which is
-// the failure this exists to prevent.
-func TestWorkloadPathWinsOverAnEarlierValue(t *testing.T) {
+// A workload that sets its own PATH keeps it: the platform no longer has a
+// value of its own to prefer over it.
+func TestWorkloadPathPassesThrough(t *testing.T) {
 	envs := appendEgressCAEnvVars([]*runnerv1.EnvVar{{Name: "PATH", Value: "/only/this"}})
 	var count int
 	for _, env := range envs {
@@ -40,8 +28,8 @@ func TestWorkloadPathWinsOverAnEarlierValue(t *testing.T) {
 			continue
 		}
 		count++
-		if !strings.HasPrefix(env.GetValue(), agynBinDir+":") {
-			t.Fatalf("PATH = %q", env.GetValue())
+		if env.GetValue() != "/only/this" {
+			t.Fatalf("PATH = %q, want the workload's own value", env.GetValue())
 		}
 	}
 	if count != 1 {
