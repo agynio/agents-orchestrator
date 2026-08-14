@@ -138,7 +138,8 @@ if [[ ! -s "${identity_file}" ]]; then
 
   openssl s_client -showcerts -servername "${ziti_controller_host}" -connect "${ziti_enrollment_controller_ip}:${ziti_enrollment_controller_port}" </dev/null 2>/dev/null | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ { print }' > "${ziti_controller_cert}"
   if [[ ! -s "${ziti_controller_cert}" ]]; then
-    echo "expected controller certificate from ${ziti_controller_hostport}" >&2
+    # What was dialled, not what the JWT advertises: an override splits them.
+    echo "expected controller certificate from ${ziti_enrollment_resolve_host}:${ziti_enrollment_controller_port} (${ziti_enrollment_controller_ip}), advertised as ${ziti_controller_hostport}" >&2
     exit 1
   fi
   cat "${ziti_controller_cert}" > "${ziti_tls_ca_cert}"
