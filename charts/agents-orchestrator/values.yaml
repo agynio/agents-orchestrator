@@ -114,8 +114,14 @@ env:
     value: "2m"
   - name: ZITI_ENROLLMENT_TIMEOUT
     value: "2m"
+  # Must track the controller and router the platform runs, which bundle-vm
+  # pins at 2.0.0-pre10. A tunnel two pre-releases behind them disagrees over
+  # multi-underlay: the SDK dials a second underlay, the router answers
+  # "already established", the channel closes, and circuits opened on it are
+  # orphaned -- the router then drops their data as an unknown conn id and the
+  # workload's first LLM stream dies mid-flight.
   - name: ZITI_SIDECAR_IMAGE
-    value: "openziti/ziti-tunnel:2.0.0-pre8"
+    value: "openziti/ziti-tunnel:2.0.0-pre10"
   - name: ZITI_MANAGEMENT_ADDRESS
     value: "ziti-management:50051"
   # Users, apps and agents group-sync against this service; with it off,
