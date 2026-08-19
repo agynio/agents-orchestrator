@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const defaultZitiSidecarImage = "openziti/ziti-tunnel:2.0.0-pre8"
+const defaultZitiSidecarImage = "openziti/ziti-tunnel:2.0.0-pre10"
 
 // The identity this process acts as is not something to guess at, so it has no
 // default and an installation that omits it does not start.
@@ -124,7 +124,7 @@ func TestZitiWorkflowKeepsSourceOfTruthRefsAndDnsValidation(t *testing.T) {
 		"dnsPolicy: None",
 		"timeout 10 nc -vz -w 5 ziti-router.agyn.dev 2496",
 		"name: Verify stock sidecar runtime DNS path",
-		"image: openziti/ziti-tunnel:2.0.0-pre8",
+		"image: openziti/ziti-tunnel:2.0.0-pre10",
 		"bash -c '</dev/tcp/ziti.agyn.dev/2496'",
 		"name: Verify gateway Ziti service binding",
 		"gateway listening on ziti service gateway",
