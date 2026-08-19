@@ -356,7 +356,11 @@ func (a *Assembler) baseSandboxEnvVars(sandbox *agentsv1.Sandbox, environment *a
 	}
 	if a.cfg.AgentTracingAddress != "" {
 		vars = append(vars, &runnerv1.EnvVar{Name: "TRACING_ADDRESS", Value: a.cfg.AgentTracingAddress})
-		vars = append(vars, &runnerv1.EnvVar{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "http://localhost:4317"})
+		// The same address, for anything in the workload that exports OTLP on
+		// its own rather than through agynd. It named a collector sidecar that
+		// no longer runs -- spans were sent to a closed port and the export
+		// blocked the turn that produced them.
+		vars = append(vars, &runnerv1.EnvVar{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "http://" + a.cfg.AgentTracingAddress})
 	}
 	return vars
 }

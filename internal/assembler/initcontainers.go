@@ -14,9 +14,9 @@ import (
 // They write disjoint paths in the shared volume, so they compose without
 // coordinating beyond that layout.
 const (
-	agyndCLIInitName    = "agynd-cli-init"
-	agynCLIInitName     = "agyn-cli-init"
-	agentRuntimeInit    = "agent-runtime"
+	agyndCLIInitName = "agynd-cli-init"
+	agynCLIInitName  = "agyn-cli-init"
+	agentRuntimeInit = "agent-runtime"
 )
 
 // platformInitContainers builds the two chart-pinned init containers every
@@ -69,4 +69,3 @@ func (a *Assembler) agentRuntimeInitContainer(image string) *runnerv1.ContainerS
 	applyEgressCA(container, a.egressCACert)
 	return container
 }
-
