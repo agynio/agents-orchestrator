@@ -180,7 +180,7 @@ func TestAssemblerMainContainer(t *testing.T) {
 	assertEnv(t, envs, "AGYND_AGENTS_DIRECT_ADDRESS", cfg.AgyndAgentsDirectAddress)
 	assertEnv(t, envs, "AGYND_RUNNERS_DIRECT_ADDRESS", cfg.AgyndRunnersDirectAddress)
 	assertEnv(t, envs, "TRACING_ADDRESS", cfg.AgentTracingAddress)
-	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+cfg.AgentTracingAddress)
 	assertEnv(t, envs, "WORKSPACE_DIR", "/override")
 	assertEnv(t, envs, "HOME", "/override-home")
 	assertEnv(t, envs, "CUSTOM_ENV", "custom")
@@ -500,7 +500,7 @@ func TestAssemblerZitiDefaultsFromEnv(t *testing.T) {
 	assertEnv(t, envs, "AGYN_GATEWAY_URL", "http://gateway.agyn:443")
 	assertEnv(t, envs, "LLM_BASE_URL", "http://llm-proxy.agyn/v1")
 	assertEnv(t, envs, "TRACING_ADDRESS", "tracing.agyn:443")
-	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	assertEnv(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://tracing.agyn:443")
 }
 
 func TestAssemblerResolvesSecretEnv(t *testing.T) {
