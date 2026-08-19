@@ -166,7 +166,7 @@ env:
   - name: AGYND_RUNNERS_DIRECT_ADDRESS
     value: ""
   - name: AGYND_CLI_INIT_IMAGE
-    value: "ghcr.io/agynio/agynd-cli-init:0.23.1"
+    value: "ghcr.io/agynio/agynd-cli-init:0.23.3"
   - name: AGYN_CLI_INIT_IMAGE
     value: "ghcr.io/agynio/agyn-cli-init:0.16.0"
   - name: SANDBOX_WORKSPACE_SIZE_GB
