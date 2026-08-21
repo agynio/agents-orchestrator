@@ -168,7 +168,7 @@ env:
   - name: AGYND_CLI_INIT_IMAGE
     value: "ghcr.io/agynio/agynd-cli-init:0.23.4"
   - name: AGYN_CLI_INIT_IMAGE
-    value: "ghcr.io/agynio/agyn-cli-init:0.16.0"
+    value: "ghcr.io/agynio/agyn-cli-init:0.18.1"
   - name: SANDBOX_WORKSPACE_SIZE_GB
     value: "10"
   - name: POLL_INTERVAL
