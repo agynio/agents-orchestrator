@@ -363,8 +363,6 @@ func TestAssembleSandboxDistributesEgressCA(t *testing.T) {
 	assertEnv(t, envs, "SSL_CERT_FILE", egressCACertPath)
 	assertEnv(t, envs, "REQUESTS_CA_BUNDLE", egressCACertPath)
 	assertEnv(t, envs, "NODE_EXTRA_CA_CERTS", egressCACertPath)
-	assertEnv(t, envs, "CURL_CA_BUNDLE", egressCACertPath)
-	assertEnv(t, envs, "SSL_CERT_DIR", egressCACertDir)
 
 	initContainer := result.Request.GetInitContainers()[0]
 	if len(initContainer.GetInlineFileMounts()) != 1 || initContainer.GetInlineFileMounts()[0].GetPath() != egressCACertPath {

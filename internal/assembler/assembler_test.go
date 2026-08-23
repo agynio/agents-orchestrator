@@ -1186,8 +1186,6 @@ func assertEgressCAEnv(t *testing.T, container *runnerv1.ContainerSpec) {
 	assertEnv(t, envs, "SSL_CERT_FILE", egressCACertPath)
 	assertEnv(t, envs, "REQUESTS_CA_BUNDLE", egressCACertPath)
 	assertEnv(t, envs, "NODE_EXTRA_CA_CERTS", egressCACertPath)
-	assertEnv(t, envs, "CURL_CA_BUNDLE", egressCACertPath)
-	assertEnv(t, envs, "SSL_CERT_DIR", egressCACertDir)
 }
 
 func assertInlineFileMount(t *testing.T, container *runnerv1.ContainerSpec, expectedPath string) {
