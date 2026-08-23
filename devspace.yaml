@@ -258,11 +258,13 @@ dev:
             excludePaths:
               - .git/
               - .devspace/
+              - /.gen/
               - /tmp/
               - /.e2e-deps/
             uploadExcludePaths:
               - .git/
               - .devspace/
+              - /.gen/
               - /tmp/
               - /.e2e-deps/
             downloadExcludePaths:

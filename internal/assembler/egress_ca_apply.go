@@ -31,13 +31,14 @@ func appendWorkloadSandboxEnvVar(envs []*runnerv1.EnvVar) []*runnerv1.EnvVar {
 // spawns, the tmux configuration for a persistent shell, the Terminal Proxy for
 // a session. Machine-invoked commands name their binary by absolute path.
 
+// egressCAEnvVars covers what the trust store cannot: the ziti enrolment script
+// reads SSL_CERT_FILE by name, and node and certifi ship private stores that
+// never consult the distro one. Everything else finds the bundle on its own.
 func egressCAEnvVars() []*runnerv1.EnvVar {
 	return []*runnerv1.EnvVar{
 		{Name: "SSL_CERT_FILE", Value: egressCACertPath},
 		{Name: "REQUESTS_CA_BUNDLE", Value: egressCACertPath},
 		{Name: "NODE_EXTRA_CA_CERTS", Value: egressCACertPath},
-		{Name: "CURL_CA_BUNDLE", Value: egressCACertPath},
-		{Name: "SSL_CERT_DIR", Value: egressCACertDir},
 	}
 }
 

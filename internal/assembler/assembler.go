@@ -41,13 +41,15 @@ const (
 	ZitiIdentityDirEnvVar                     = "ZITI_IDENTITY_DIR"
 	ZitiEnrollmentControllerResolveHostEnvVar = "ZITI_ENROLLMENT_CONTROLLER_RESOLVE_HOST"
 	ZitiEnrollmentControllerPortEnvVar        = "ZITI_ENROLLMENT_CONTROLLER_PORT"
-	egressCACertPath                          = "/etc/agyn/egress-ca/ca.crt"
-	egressCACertDir                           = "/etc/agyn/egress-ca"
-	zitiDNSNameserver                         = "127.0.0.1"
-	zitiEnrollEntrypoint                      = "/usr/bin/bash"
-	zitiSidecarEntrypoint                     = "/usr/bin/bash"
-	zitiSidecarServicePollRate                = "1"
-	zitiEnrollScript                          = `workload_dns_upstream="$1"
+	// The distro trust store itself. The bundle written here is the public
+	// roots plus the egress CA, so every OpenSSL consumer picks it up without
+	// being told where to look.
+	egressCACertPath           = "/etc/ssl/certs/ca-certificates.crt"
+	zitiDNSNameserver          = "127.0.0.1"
+	zitiEnrollEntrypoint       = "/usr/bin/bash"
+	zitiSidecarEntrypoint      = "/usr/bin/bash"
+	zitiSidecarServicePollRate = "1"
+	zitiEnrollScript           = `workload_dns_upstream="$1"
 workload_dns_nameserver="$2"
 enrollment_controller_resolve_host="$3"
 enrollment_controller_port_override="$4"
@@ -353,8 +355,6 @@ var reservedEnvNames = map[string]struct{}{
 	"SSL_CERT_FILE":                {},
 	"REQUESTS_CA_BUNDLE":           {},
 	"NODE_EXTRA_CA_CERTS":          {},
-	"CURL_CA_BUNDLE":               {},
-	"SSL_CERT_DIR":                 {},
 	"AGENT_MCP_SERVERS":            {},
 	"MCP_PORT":                     {},
 	ZitiEnrollmentTokenEnvVar:      {},
