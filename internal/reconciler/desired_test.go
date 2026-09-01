@@ -37,6 +37,10 @@ func (f *fakeThreadsClient) ArchiveThread(context.Context, *threadsv1.ArchiveThr
 	return nil, testutil.ErrNotImplemented
 }
 
+func (f *fakeThreadsClient) DeleteOrganizationResources(context.Context, *threadsv1.DeleteOrganizationResourcesRequest, ...grpc.CallOption) (*threadsv1.DeleteOrganizationResourcesResponse, error) {
+	return nil, testutil.ErrNotImplemented
+}
+
 func (f *fakeThreadsClient) DegradeThread(ctx context.Context, req *threadsv1.DegradeThreadRequest, opts ...grpc.CallOption) (*threadsv1.DegradeThreadResponse, error) {
 	if f.degradeThread != nil {
 		return f.degradeThread(ctx, req, opts...)
