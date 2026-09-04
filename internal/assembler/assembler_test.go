@@ -572,6 +572,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	threadID := uuid.New()
 	mcpID := uuid.New()
 	volumeID := uuid.New()
+	volumeStorageClass := "fast"
 
 	agent := &agentsv1.Agent{Meta: &agentsv1.EntityMeta{Id: agentID.String()}, OrganizationId: "org-1", Image: "agent-image"}
 	agentsClient := &testutil.FakeAgentsClient{
@@ -602,7 +603,7 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 		ListVolumesFunc: func(_ context.Context, req *agentsv1.ListVolumesRequest, _ ...grpc.CallOption) (*agentsv1.ListVolumesResponse, error) {
 			if req.GetMcpId() == mcpID.String() {
 				return &agentsv1.ListVolumesResponse{Volumes: []*agentsv1.Volume{
-					{Meta: &agentsv1.EntityMeta{Id: volumeID.String()}, Name: "state", MountPath: "/data", Persistent: true, Size: "1Gi"},
+					{Meta: &agentsv1.EntityMeta{Id: volumeID.String()}, Name: "state", MountPath: "/data", Persistent: true, Size: "1Gi", StorageClass: &volumeStorageClass},
 				}}, nil
 			}
 			return &agentsv1.ListVolumesResponse{}, nil
@@ -661,6 +662,12 @@ func TestAssemblerBuildsMcpSidecarAndVolumes(t *testing.T) {
 	expectedPersistent := "pv-" + threadID.String()[:12] + "-" + volumeID.String()[:12]
 	if volumeSpec.PersistentName != expectedPersistent {
 		t.Fatalf("expected persistent name %q, got %q", expectedPersistent, volumeSpec.PersistentName)
+	}
+	if volumeSpec.Size != "1Gi" {
+		t.Fatalf("expected volume size 1Gi, got %q", volumeSpec.Size)
+	}
+	if volumeSpec.StorageClass != "fast" {
+		t.Fatalf("expected storage class fast, got %q", volumeSpec.StorageClass)
 	}
 	agynBinVolume := findVolumeSpec(request.Volumes, agynBinVolumeName)
 	if agynBinVolume == nil {
