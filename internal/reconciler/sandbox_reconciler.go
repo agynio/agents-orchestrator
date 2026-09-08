@@ -14,16 +14,18 @@ import (
 	"github.com/agynio/agents-orchestrator/internal/assembler"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const sandboxPageSize int32 = 100
 
 type sandboxWorkloadPlan struct {
-	sandbox         *agentsv1.Sandbox
-	sandboxID       uuid.UUID
-	workspaceVolume *runnersv1.Volume
-	activeWorkload  *runnersv1.Workload
+	sandbox          *agentsv1.Sandbox
+	sandboxID        uuid.UUID
+	workspaceVolumes []*runnersv1.Volume
+	activeWorkload   *runnersv1.Workload
 }
 
 func (r *Reconciler) reconcileSandboxes(ctx context.Context) error {
@@ -174,12 +176,11 @@ func (r *Reconciler) loadSandboxWorkloadPlan(ctx context.Context, sandbox *agent
 			plan.activeWorkload = workload
 		}
 	}
+	// One row per persistent volume the environment declares, plus whatever a
+	// replaced definition left behind until its disk is confirmed gone.
 	for _, volume := range volumes {
 		if isPinnedVolumeStatus(volume.GetStatus()) {
-			if plan.workspaceVolume != nil {
-				return nil, fmt.Errorf("sandbox %s has multiple active workspace volumes", sandboxID.String())
-			}
-			plan.workspaceVolume = volume
+			plan.workspaceVolumes = append(plan.workspaceVolumes, volume)
 		}
 	}
 	return plan, nil
@@ -328,11 +329,9 @@ func (r *Reconciler) startSandboxWorkload(ctx context.Context, plan *sandboxWork
 			return err
 		}
 	}
-	if plan.workspaceVolume == nil {
-		if err := r.createSandboxVolumeRecords(ctx, assembled, runnerID); err != nil {
-			r.compensateIdentity(ctx, zitiIdentityID, "sandbox workspace record failure")
-			return err
-		}
+	if err := r.createSandboxVolumeRecords(ctx, assembled, runnerID); err != nil {
+		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workspace record failure")
+		return err
 	}
 	if err := r.createSandboxWorkloadRecord(ctx, workloadID, runnerID, assembled, zitiIdentityID); err != nil {
 		r.compensateIdentity(ctx, zitiIdentityID, "sandbox workload record failure")
@@ -490,8 +489,27 @@ func (r *Reconciler) createSandboxVolumeRecords(ctx context.Context, assembled *
 			OwnerId:            assembled.Request.GetAdditionalProperties()[assembler.LabelKeyPrefix+assembler.LabelSandboxID],
 			VolumeDefinitionId: &record.volumeID,
 		}); err != nil {
-			return err
+			if status.Code(err) != codes.AlreadyExists {
+				return err
+			}
+			if err := r.ensureOpenVolumeRecord(ctx, record.id); err != nil {
+				return err
+			}
 		}
+	}
+	return nil
+}
+
+// ensureOpenVolumeRecord accepts a create conflict only for a row still in
+// use. A closed row means the Runners service predates reopening reaped disk
+// slots; starting anyway would mount a disk no record tracks.
+func (r *Reconciler) ensureOpenVolumeRecord(ctx context.Context, volumeRecordID string) error {
+	resp, err := r.runners.GetVolume(ctx, &runnersv1.GetVolumeRequest{Id: volumeRecordID})
+	if err != nil {
+		return err
+	}
+	if !isPinnedVolumeStatus(resp.GetVolume().GetStatus()) {
+		return fmt.Errorf("volume record %s is closed and was not reopened", volumeRecordID)
 	}
 	return nil
 }
@@ -568,30 +586,26 @@ func (r *Reconciler) terminateSandbox(ctx context.Context, plan *sandboxWorkload
 }
 
 func (r *Reconciler) deleteSandboxWorkspace(ctx context.Context, plan *sandboxWorkloadPlan) error {
-	volume := plan.workspaceVolume
-	if volume == nil {
-		return nil
-	}
-	ownerID := strings.TrimSpace(volume.GetOwnerId())
-	if ownerID == "" {
-		ownerID = strings.TrimSpace(volume.GetAgentId())
-	}
-	if volume.GetRunnerId() != "" {
-		runnerClient, err := r.runnerDialer.Dial(ctx, volume.GetRunnerId())
-		if err != nil {
+	for _, volume := range plan.workspaceVolumes {
+		if volume.GetRunnerId() != "" {
+			runnerClient, err := r.runnerDialer.Dial(ctx, volume.GetRunnerId())
+			if err != nil {
+				return err
+			}
+			if _, err := runnerClient.RemoveVolume(ctx, &runnerv1.RemoveVolumeRequest{VolumeName: volume.GetMeta().GetId(), Force: true}); err != nil {
+				return err
+			}
+		}
+		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
+		if _, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+			Id:        volume.GetMeta().GetId(),
+			Status:    &status,
+			RemovedAt: timestamppb.New(time.Now().UTC()),
+		}); err != nil {
 			return err
 		}
-		if _, err := runnerClient.RemoveVolume(ctx, &runnerv1.RemoveVolumeRequest{VolumeName: volume.GetMeta().GetId(), Force: true}); err != nil {
-			return err
-		}
 	}
-	status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
-	_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
-		Id:        volume.GetMeta().GetId(),
-		Status:    &status,
-		RemovedAt: timestamppb.New(time.Now().UTC()),
-	})
-	return err
+	return nil
 }
 
 func (r *Reconciler) markSandboxWorkspaceFailed(ctx context.Context, existing *runnersv1.Volume, volumeID string) {

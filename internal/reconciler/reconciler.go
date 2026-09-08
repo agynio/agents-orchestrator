@@ -155,6 +155,7 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 		return err
 	}
 	now := time.Now().UTC()
+	started := 0
 	for _, candidate := range actions.ToStart {
 		ok, err := r.shouldStartWorkload(ctx, candidate, now, agentUpdatedAt)
 		if err != nil {
@@ -165,6 +166,7 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 			continue
 		}
 		r.startWorkload(ctx, candidate)
+		started++
 	}
 	for _, workload := range actions.ToStop {
 		r.stopWorkload(ctx, workload)
@@ -183,7 +185,7 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 		"reconciler: cycle complete - desired=%d actual=%d started=%d stopped=%d",
 		len(desired),
 		len(actual),
-		len(actions.ToStart),
+		started,
 		len(actions.ToStop),
 	)
 	return nil

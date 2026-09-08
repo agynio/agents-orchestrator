@@ -1140,14 +1140,14 @@ func TestReconcileVolumesLeavesPersistentVolumeOnNoTerminatorsListError(t *testi
 	}
 }
 
-func TestReconcileVolumesLeavesPersistentVolumeOnMissingPVC(t *testing.T) {
+func TestReconcileVolumesClosesRecordOnMissingPVC(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
 	volumeKey := "volume-1"
 	threadID := uuid.New().String()
 	volumeID := uuid.New().String()
 
-	var updateCount int
+	var updateReqs []*runnersv1.UpdateVolumeRequest
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
@@ -1157,8 +1157,8 @@ func TestReconcileVolumesLeavesPersistentVolumeOnMissingPVC(t *testing.T) {
 		listRunners: func(_ context.Context, _ *runnersv1.ListRunnersRequest, _ ...grpc.CallOption) (*runnersv1.ListRunnersResponse, error) {
 			return &runnersv1.ListRunnersResponse{Runners: []*runnersv1.Runner{buildRunner(runnerID)}}, nil
 		},
-		updateVolume: func(_ context.Context, _ *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			updateCount++
+		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
+			updateReqs = append(updateReqs, req)
 			return &runnersv1.UpdateVolumeResponse{}, nil
 		},
 	}
@@ -1202,8 +1202,14 @@ func TestReconcileVolumesLeavesPersistentVolumeOnMissingPVC(t *testing.T) {
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
 		t.Fatalf("reconcile volumes: %v", err)
 	}
-	if updateCount != 0 {
-		t.Fatalf("expected no volume updates, got %d", updateCount)
+	if len(updateReqs) != 1 {
+		t.Fatalf("expected 1 volume update, got %d", len(updateReqs))
+	}
+	if updateReqs[0].GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_DELETED {
+		t.Fatalf("expected deleted status, got %v", updateReqs[0].GetStatus())
+	}
+	if updateReqs[0].GetRemovedAt() == nil {
+		t.Fatal("expected removed_at to be stamped")
 	}
 	if degradeCalls != 0 {
 		t.Fatalf("expected 0 degrade calls, got %d", degradeCalls)
@@ -1217,7 +1223,7 @@ func TestReconcileVolumesDegradesUnenrolledRunner(t *testing.T) {
 	threadID := uuid.New().String()
 	volumeID := uuid.New().String()
 
-	updateCount := 0
+	var updateReqs []*runnersv1.UpdateVolumeRequest
 	runners := &fakeRunnersClient{
 		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
 			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
@@ -1231,7 +1237,7 @@ func TestReconcileVolumesDegradesUnenrolledRunner(t *testing.T) {
 			}}, nil
 		},
 		updateVolume: func(_ context.Context, req *runnersv1.UpdateVolumeRequest, _ ...grpc.CallOption) (*runnersv1.UpdateVolumeResponse, error) {
-			updateCount++
+			updateReqs = append(updateReqs, req)
 			if req.GetStatus() == runnersv1.VolumeStatus_VOLUME_STATUS_FAILED {
 				return nil, errors.New("unexpected volume status")
 			}
@@ -1270,11 +1276,70 @@ func TestReconcileVolumesDegradesUnenrolledRunner(t *testing.T) {
 	if err := reconciler.reconcileVolumes(ctx); err != nil {
 		t.Fatalf("reconcile volumes: %v", err)
 	}
-	if updateCount != 0 {
-		t.Fatalf("expected no volume updates, got %d", updateCount)
+	if len(updateReqs) != 1 {
+		t.Fatalf("expected 1 volume update, got %d", len(updateReqs))
+	}
+	if updateReqs[0].GetStatus() != runnersv1.VolumeStatus_VOLUME_STATUS_DELETED {
+		t.Fatalf("expected deleted status, got %v", updateReqs[0].GetStatus())
+	}
+	if updateReqs[0].GetRemovedAt() == nil {
+		t.Fatal("expected removed_at to be stamped")
 	}
 	if degradeCalls != 0 {
 		t.Fatalf("expected 0 degrade calls, got %d", degradeCalls)
+	}
+}
+
+// A runner that lists its volumes and does not name a tracked one is
+// authoritative; a record left active would pin the owner to a disk that no
+// longer exists.
+func TestLoadSandboxWorkloadPlanAcceptsMultipleVolumes(t *testing.T) {
+	ctx := context.Background()
+	sandboxID := uuid.New()
+	runners := &fakeRunnersClient{
+		listWorkloads: func(_ context.Context, _ *runnersv1.ListWorkloadsRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
+			return &runnersv1.ListWorkloadsResponse{}, nil
+		},
+		listVolumes: func(_ context.Context, _ *runnersv1.ListVolumesRequest, _ ...grpc.CallOption) (*runnersv1.ListVolumesResponse, error) {
+			return &runnersv1.ListVolumesResponse{Volumes: []*runnersv1.Volume{
+				{Meta: &runnersv1.EntityMeta{Id: "volume-1"}, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE},
+				{Meta: &runnersv1.EntityMeta{Id: "volume-2"}, Status: runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE},
+				{Meta: &runnersv1.EntityMeta{Id: "volume-3"}, Status: runnersv1.VolumeStatus_VOLUME_STATUS_DELETED},
+			}}, nil
+		},
+	}
+	reconciler := newTestReconciler(Config{Runners: runners})
+
+	plan, err := reconciler.loadSandboxWorkloadPlan(ctx, &agentsv1.Sandbox{Meta: &agentsv1.EntityMeta{Id: sandboxID.String()}})
+	if err != nil {
+		t.Fatalf("load sandbox workload plan: %v", err)
+	}
+	if len(plan.workspaceVolumes) != 2 {
+		t.Fatalf("expected 2 pinned volumes, got %d", len(plan.workspaceVolumes))
+	}
+}
+
+func TestEnsureOpenVolumeRecord(t *testing.T) {
+	ctx := context.Background()
+	statusByID := map[string]runnersv1.VolumeStatus{
+		"open":   runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+		"closed": runnersv1.VolumeStatus_VOLUME_STATUS_DELETED,
+	}
+	runners := &fakeRunnersClient{
+		getVolume: func(_ context.Context, req *runnersv1.GetVolumeRequest, _ ...grpc.CallOption) (*runnersv1.GetVolumeResponse, error) {
+			return &runnersv1.GetVolumeResponse{Volume: &runnersv1.Volume{
+				Meta:   &runnersv1.EntityMeta{Id: req.GetId()},
+				Status: statusByID[req.GetId()],
+			}}, nil
+		},
+	}
+	reconciler := newTestReconciler(Config{Runners: runners})
+
+	if err := reconciler.ensureOpenVolumeRecord(ctx, "open"); err != nil {
+		t.Fatalf("expected open record to be accepted: %v", err)
+	}
+	if err := reconciler.ensureOpenVolumeRecord(ctx, "closed"); err == nil {
+		t.Fatal("expected closed record to be refused")
 	}
 }
 
@@ -1362,6 +1427,33 @@ func TestReconcileVolumesTTLExpires(t *testing.T) {
 	}
 	if !removeCalled {
 		t.Fatal("expected remove volume")
+	}
+}
+
+// A runner-reported failure has no removed_at; its updated_at counts as the
+// removal, so volume TTLs still run down for the instance.
+func TestAgentInstanceActivityFallsBackToUpdatedAt(t *testing.T) {
+	ctx := context.Background()
+	instanceID := uuid.New().String()
+	endedAt := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Second)
+	runners := &fakeRunnersClient{
+		listWorkloadsByThread: func(_ context.Context, _ *runnersv1.ListWorkloadsByThreadRequest, _ ...grpc.CallOption) (*runnersv1.ListWorkloadsByThreadResponse, error) {
+			return &runnersv1.ListWorkloadsByThreadResponse{Workloads: []*runnersv1.Workload{
+				{Meta: &runnersv1.EntityMeta{Id: "workload-1", UpdatedAt: timestamppb.New(endedAt)}, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED},
+			}}, nil
+		},
+	}
+	reconciler := newTestReconciler(Config{Runners: runners})
+
+	activity, err := reconciler.agentInstanceActivity(ctx, instanceID, map[string]instanceActivity{})
+	if err != nil {
+		t.Fatalf("agent instance activity: %v", err)
+	}
+	if activity.hasActive {
+		t.Fatal("expected no active workloads")
+	}
+	if activity.latestRemovedAt == nil || !activity.latestRemovedAt.Equal(endedAt) {
+		t.Fatalf("expected latest removal %v, got %v", endedAt, activity.latestRemovedAt)
 	}
 }
 
