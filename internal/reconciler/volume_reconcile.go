@@ -143,8 +143,8 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		trackedVolumes := volumesByRunner[runnerID]
 		if _, ok := enrolledRunnerIDs[runnerID]; !ok {
 			for volumeID, volume := range trackedVolumes {
-				if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
-					log.Printf("reconciler: warn: handle missing volume %s on unenrolled runner: %v", volumeID, err)
+				if err := r.closeMissingVolume(ctx, volume); err != nil {
+					log.Printf("reconciler: warn: close missing volume %s on unenrolled runner: %v", volumeID, err)
 				}
 				// A sandbox has no instance to pause; its own reconciler owns
 				// what happens when the runner goes away.
@@ -204,8 +204,8 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		for volumeID, volume := range trackedVolumes {
 			item, ok := runnerVolumes[volumeID]
 			if !ok {
-				if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
-					log.Printf("reconciler: warn: handle missing volume %s: %v", volumeID, err)
+				if err := r.closeMissingVolume(ctx, volume); err != nil {
+					log.Printf("reconciler: warn: close missing volume %s: %v", volumeID, err)
 				}
 				if volume.GetStatus() == runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE {
 					if isSandboxVolume(volume) {
@@ -293,6 +293,29 @@ func (r *Reconciler) listActiveVolumes(ctx context.Context, organizations map[st
 		}
 	}
 	return active, ignoredVolumeKeysByRunner, nil
+}
+
+// closeMissingVolume finalizes a record whose disk the runner authoritatively
+// does not have. Provisioning is left alone: the record is written before the
+// disk exists.
+func (r *Reconciler) closeMissingVolume(ctx context.Context, volume *runnersv1.Volume) error {
+	volumeID := volume.GetMeta().GetId()
+	if volumeID == "" {
+		return nil
+	}
+	switch volume.GetStatus() {
+	case runnersv1.VolumeStatus_VOLUME_STATUS_ACTIVE,
+		runnersv1.VolumeStatus_VOLUME_STATUS_DEPROVISIONING:
+		status := runnersv1.VolumeStatus_VOLUME_STATUS_DELETED
+		_, err := r.runners.UpdateVolume(ctx, &runnersv1.UpdateVolumeRequest{
+			Id:        volumeID,
+			Status:    &status,
+			RemovedAt: timestamppb.New(time.Now().UTC()),
+		})
+		return err
+	default:
+		return nil
+	}
 }
 
 func (r *Reconciler) handleMissingRunnerVolume(ctx context.Context, volume *runnersv1.Volume) error {
@@ -446,11 +469,16 @@ func (r *Reconciler) agentInstanceActivity(ctx context.Context, agentInstanceID 
 			runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
 			activity.hasActive = true
 		}
-		removedAt := workload.GetRemovedAt()
-		if removedAt == nil {
+		switch workload.GetStatus() {
+		case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
+			runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED:
+		default:
 			continue
 		}
-		removedTime := removedAt.AsTime()
+		removedTime, err := workloadEndedAt(workload)
+		if err != nil {
+			continue
+		}
 		if activity.latestRemovedAt == nil || removedTime.After(*activity.latestRemovedAt) {
 			copy := removedTime
 			activity.latestRemovedAt = &copy

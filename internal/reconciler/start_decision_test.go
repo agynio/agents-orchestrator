@@ -172,6 +172,44 @@ func TestShouldStartWorkloadBackoffSchedule(t *testing.T) {
 	}
 }
 
+// A runner-reported failure carries no removed_at; the row's updated_at
+// stands in, so the instance backs off instead of erroring every cycle.
+func TestShouldStartWorkloadBacksOffOnReportedFailure(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2024, 10, 10, 9, 0, 0, 0, time.UTC)
+	agentID := uuid.New()
+	agentInstanceID := uuid.New()
+
+	reported := makeDecisionWorkload("reported", runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED, base.Add(-time.Minute), time.Time{})
+	reported.Meta.UpdatedAt = timestamppb.New(base.Add(-5 * time.Second))
+
+	fixture := startDecisionFixture{
+		t:               t,
+		agentInstanceID: agentInstanceID,
+		latest:          []*runnersv1.Workload{reported},
+		failed:          []*runnersv1.Workload{reported},
+	}
+	runners := &fakeRunnersClient{listWorkloadsByAgentInstance: fixture.list}
+	reconciler := newTestReconciler(Config{Runners: runners})
+	agentUpdatedAt := map[uuid.UUID]time.Time{agentID: base.Add(-24 * time.Hour)}
+
+	shouldStart, err := reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, base, agentUpdatedAt)
+	if err != nil {
+		t.Fatalf("should start workload: %v", err)
+	}
+	if shouldStart {
+		t.Fatal("expected backoff within the first window")
+	}
+
+	shouldStart, err = reconciler.shouldStartWorkload(ctx, AgentInstanceTarget{AgentID: agentID, AgentInstanceID: agentInstanceID}, base.Add(time.Minute), agentUpdatedAt)
+	if err != nil {
+		t.Fatalf("should start workload: %v", err)
+	}
+	if !shouldStart {
+		t.Fatal("expected start after the backoff window")
+	}
+}
+
 func TestShouldStartWorkloadResetsOnLastStopped(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2024, 10, 10, 9, 0, 0, 0, time.UTC)

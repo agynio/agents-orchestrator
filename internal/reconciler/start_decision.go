@@ -47,7 +47,7 @@ func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentInstan
 	if !ok {
 		return false, fmt.Errorf("agent %s updated_at missing", target.AgentID.String())
 	}
-	latestRemovedAt, err := workloadRemovedAt(latest)
+	latestRemovedAt, err := workloadEndedAt(latest)
 	if err != nil {
 		return false, err
 	}
@@ -197,10 +197,15 @@ func workloadCreatedAt(workload *runnersv1.Workload) (time.Time, error) {
 	return createdAt.AsTime().UTC(), nil
 }
 
-func workloadRemovedAt(workload *runnersv1.Workload) (time.Time, error) {
-	removedAt := workload.GetRemovedAt()
-	if removedAt == nil {
-		return time.Time{}, fmt.Errorf("workload removed_at missing")
+// workloadEndedAt is when a terminal workload ended. Runner-reported failures
+// carry no removed_at; the row's updated_at is when the report landed.
+func workloadEndedAt(workload *runnersv1.Workload) (time.Time, error) {
+	if removedAt := workload.GetRemovedAt(); removedAt != nil {
+		return removedAt.AsTime().UTC(), nil
 	}
-	return removedAt.AsTime().UTC(), nil
+	updatedAt := workload.GetMeta().GetUpdatedAt()
+	if updatedAt == nil {
+		return time.Time{}, fmt.Errorf("workload removed_at and updated_at missing")
+	}
+	return updatedAt.AsTime().UTC(), nil
 }
