@@ -305,6 +305,9 @@ func TestAssembleSandboxMountsPersistentWorkspace(t *testing.T) {
 	if workspaceVolume.GetPersistentName() != expectedPersistentName {
 		t.Fatalf("expected persistent name %q, got %q", expectedPersistentName, workspaceVolume.GetPersistentName())
 	}
+	if workspaceVolume.GetSize() != "10Gi" {
+		t.Fatalf("expected workspace volume size 10Gi, got %q", workspaceVolume.GetSize())
+	}
 	labels := workspaceVolume.GetLabels()
 	if labels[LabelSandboxID] != fixture.sandboxID.String() {
 		t.Fatalf("unexpected workspace sandbox label: %v", labels)

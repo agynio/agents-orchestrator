@@ -1327,6 +1327,8 @@ func (v *volumeResolver) ensureSpec(volumeID uuid.UUID, volume *agentsv1.Volume)
 		instancePrefix := v.ownerID.String()[:12]
 		volumePrefix := key[:12]
 		spec.PersistentName = fmt.Sprintf("pv-%s-%s", instancePrefix, volumePrefix)
+		spec.Size = volume.GetSize()
+		spec.StorageClass = volume.GetStorageClass()
 	}
 	v.specs[key] = spec
 	return spec
