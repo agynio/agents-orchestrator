@@ -185,6 +185,12 @@ func TestAssembleSandboxUsesEnvironmentImageAndFlavor(t *testing.T) {
 	if result.Flavor != testSandboxFlavor {
 		t.Fatalf("expected flavor %q, got %q", testSandboxFlavor, result.Flavor)
 	}
+	// It also reaches the runner, which is what sizes the pod: the runner
+	// resolves the name against its own catalog rather than being handed
+	// requests and limits.
+	if got := result.Request.GetFlavor(); got != testSandboxFlavor {
+		t.Fatalf("expected request flavor %q, got %q", testSandboxFlavor, got)
+	}
 	if result.OrganizationID != "org-1" {
 		t.Fatalf("unexpected organization id %q", result.OrganizationID)
 	}

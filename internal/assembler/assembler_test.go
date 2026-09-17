@@ -2002,6 +2002,12 @@ func TestAssemblerUsesEnvironmentImageAndRunner(t *testing.T) {
 	if result.Flavor != testAgentEnvironmentFlavor {
 		t.Fatalf("expected environment flavor %q, got %q", testAgentEnvironmentFlavor, result.Flavor)
 	}
+	// It also reaches the runner, which is what sizes the pod: the runner
+	// resolves the name against its own catalog rather than being handed
+	// requests and limits.
+	if got := result.Request.GetFlavor(); got != testAgentEnvironmentFlavor {
+		t.Fatalf("expected request flavor %q, got %q", testAgentEnvironmentFlavor, got)
+	}
 	// The runtime the environment names is what seeds the workload: there is no
 	// longer an agent-supplied init image to fall back to.
 	initContainer := testutil.FindInitContainer(result.Request.GetInitContainers(), agentRuntimeInit)
