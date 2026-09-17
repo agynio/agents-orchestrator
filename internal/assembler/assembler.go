@@ -671,6 +671,7 @@ func (a *Assembler) Assemble(ctx context.Context, agentID, agentInstanceID, thre
 		InitContainers: initContainers,
 		Capabilities:   append([]string(nil), agent.GetCapabilities()...),
 		InlineFiles:    a.inlineFiles(),
+		Flavor:         flavor.GetName(),
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy:  ManagedByValue,
 			LabelKeyPrefix + LabelAgentID:    agentID.String(),

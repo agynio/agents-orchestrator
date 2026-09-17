@@ -208,6 +208,7 @@ func (a *Assembler) AssembleSandbox(ctx context.Context, sandbox *agentsv1.Sandb
 		Volumes:        volumes,
 		InitContainers: initContainers,
 		InlineFiles:    a.inlineFiles(),
+		Flavor:         flavor.GetName(),
 		AdditionalProperties: map[string]string{
 			LabelKeyPrefix + LabelManagedBy:      ManagedByValue,
 			LabelKeyPrefix + LabelSandboxID:      sandboxID.String(),
