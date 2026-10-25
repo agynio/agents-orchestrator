@@ -290,6 +290,63 @@ func TestClassifyRunningContainersErrorsOnNil(t *testing.T) {
 	}
 }
 
+// The agent died while its MCP server and tunnel sidecar kept the pod running:
+// the workload must fail so it is torn down and restarted.
+func TestClassifyRunningContainersMainTerminatedWithRunningSidecars(t *testing.T) {
+	exitCode := int32(1)
+	containers := []*runnersv1.Container{
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_INIT, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED, "Error", "", 0, &exitCode),
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_SIDECAR, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
+	}
+
+	failure, err := classifyRunningContainers(containers)
+	if err != nil {
+		t.Fatalf("classify running containers: %v", err)
+	}
+	if failure == nil {
+		t.Fatal("expected failure")
+	}
+	if failure.reason != runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP {
+		t.Fatalf("unexpected failure reason: %v", failure.reason)
+	}
+	if failure.message != "Error (exit code 1)" {
+		t.Fatalf("unexpected failure message: %s", failure.message)
+	}
+}
+
+func TestClassifyRunningContainersMainRunning(t *testing.T) {
+	containers := []*runnersv1.Container{
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_SIDECAR, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
+	}
+
+	failure, err := classifyRunningContainers(containers)
+	if err != nil {
+		t.Fatalf("classify running containers: %v", err)
+	}
+	if failure != nil {
+		t.Fatalf("unexpected failure: %+v", failure)
+	}
+}
+
+// A sidecar that exits is not the workload ending; only the main container is.
+func TestClassifyRunningContainersSidecarTerminated(t *testing.T) {
+	exitCode := int32(1)
+	containers := []*runnersv1.Container{
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_MAIN, runnersv1.ContainerStatus_CONTAINER_STATUS_RUNNING, "", "", 0, nil),
+		makeContainer(runnersv1.ContainerRole_CONTAINER_ROLE_SIDECAR, runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED, "Error", "", 0, &exitCode),
+	}
+
+	failure, err := classifyRunningContainers(containers)
+	if err != nil {
+		t.Fatalf("classify running containers: %v", err)
+	}
+	if failure != nil {
+		t.Fatalf("unexpected failure: %+v", failure)
+	}
+}
+
 func makeContainer(role runnersv1.ContainerRole, status runnersv1.ContainerStatus, reason, message string, restartCount int32, exitCode *int32) *runnersv1.Container {
 	return &runnersv1.Container{
 		Role:         role,

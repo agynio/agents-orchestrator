@@ -395,14 +395,7 @@ func classifyStartingContainers(containers []*runnersv1.Container, workload *run
 				mainRunning = false
 			}
 			if status == runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED {
-				message := containerFailureMessage(container)
-				exitCode := container.GetExitCode()
-				if message == "" {
-					message = fmt.Sprintf("main container terminated with exit code %d", exitCode)
-				} else if exitCode != 0 {
-					message = fmt.Sprintf("%s (exit code %d)", message, exitCode)
-				}
-				return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: message}, nil
+				return false, &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_START_FAILED, message: mainTerminatedMessage(container)}, nil
 			}
 			if status == runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING {
 				if container.GetReason() == crashLoopBackoffFlag && container.GetRestartCount() >= crashloopThreshold {
@@ -437,6 +430,14 @@ func classifyRunningContainers(containers []*runnersv1.Container) (*workloadFail
 		}
 		if container.GetStatus() == runnersv1.ContainerStatus_CONTAINER_STATUS_WAITING && container.GetReason() == crashLoopBackoffFlag && container.GetRestartCount() >= crashloopThreshold {
 			return &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP, message: containerFailureMessage(container)}, nil
+		}
+		// The runner starts pods with restartPolicy Never, so a main container
+		// that dies is never restarted into CrashLoopBackOff: it stays
+		// terminated while the sidecars keep the pod running. Left alone, the
+		// workload stayed RUNNING with no agent in it and its messages were
+		// never processed. One exit is the whole crash loop.
+		if container.GetStatus() == runnersv1.ContainerStatus_CONTAINER_STATUS_TERMINATED {
+			return &workloadFailure{reason: runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_CRASHLOOP, message: mainTerminatedMessage(container)}, nil
 		}
 	}
 	return nil, nil
@@ -477,6 +478,18 @@ func containerFailureMessage(container *runnersv1.Container) string {
 		return container.GetMessage()
 	}
 	return container.GetReason()
+}
+
+func mainTerminatedMessage(container *runnersv1.Container) string {
+	message := containerFailureMessage(container)
+	exitCode := container.GetExitCode()
+	if message == "" {
+		return fmt.Sprintf("main container terminated with exit code %d", exitCode)
+	}
+	if exitCode != 0 {
+		return fmt.Sprintf("%s (exit code %d)", message, exitCode)
+	}
+	return message
 }
 
 // runnersForWorkloads lists the runners of every organization that owns an
