@@ -4,9 +4,17 @@ import (
 	"context"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	exposev1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/expose/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"google.golang.org/grpc"
 )
+
+// exposeClient answers whether a port exposure stands on a workload. An exposed
+// port is a standing request to be reachable, which a frozen guest is not, so
+// an exposure keeps its workload awake.
+type exposeClient interface {
+	ListExposures(context.Context, *exposev1.ListExposuresRequest, ...grpc.CallOption) (*exposev1.ListExposuresResponse, error)
+}
 
 type agentsClient interface {
 	GetAgent(context.Context, *agentsv1.GetAgentRequest, ...grpc.CallOption) (*agentsv1.GetAgentResponse, error)
@@ -16,6 +24,11 @@ type agentsClient interface {
 	GetUnackedInboxItems(context.Context, *agentsv1.GetUnackedInboxItemsRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxItemsResponse, error)
 	SetSandboxLayoutDirectories(context.Context, *agentsv1.SetSandboxLayoutDirectoriesRequest, ...grpc.CallOption) (*agentsv1.SetSandboxLayoutDirectoriesResponse, error)
 	PauseInstance(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
+	// Read for a hibernated workload: an instance that is paused or terminated
+	// will never wake it.
+	GetInstance(context.Context, *agentsv1.GetInstanceRequest, ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error)
+	// The inbox check made immediately before a workload is hibernated.
+	GetUnackedInboxCount(context.Context, *agentsv1.GetUnackedInboxCountRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxCountResponse, error)
 	GetSandbox(context.Context, *agentsv1.GetSandboxRequest, ...grpc.CallOption) (*agentsv1.GetSandboxResponse, error)
 	ListSandboxes(context.Context, *agentsv1.ListSandboxesRequest, ...grpc.CallOption) (*agentsv1.ListSandboxesResponse, error)
 	UpdateSandboxRuntimeState(context.Context, *agentsv1.UpdateSandboxRuntimeStateRequest, ...grpc.CallOption) (*agentsv1.UpdateSandboxRuntimeStateResponse, error)

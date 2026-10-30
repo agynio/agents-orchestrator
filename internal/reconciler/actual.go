@@ -39,17 +39,12 @@ func (r *Reconciler) listActiveWorkloads(ctx context.Context, organizations map[
 		return active, nil
 	}
 	pageToken := ""
-	statuses := []runnersv1.WorkloadStatus{
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
-	}
 	for {
 		resp, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
-				StatusIn: statuses,
+				StatusIn: liveWorkloadStatuses,
 			},
 		})
 		if err != nil {

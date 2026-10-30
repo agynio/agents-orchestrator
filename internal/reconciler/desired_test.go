@@ -175,7 +175,7 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 	}
 	reconciler := &Reconciler{agents: agents, idle: time.Hour, platformIdentityID: testPlatformIdentityID}
 
-	desired, idleTimeouts, agentUpdatedAt, err := reconciler.fetchDesired(ctx)
+	desired, policies, agentUpdatedAt, err := reconciler.fetchDesired(ctx)
 	if err != nil {
 		t.Fatalf("fetch desired: %v", err)
 	}
@@ -189,8 +189,8 @@ func TestFetchDesiredListsActiveInstancesWithUnackedInbox(t *testing.T) {
 	if inboxReq == nil || inboxReq.GetAgentInstanceId() != instanceID.String() || inboxReq.GetPageSize() != 1 {
 		t.Fatalf("unexpected get unacked inbox request: %#v", inboxReq)
 	}
-	if idleTimeouts[agentID] != time.Hour {
-		t.Fatalf("unexpected idle timeout: %v", idleTimeouts[agentID])
+	if policies[agentID].idleTimeout != time.Hour {
+		t.Fatalf("unexpected idle timeout: %v", policies[agentID].idleTimeout)
 	}
 	if !agentUpdatedAt[agentID].Equal(updatedAt) {
 		t.Fatalf("unexpected updated_at: %v", agentUpdatedAt[agentID])

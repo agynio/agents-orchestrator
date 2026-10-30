@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
+	exposev1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/expose/v1"
 	groupsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/groups/v1"
 	imageproxyv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/image_proxy/v1"
 	imagesv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/images/v1"
@@ -106,6 +107,14 @@ func run() error {
 	}
 	defer closeConn(meteringConn)
 
+	// Read before a workload is hibernated: an active port exposure keeps it
+	// awake.
+	exposeConn, err := grpc.NewClient(cfg.ExposeAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("dial expose: %w", err)
+	}
+	defer closeConn(exposeConn)
+
 	var (
 		runnerDialer   runnerdial.RunnerDialer
 		zitiMgmtConn   *grpc.ClientConn
@@ -149,6 +158,7 @@ func run() error {
 	secretsClient := secretsv1.NewSecretsServiceClient(secretsConn)
 	runnersClient := runnersv1.NewRunnersServiceClient(runnersConn)
 	meteringClient := meteringv1.NewMeteringServiceClient(meteringConn)
+	exposeClient := exposev1.NewExposeServiceClient(exposeConn)
 	var groupsClient groupsv1.GroupsServiceClient
 	var groupsConn *grpc.ClientConn
 	if cfg.GroupSyncEnabled {
@@ -217,6 +227,7 @@ func run() error {
 		Groups:                    groupsClient,
 		Runners:                   runnersClient,
 		Metering:                  meteringClient,
+		Expose:                    exposeClient,
 		Assembler:                 assembler,
 		Wake:                      subscriber.Wake(),
 		SandboxWake:               subscriber.SandboxWake(),

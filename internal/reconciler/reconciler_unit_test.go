@@ -43,6 +43,21 @@ func TestRunnerStatus(t *testing.T) {
 			want:  runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED,
 		},
 		{
+			name:  "hibernating",
+			input: runnerv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATING,
+			want:  runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATING,
+		},
+		{
+			name:  "hibernated",
+			input: runnerv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED,
+			want:  runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED,
+		},
+		{
+			name:  "waking",
+			input: runnerv1.WorkloadStatus_WORKLOAD_STATUS_WAKING,
+			want:  runnersv1.WorkloadStatus_WORKLOAD_STATUS_WAKING,
+		},
+		{
 			name:    "unknown",
 			input:   runnerv1.WorkloadStatus(99),
 			want:    runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED,

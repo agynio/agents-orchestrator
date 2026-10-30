@@ -39,7 +39,8 @@ RUN buf generate buf.build/agynio/api \
     --path agynio/api/image_proxy/v1 \
     --path agynio/api/images/v1 \
     --path agynio/api/organizations/v1 \
-    --path agynio/api/secrets/v1
+    --path agynio/api/secrets/v1 \
+    --path agynio/api/expose/v1
 
 COPY . .
 

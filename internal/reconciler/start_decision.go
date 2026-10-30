@@ -22,15 +22,19 @@ var startBackoffSchedule = []time.Duration{
 }
 
 func (r *Reconciler) shouldStartWorkload(ctx context.Context, target AgentInstanceTarget, now time.Time, agentUpdatedAt map[uuid.UUID]time.Time) (bool, error) {
-	active, err := r.listWorkloadsByAgentInstance(ctx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
-	}, 1)
+	active, err := r.listWorkloadsByAgentInstance(ctx, target.AgentInstanceID.String(), liveWorkloadStatuses, 1)
 	if err != nil {
 		return false, err
 	}
 	if len(active) > 0 {
+		// Asleep with work waiting: wake it, start nothing. A hibernating one
+		// is left to finish and a waking one is already on its way; anything
+		// else is reconciliation's.
+		if active[0].GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED {
+			if err := r.wakeWorkload(ctx, active[0]); err != nil {
+				log.Printf("reconciler: wake workload %s for agent instance %s: %v", active[0].GetMeta().GetId(), target.AgentInstanceID.String(), err)
+			}
+		}
 		return false, nil
 	}
 	latest, err := r.latestWorkloadByAgentInstance(ctx, target.AgentInstanceID.String(), []runnersv1.WorkloadStatus{
@@ -179,7 +183,6 @@ func (r *Reconciler) pauseInstance(ctx context.Context, agentInstanceID, reason 
 	if agentInstanceID == "" {
 		return
 	}
-	ctx = ctx
 	if _, err := r.agents.PauseInstance(ctx, &agentsv1.PauseInstanceRequest{Id: agentInstanceID, PauseReason: reason}); err != nil {
 		log.Printf("reconciler: pause agent instance %s: %v", agentInstanceID, err)
 	}

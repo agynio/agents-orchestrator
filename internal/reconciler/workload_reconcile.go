@@ -237,18 +237,24 @@ func (r *Reconciler) handleMissingRunnerWorkload(ctx context.Context, workload *
 	if workloadID == "" {
 		return nil
 	}
+	var (
+		failureReason  runnersv1.WorkloadFailureReason
+		failureMessage string
+	)
 	switch workload.GetStatus() {
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
-		failureReason := runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST
-		failureMessage := "workload missing on runner"
-		r.markWorkloadFailed(ctx, workloadID, stringPtr(workload.GetInstanceId()), failureReason, failureMessage, nil)
-		if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
-			if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
-				log.Printf("reconciler: delete ziti identity %s after missing workload %s: %v", workload.GetZitiIdentityId(), workloadID, err)
-			}
-		}
-		return nil
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
+		runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATING:
+		failureReason = runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST
+		failureMessage = "workload missing on runner"
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED:
+		// The runner no longer holds the state; the instance cold-starts on
+		// its volumes.
+		failureReason = runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_SNAPSHOT_LOST
+		failureMessage = "hibernated workload missing on runner"
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_WAKING:
+		failureReason = runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_WAKE_FAILED
+		failureMessage = "waking workload missing on runner"
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
 		missingAt := timestamppb.New(time.Now().UTC())
 		status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED
@@ -261,6 +267,14 @@ func (r *Reconciler) handleMissingRunnerWorkload(ctx context.Context, workload *
 	default:
 		return nil
 	}
+	r.markWorkloadFailed(ctx, workloadID, stringPtr(workload.GetInstanceId()), failureReason, failureMessage, nil)
+	r.hibernation.forget(workloadID)
+	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
+		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
+			log.Printf("reconciler: delete ziti identity %s after missing workload %s: %v", workload.GetZitiIdentityId(), workloadID, err)
+		}
+	}
+	return nil
 }
 
 func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workload *runnersv1.Workload, item *runnerv1.WorkloadListItem) error {
@@ -272,12 +286,22 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	if instanceID == "" {
 		return nil
 	}
+	// A sleeping workload is the main loop's to check against its TTL and
+	// nothing else's: a paused guest has no container state to refresh and no
+	// health to classify.
+	if workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED {
+		return nil
+	}
 	updateReq := &runnersv1.UpdateWorkloadRequest{Id: workloadID}
 	shouldUpdate := false
 	if workload.GetInstanceId() != instanceID {
 		updateReq.InstanceId = stringPtr(instanceID)
 		shouldUpdate = true
 	}
+	// What the runner reports the workload to be. The list item carries it;
+	// the inspection, when it answers, is the fresher of the two.
+	reported := item.GetStatus()
+	snapshotSize := item.SnapshotSizeBytes
 	inspectResp, err := r.inspectRunnerWorkload(ctx, runnerClient, instanceID)
 	inspectStateRunning := false
 	inspectContainerCount := 0
@@ -287,6 +311,12 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	} else {
 		inspectStateRunning = inspectResp.GetStateRunning()
 		inspectContainerCount = len(inspectResp.GetContainers())
+		if reportedStatus := inspectResp.GetStatus(); reportedStatus != runnerv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED {
+			reported = reportedStatus
+		}
+		if inspectResp.SnapshotSizeBytes != nil {
+			snapshotSize = inspectResp.SnapshotSizeBytes
+		}
 		mapped, mapErr := mapRunnerContainers(inspectResp.GetContainers())
 		if mapErr != nil {
 			log.Printf("reconciler: warn: map workload %s containers: %v", workloadID, mapErr)
@@ -319,6 +349,17 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 			shouldUpdate = true
 		}
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
+		switch reported {
+		case runnerv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED:
+			// Paused and persisted without this service having recorded the
+			// transition: the record follows the runner rather than judging
+			// frozen containers.
+			return r.recordHibernated(ctx, workload, updateReq, snapshotSize)
+		case runnerv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATING,
+			runnerv1.WorkloadStatus_WORKLOAD_STATUS_WAKING:
+			// In transition; frozen containers are no health signal.
+			return nil
+		}
 		if containers != nil {
 			failure, err := classifyRunningContainers(containers)
 			if err != nil {
@@ -328,6 +369,36 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 				r.failWorkloadOnRunner(ctx, runnerClient, workload, instanceID, failure, containers)
 				return nil
 			}
+		}
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATING:
+		switch reported {
+		case runnerv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED:
+			// The runner's report was missed.
+			return r.recordHibernated(ctx, workload, updateReq, snapshotSize)
+		case runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
+			// The runner could not persist it. The record says running again,
+			// and the main loop retries no sooner than hibernateRetry later.
+			r.hibernation.hibernateFailed(workloadID, time.Now().UTC())
+			status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
+			updateReq.Status = &status
+			shouldUpdate = true
+		default:
+			// Still on its way; a hibernation is not interrupted.
+			return nil
+		}
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_WAKING:
+		switch reported {
+		case runnerv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
+			// The runner's report was missed. The Runners service carries the
+			// wake's resets with the transition, so nothing is passed here.
+			r.hibernation.forget(workloadID)
+			status := runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING
+			updateReq.Status = &status
+			shouldUpdate = true
+		case runnerv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED:
+			return r.retryWake(ctx, runnerClient, workload, instanceID)
+		default:
+			return nil
 		}
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
 		// stop below
@@ -346,6 +417,51 @@ func (r *Reconciler) handlePresentRunnerWorkload(ctx context.Context, runnerClie
 	}
 	if workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING {
 		return r.stopRunnerWorkload(ctx, runnerClient, instanceID)
+	}
+	return nil
+}
+
+// recordHibernated writes the sleep the runner reports and this service had
+// not recorded: status, when, and the size of the persisted state. The Runners
+// service stamps hibernated_at itself when none is sent; sending it here keeps
+// the two writers' records alike.
+func (r *Reconciler) recordHibernated(ctx context.Context, workload *runnersv1.Workload, updateReq *runnersv1.UpdateWorkloadRequest, snapshotSize *int64) error {
+	hibernated := runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED
+	updateReq.Status = &hibernated
+	updateReq.HibernatedAt = timestamppb.New(time.Now().UTC())
+	updateReq.SnapshotSizeBytes = snapshotSize
+	if _, err := r.runners.UpdateWorkload(ctx, updateReq); err != nil {
+		return err
+	}
+	workload.Status = hibernated
+	workload.HibernatedAt = updateReq.HibernatedAt
+	workload.SnapshotSizeBytes = snapshotSize
+	if updateReq.InstanceId != nil {
+		workload.InstanceId = updateReq.InstanceId
+	}
+	r.hibernation.forget(workload.GetMeta().GetId())
+	return nil
+}
+
+// retryWake is the row for a waking record whose runner still reports it
+// hibernated: the wake did not take. WakeWorkload is tried again, and after
+// wakeAttempts of them the workload is failed and its instance cold-starts on
+// its volumes. A WakeWorkload that errors fails it at once, as it does in the
+// main loop.
+func (r *Reconciler) retryWake(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workload *runnersv1.Workload, instanceID string) error {
+	workloadID := workload.GetMeta().GetId()
+	if r.hibernation.wakeCount(workloadID) >= wakeAttempts {
+		r.failWake(ctx, runnerClient, workload, instanceID, fmt.Sprintf("workload still hibernated after %d wake attempts", wakeAttempts))
+		return nil
+	}
+	credentials, err := r.wakeCredentials(ctx, workload)
+	if err != nil {
+		return fmt.Errorf("mint pull credential for the wake of workload %s: %w", workloadID, err)
+	}
+	r.hibernation.wakeAttempted(workloadID)
+	if err := r.wakeRunnerWorkload(ctx, runnerClient, instanceID, credentials); err != nil {
+		r.failWake(ctx, runnerClient, workload, instanceID, err.Error())
+		return nil
 	}
 	return nil
 }

@@ -1708,6 +1708,7 @@ func TestGroupMembershipConsumerLoopRetriesWithoutBlocking(t *testing.T) {
 		}
 	}
 }
+
 // testPlatformIdentityID stands for the identity this process runs as. Set on
 // every test reconciler because the calls that name a caller name this one.
 var testPlatformIdentityID = uuid.MustParse("a3c1e9d2-7f4b-5e1a-9c3d-2b8f6a4e7d10")
@@ -2177,6 +2178,9 @@ type fakeRunnerClient struct {
 	removeVolume          func(context.Context, *runnerv1.RemoveVolumeRequest, ...grpc.CallOption) (*runnerv1.RemoveVolumeResponse, error)
 	inspectWorkload       func(context.Context, *runnerv1.InspectWorkloadRequest, ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error)
 	findWorkloadsByLabels func(context.Context, *runnerv1.FindWorkloadsByLabelsRequest, ...grpc.CallOption) (*runnerv1.FindWorkloadsByLabelsResponse, error)
+	hibernateWorkload     func(context.Context, *runnerv1.HibernateWorkloadRequest, ...grpc.CallOption) (*runnerv1.HibernateWorkloadResponse, error)
+	wakeWorkload          func(context.Context, *runnerv1.WakeWorkloadRequest, ...grpc.CallOption) (*runnerv1.WakeWorkloadResponse, error)
+	exec                  func(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[runnerv1.ExecRequest, runnerv1.ExecResponse], error)
 }
 
 func (f *fakeRunnerClient) Ready(context.Context, *runnerv1.ReadyRequest, ...grpc.CallOption) (*runnerv1.ReadyResponse, error) {
@@ -2199,6 +2203,22 @@ func (f *fakeRunnerClient) StopWorkload(ctx context.Context, req *runnerv1.StopW
 
 func (f *fakeRunnerClient) RemoveWorkload(context.Context, *runnerv1.RemoveWorkloadRequest, ...grpc.CallOption) (*runnerv1.RemoveWorkloadResponse, error) {
 	return nil, errNotImplemented
+}
+
+// A runner that advertises nothing answers Unimplemented, as the k8s-runner
+// does; a test that sets the hook stands for one that can hibernate.
+func (f *fakeRunnerClient) HibernateWorkload(ctx context.Context, req *runnerv1.HibernateWorkloadRequest, opts ...grpc.CallOption) (*runnerv1.HibernateWorkloadResponse, error) {
+	if f.hibernateWorkload != nil {
+		return f.hibernateWorkload(ctx, req, opts...)
+	}
+	return nil, status.Error(codes.Unimplemented, "runner cannot hibernate")
+}
+
+func (f *fakeRunnerClient) WakeWorkload(ctx context.Context, req *runnerv1.WakeWorkloadRequest, opts ...grpc.CallOption) (*runnerv1.WakeWorkloadResponse, error) {
+	if f.wakeWorkload != nil {
+		return f.wakeWorkload(ctx, req, opts...)
+	}
+	return nil, status.Error(codes.Unimplemented, "runner cannot hibernate")
 }
 
 func (f *fakeRunnerClient) InspectWorkload(ctx context.Context, req *runnerv1.InspectWorkloadRequest, opts ...grpc.CallOption) (*runnerv1.InspectWorkloadResponse, error) {
@@ -2260,7 +2280,10 @@ func (f *fakeRunnerClient) StreamEvents(context.Context, *runnerv1.StreamEventsR
 	return nil, errNotImplemented
 }
 
-func (f *fakeRunnerClient) Exec(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[runnerv1.ExecRequest, runnerv1.ExecResponse], error) {
+func (f *fakeRunnerClient) Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[runnerv1.ExecRequest, runnerv1.ExecResponse], error) {
+	if f.exec != nil {
+		return f.exec(ctx, opts...)
+	}
 	return nil, errNotImplemented
 }
 

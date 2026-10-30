@@ -2048,6 +2048,10 @@ func TestReconcileSandboxIdleStopClearsRuntimeWorkload(t *testing.T) {
 	runtimeWorkloadID := workloadID
 	var runtimeReq *agentsv1.UpdateSandboxRuntimeStateRequest
 	runners := &fakeRunnersClient{
+		// A runner that advertises nothing: the idle timeout stops, as before.
+		getRunner: func(context.Context, *runnersv1.GetRunnerRequest, ...grpc.CallOption) (*runnersv1.GetRunnerResponse, error) {
+			return &runnersv1.GetRunnerResponse{Runner: buildRunner(runnerID)}, nil
+		},
 		listWorkloads: func(context.Context, *runnersv1.ListWorkloadsRequest, ...grpc.CallOption) (*runnersv1.ListWorkloadsResponse, error) {
 			return &runnersv1.ListWorkloadsResponse{Workloads: []*runnersv1.Workload{{Meta: &runnersv1.EntityMeta{Id: workloadID}, RunnerId: runnerID, OrganizationId: testOrganizationID, Status: runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING, InstanceId: stringPtr(workloadID), LastActivityAt: activeAt, OwnerKind: runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX, OwnerId: sandboxID}}}, nil
 		},

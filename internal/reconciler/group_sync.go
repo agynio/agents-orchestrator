@@ -136,18 +136,15 @@ func (r *Reconciler) patchLiveAgentWorkloadGroupRoles(ctx context.Context, agent
 func (r *Reconciler) listLiveAgentWorkloads(ctx context.Context, agentID uuid.UUID) ([]*runnersv1.Workload, error) {
 	workloads := []*runnersv1.Workload{}
 	pageToken := ""
-	statuses := []runnersv1.WorkloadStatus{
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
-	}
 	for {
 		response, err := r.runners.ListWorkloads(ctx, &runnersv1.ListWorkloadsRequest{
 			PageSize:  groupWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
 				AgentIdIn: []string{agentID.String()},
-				StatusIn:  statuses,
+				// A hibernated workload keeps its identity, so a role change
+				// reaches it asleep and is in force when it wakes.
+				StatusIn: liveWorkloadStatuses,
 			},
 		})
 		if err != nil {

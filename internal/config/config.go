@@ -49,9 +49,12 @@ type Config struct {
 	ImageProxyHost string
 	// Optional service addresses for the catalog path. Empty leaves the
 	// pre-catalog behaviour in place.
-	ImagesAddress             string
-	OrganizationsAddress      string
-	ImageProxyAddress         string
+	ImagesAddress        string
+	OrganizationsAddress string
+	ImageProxyAddress    string
+	// Where active port exposures are read from before a workload is
+	// hibernated. Defaulted like the other in-cluster addresses.
+	ExposeAddress             string
 	SandboxWorkspaceSizeGB    string
 	PollInterval              time.Duration
 	WorkloadReconcileInterval time.Duration
@@ -154,6 +157,10 @@ func FromEnv() (Config, error) {
 	cfg.ImagesAddress = os.Getenv("IMAGES_ADDRESS")
 	cfg.OrganizationsAddress = os.Getenv("ORGANIZATIONS_ADDRESS")
 	cfg.ImageProxyAddress = os.Getenv("IMAGE_PROXY_ADDRESS")
+	cfg.ExposeAddress = os.Getenv("EXPOSE_ADDRESS")
+	if cfg.ExposeAddress == "" {
+		cfg.ExposeAddress = "expose:50051"
+	}
 	cfg.SandboxWorkspaceSizeGB = os.Getenv("SANDBOX_WORKSPACE_SIZE_GB")
 	if cfg.SandboxWorkspaceSizeGB == "" {
 		cfg.SandboxWorkspaceSizeGB = "10"

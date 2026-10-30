@@ -22,12 +22,12 @@ func TestComputeActions(t *testing.T) {
 	thread3 := uuid.New()
 	missingAgent := uuid.New()
 	missingThread := uuid.New()
-	idleTimeouts := map[uuid.UUID]time.Duration{
-		agent1: 30 * time.Minute,
-		agent2: 15 * time.Minute,
-		agent3: 10 * time.Minute,
+	policies := map[uuid.UUID]agentPolicy{
+		agent1: {idleTimeout: 30 * time.Minute},
+		agent2: {idleTimeout: 15 * time.Minute},
+		agent3: {idleTimeout: 10 * time.Minute},
 	}
-	idleFallback := 12 * time.Minute
+	fallback := agentPolicy{idleTimeout: 12 * time.Minute}
 
 	activityOld := now.Add(-20 * time.Minute)
 
@@ -132,7 +132,7 @@ func TestComputeActions(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			result, err := ComputeActions(testCase.desired, testCase.actual, idleTimeouts, idleFallback, now)
+			result, err := ComputeActions(testCase.desired, testCase.actual, policies, fallback, now)
 			if err != nil {
 				t.Fatalf("compute actions: %v", err)
 			}

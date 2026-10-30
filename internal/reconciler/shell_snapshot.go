@@ -49,6 +49,12 @@ func (r *Reconciler) snapshotShellDirectories(ctx context.Context, workload *run
 	if sandboxID == "" || workload.GetOwnerKind() != runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX {
 		return
 	}
+	// A frozen container cannot be read, which is why the snapshot is taken
+	// before a hibernation instead; what it recorded then is the last known
+	// value until the sandbox wakes.
+	if isFrozenWorkloadStatus(workload.GetStatus()) {
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, shellSnapshotTimeout)
 	defer cancel()

@@ -29,6 +29,8 @@ type FakeAgentsClient struct {
 	DeleteSandboxFunc               func(context.Context, *agentsv1.DeleteSandboxRequest, ...grpc.CallOption) (*agentsv1.DeleteSandboxResponse, error)
 	ListInstancesFunc               func(context.Context, *agentsv1.ListInstancesRequest, ...grpc.CallOption) (*agentsv1.ListInstancesResponse, error)
 	PauseInstanceFunc               func(context.Context, *agentsv1.PauseInstanceRequest, ...grpc.CallOption) (*agentsv1.PauseInstanceResponse, error)
+	GetInstanceFunc                 func(context.Context, *agentsv1.GetInstanceRequest, ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error)
+	GetUnackedInboxCountFunc        func(context.Context, *agentsv1.GetUnackedInboxCountRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxCountResponse, error)
 }
 
 func (f *FakeAgentsClient) CreateAgent(context.Context, *agentsv1.CreateAgentRequest, ...grpc.CallOption) (*agentsv1.CreateAgentResponse, error) {
@@ -161,7 +163,10 @@ func (f *FakeAgentsClient) CreateInstance(context.Context, *agentsv1.CreateInsta
 	return nil, ErrNotImplemented
 }
 
-func (f *FakeAgentsClient) GetInstance(context.Context, *agentsv1.GetInstanceRequest, ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error) {
+func (f *FakeAgentsClient) GetInstance(ctx context.Context, req *agentsv1.GetInstanceRequest, opts ...grpc.CallOption) (*agentsv1.GetInstanceResponse, error) {
+	if f.GetInstanceFunc != nil {
+		return f.GetInstanceFunc(ctx, req, opts...)
+	}
 	return nil, ErrNotImplemented
 }
 
@@ -203,8 +208,13 @@ func (f *FakeAgentsClient) AckInboxItems(context.Context, *agentsv1.AckInboxItem
 	return nil, ErrNotImplemented
 }
 
-func (f *FakeAgentsClient) GetUnackedInboxCount(context.Context, *agentsv1.GetUnackedInboxCountRequest, ...grpc.CallOption) (*agentsv1.GetUnackedInboxCountResponse, error) {
-	return nil, ErrNotImplemented
+// An empty inbox is the ordinary answer when a workload is about to be
+// hibernated, so an unset hook reports none rather than refusing.
+func (f *FakeAgentsClient) GetUnackedInboxCount(ctx context.Context, req *agentsv1.GetUnackedInboxCountRequest, opts ...grpc.CallOption) (*agentsv1.GetUnackedInboxCountResponse, error) {
+	if f.GetUnackedInboxCountFunc != nil {
+		return f.GetUnackedInboxCountFunc(ctx, req, opts...)
+	}
+	return &agentsv1.GetUnackedInboxCountResponse{}, nil
 }
 
 func (f *FakeAgentsClient) CreateVolume(context.Context, *agentsv1.CreateVolumeRequest, ...grpc.CallOption) (*agentsv1.CreateVolumeResponse, error) {

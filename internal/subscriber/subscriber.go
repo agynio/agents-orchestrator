@@ -19,8 +19,11 @@ const (
 	sandboxUpdatedEvent  = "sandbox.updated"
 	// The runner reporting what it saw, rather than the platform having asked.
 	workloadStatusChangedEvent = "workload.status_changed"
-	identityMetadataKey        = "x-identity-id"
-	identityTypeMetadataKey    = "x-identity-type"
+	// A workload's agent_state flipped: agynd reported its turn over, which is
+	// what the main loop hibernates on.
+	workloadUpdatedEvent    = "workload.updated"
+	identityMetadataKey     = "x-identity-id"
+	identityTypeMetadataKey = "x-identity-type"
 	// The Orchestrator subscribes as itself. It reaches Notifications over the
 	// mesh rather than through the Gateway, so it states its own identity, and
 	// Notifications settles the claim against admin on cluster:global rather
@@ -112,7 +115,7 @@ func (s *Subscriber) runSubscription(ctx context.Context) error {
 			continue
 		}
 		switch envelope.GetEvent() {
-		case messageCreatedEvent, instanceUpdatedEvent:
+		case messageCreatedEvent, instanceUpdatedEvent, workloadUpdatedEvent:
 			select {
 			case s.wake <- struct{}{}:
 			default:

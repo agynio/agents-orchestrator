@@ -99,6 +99,26 @@ func TestSubscriberWakesBothLoopsOnWorkloadStatusChanged(t *testing.T) {
 	harness.stop(t)
 }
 
+// agynd reports its turn over through the Runners service, which flips the
+// workload's agent_state and publishes workload.updated. That is the event the
+// main loop hibernates on; a sandbox has no turns.
+func TestSubscriberWakesAgentLoopOnWorkloadUpdated(t *testing.T) {
+	harness := newSubscriberHarness(t, 1)
+	defer harness.cancel()
+	waitForSubscribe(t, harness.subscribeReqs)
+
+	harness.responses <- messageEnvelope("workload.updated")
+	waitForAck(t, harness.ack, 1)
+
+	harness.expectWake(t)
+	select {
+	case <-harness.subscriber.SandboxWake():
+		t.Fatal("workload.updated must not wake the sandbox loop")
+	case <-time.After(200 * time.Millisecond):
+	}
+	harness.stop(t)
+}
+
 func TestSubscriberWakesSandboxOnSandboxUpdated(t *testing.T) {
 	harness := newSubscriberHarness(t, 1)
 	defer harness.cancel()
