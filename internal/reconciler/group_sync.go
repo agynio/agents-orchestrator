@@ -2,7 +2,9 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 	zitimgmtv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/ziti_management/v1"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -125,12 +129,15 @@ func (r *Reconciler) patchLiveAgentWorkloadGroupRoles(ctx context.Context, agent
 	if err != nil {
 		return err
 	}
+	// Every workload gets its patch before a failure is reported; the failures
+	// come back together, and the redelivered event patches all of them again.
+	var errs []error
 	for _, workload := range workloads {
 		if err := r.patchWorkloadToCurrentGroupRoles(ctx, workload, candidateRemoveAttributes); err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("workload %s: %w", workload.GetMeta().GetId(), err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (r *Reconciler) listLiveAgentWorkloads(ctx context.Context, agentID uuid.UUID) ([]*runnersv1.Workload, error) {
@@ -167,9 +174,11 @@ func (r *Reconciler) ReconcileAllAgentGroupRoles(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// A workload whose patch fails is left to the next pass. Returning its
+	// error ended the cycle and skipped every workload listed after it.
 	for _, workload := range workloads {
 		if err := r.patchWorkloadToCurrentGroupRoles(ctx, workload, nil); err != nil {
-			return err
+			log.Printf("reconciler: warn: sync group role attributes of workload %s: %v", workload.GetMeta().GetId(), err)
 		}
 	}
 	return nil
@@ -196,6 +205,13 @@ func (r *Reconciler) patchWorkloadToCurrentGroupRoles(ctx context.Context, workl
 		Add:            desiredAttributes,
 		Remove:         staleCandidateAttributes(desiredAttributes, candidateRemoveAttributes),
 	})
+	if status.Code(err) == codes.NotFound {
+		// Deleted after the workload was listed: the loops that fail and stop
+		// workloads run beside this one, and each deletes the identity of the
+		// workload it ends. An identity that is gone has nothing to patch.
+		log.Printf("reconciler: ziti identity %s of workload %s is gone, nothing to patch", zitiIdentityID, workload.GetMeta().GetId())
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("patch agent workload role attributes: %w", err)
 	}
