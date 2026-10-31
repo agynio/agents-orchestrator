@@ -22,7 +22,7 @@ type AgentInstanceTarget struct {
 	ThreadID        uuid.UUID
 }
 
-func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, map[uuid.UUID]time.Duration, map[uuid.UUID]time.Time, error) {
+func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, map[uuid.UUID]agentPolicy, map[uuid.UUID]time.Time, error) {
 	instances, err := r.listActiveInstancesWithUnackedInbox(ctx)
 	if err != nil {
 		return nil, nil, nil, err
@@ -41,14 +41,14 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, m
 		unique[target] = struct{}{}
 		agentIDs[target.AgentID] = struct{}{}
 	}
-	idleTimeouts := make(map[uuid.UUID]time.Duration, len(agentIDs))
+	policies := make(map[uuid.UUID]agentPolicy, len(agentIDs))
 	agentUpdatedAt := make(map[uuid.UUID]time.Time, len(agentIDs))
 	for agentID := range agentIDs {
 		agent, err := r.fetchAgent(ctx, agentID)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		idleTimeout, err := agentIdleTimeout(agent, agentID, r.idle)
+		policy, err := agentPolicyFromClass(agent, agentID, r.idle)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -56,7 +56,7 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, m
 		if updatedAt == nil {
 			return nil, nil, nil, fmt.Errorf("agent %s updated_at missing", agentID.String())
 		}
-		idleTimeouts[agentID] = idleTimeout
+		policies[agentID] = policy
 		configUpdatedAt := updatedAt.AsTime().UTC()
 		// A repaired environment must unblock every instance running it, not
 		// only those whose own class changed. An environment sub-resource write
@@ -75,7 +75,7 @@ func (r *Reconciler) fetchDesired(ctx context.Context) ([]AgentInstanceTarget, m
 	for key := range unique {
 		result = append(result, key)
 	}
-	return result, idleTimeouts, agentUpdatedAt, nil
+	return result, policies, agentUpdatedAt, nil
 }
 
 func agentInstanceTarget(instance *agentsv1.AgentInstance, threadID uuid.UUID) (AgentInstanceTarget, error) {
@@ -154,6 +154,62 @@ func agentIdleTimeout(agent *agentsv1.Agent, agentID uuid.UUID, fallback time.Du
 	return parsed, nil
 }
 
+// agentPolicy is what a class says about the life of its idle workloads: how
+// long one may sit idle before it is stopped; whether it is hibernated instead,
+// on a runner that can, and how long after a turn; and how long a hibernated
+// one is kept before it is stopped.
+type agentPolicy struct {
+	idleTimeout    time.Duration
+	hibernate      bool
+	hibernateAfter time.Duration
+	hibernationTTL time.Duration
+}
+
+const (
+	// defaultHibernateAfter hibernates at the turn boundary.
+	defaultHibernateAfter = 0
+	// defaultHibernationTTL is the seven days the class field defaults to.
+	defaultHibernationTTL = 168 * time.Hour
+)
+
+// agentPolicyFromClass reads the policy off the class. The durations default as
+// the resource definition does when the class leaves them unset. hibernate is
+// read as the class states it: an Agents service that predates the field
+// states false, and hibernates nothing.
+func agentPolicyFromClass(agent *agentsv1.Agent, agentID uuid.UUID, fallbackIdleTimeout time.Duration) (agentPolicy, error) {
+	idleTimeout, err := agentIdleTimeout(agent, agentID, fallbackIdleTimeout)
+	if err != nil {
+		return agentPolicy{}, err
+	}
+	policy := agentPolicy{
+		idleTimeout:    idleTimeout,
+		hibernate:      agent.GetHibernate(),
+		hibernateAfter: defaultHibernateAfter,
+		hibernationTTL: defaultHibernationTTL,
+	}
+	if agent.HibernateAfter != nil {
+		parsed, err := time.ParseDuration(agent.GetHibernateAfter())
+		if err != nil {
+			return agentPolicy{}, fmt.Errorf("parse agent %s hibernate_after: %w", agentID, err)
+		}
+		if parsed < 0 {
+			return agentPolicy{}, fmt.Errorf("agent %s hibernate_after must not be negative", agentID)
+		}
+		policy.hibernateAfter = parsed
+	}
+	if agent.HibernationTtl != nil {
+		parsed, err := time.ParseDuration(agent.GetHibernationTtl())
+		if err != nil {
+			return agentPolicy{}, fmt.Errorf("parse agent %s hibernation_ttl: %w", agentID, err)
+		}
+		if parsed <= 0 {
+			return agentPolicy{}, fmt.Errorf("agent %s hibernation_ttl must be greater than 0", agentID)
+		}
+		policy.hibernationTTL = parsed
+	}
+	return policy, nil
+}
+
 func (r *Reconciler) listActiveInstancesWithUnackedInbox(ctx context.Context) ([]*agentsv1.AgentInstance, error) {
 	resp := []*agentsv1.AgentInstance{}
 	token := ""
@@ -221,14 +277,15 @@ func (r *Reconciler) fetchAgent(ctx context.Context, agentID uuid.UUID) (*agents
 	return agent, nil
 }
 
-// addIdleTimeoutsForWorkloads fills in the idle timeout of every agent that has
-// a workload running, so the stop decision knows what the agent asked for even
-// after it has dropped out of the desired set. Timeouts already resolved are
-// left alone, and an agent that cannot be read is skipped rather than failing
-// the cycle: the fallback still applies, which is what it did before.
-func (r *Reconciler) addIdleTimeoutsForWorkloads(ctx context.Context, workloads []*runnersv1.Workload, idleTimeouts map[uuid.UUID]time.Duration) error {
-	if idleTimeouts == nil {
-		return fmt.Errorf("idle timeouts map is nil")
+// addAgentPoliciesForWorkloads fills in the policy of every agent that has a
+// workload live, so the stop, hibernation and TTL decisions know what the agent
+// asked for even after it has dropped out of the desired set. Policies already
+// resolved are left alone, and an agent that cannot be read is skipped rather
+// than failing the cycle: the fallback still applies, which is what it did
+// before -- the platform idle timeout, and no hibernation.
+func (r *Reconciler) addAgentPoliciesForWorkloads(ctx context.Context, workloads []*runnersv1.Workload, policies map[uuid.UUID]agentPolicy) error {
+	if policies == nil {
+		return fmt.Errorf("agent policies map is nil")
 	}
 	for _, workload := range workloads {
 		if workload == nil {
@@ -238,20 +295,20 @@ func (r *Reconciler) addIdleTimeoutsForWorkloads(ctx context.Context, workloads 
 		if err != nil {
 			return err
 		}
-		if _, ok := idleTimeouts[agentID]; ok {
+		if _, ok := policies[agentID]; ok {
 			continue
 		}
 		agent, err := r.fetchAgent(ctx, agentID)
 		if err != nil {
-			log.Printf("reconciler: read idle timeout for agent %s: %v; using the default", agentID, err)
+			log.Printf("reconciler: read policy for agent %s: %v; using the default", agentID, err)
 			continue
 		}
-		idleTimeout, err := agentIdleTimeout(agent, agentID, r.idle)
+		policy, err := agentPolicyFromClass(agent, agentID, r.idle)
 		if err != nil {
 			log.Printf("reconciler: %v; using the default", err)
 			continue
 		}
-		idleTimeouts[agentID] = idleTimeout
+		policies[agentID] = policy
 	}
 	return nil
 }

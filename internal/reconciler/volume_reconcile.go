@@ -463,10 +463,9 @@ func (r *Reconciler) agentInstanceActivity(ctx context.Context, agentInstanceID 
 	}
 	activity := instanceActivity{}
 	for _, workload := range workloads {
-		switch workload.GetStatus() {
-		case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-			runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-			runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
+		// A hibernated workload is live: it keeps its owner's volume TTL clock
+		// stopped for as long as it sleeps.
+		if isLiveWorkloadStatus(workload.GetStatus()) {
 			activity.hasActive = true
 		}
 		switch workload.GetStatus() {

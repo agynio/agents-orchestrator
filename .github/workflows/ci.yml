@@ -44,7 +44,8 @@ jobs:
             --path agynio/api/llm/v1 \
             --path agynio/api/users/v1 \
             --path agynio/api/organizations/v1 \
-            --path agynio/api/tracing/v1
+            --path agynio/api/tracing/v1 \
+            --path agynio/api/expose/v1
 
       - name: Run tests
         run: go test ./...

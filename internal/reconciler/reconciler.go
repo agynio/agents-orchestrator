@@ -44,6 +44,11 @@ type Reconciler struct {
 	// pull credentials it already carried.
 	imageProxy     ImageProxyClient
 	imageProxyHost string
+	// Where active port exposures are read from: an exposed port keeps a
+	// workload awake. Optional in tests; main always wires it.
+	expose exposeClient
+	// What this process remembers about hibernations and wakes between cycles.
+	hibernation *hibernationState
 	// The identity this process acts as, for the callees that require a caller
 	// rather than serving an absent one as the platform.
 	platformIdentityID uuid.UUID
@@ -62,6 +67,7 @@ type Config struct {
 	RunnerDialer              runnerdial.RunnerDialer
 	Runners                   runnersClient
 	Metering                  meteringv1.MeteringServiceClient
+	Expose                    exposeClient
 	ZitiMgmt                  zitimgmtv1.ZitiManagementServiceClient
 	Groups                    groupsClient
 	Assembler                 *assembler.Assembler
@@ -83,6 +89,8 @@ func New(cfg Config) *Reconciler {
 		runners:                   cfg.Runners,
 		metering:                  cfg.Metering,
 		meteringSampleInterval:    cfg.MeteringSampleInterval,
+		expose:                    cfg.Expose,
+		hibernation:               newHibernationState(),
 		zitiMgmt:                  cfg.ZitiMgmt,
 		groups:                    cfg.Groups,
 		assembler:                 cfg.Assembler,
@@ -134,7 +142,7 @@ func (r *Reconciler) runCycle(ctx context.Context) {
 }
 
 func (r *Reconciler) reconcile(ctx context.Context) error {
-	desired, idleTimeouts, agentUpdatedAt, err := r.fetchDesired(ctx)
+	desired, policies, agentUpdatedAt, err := r.fetchDesired(ctx)
 	if err != nil {
 		return err
 	}
@@ -142,19 +150,19 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// The agents behind running workloads, not just the ones with work waiting.
+	// The agents behind live workloads, not just the ones with work waiting.
 	// An idle timeout only decides anything once an agent has gone idle, and by
-	// then it has dropped out of the desired set -- so reading the timeout from
+	// then it has dropped out of the desired set -- so reading the policy from
 	// the desired set alone meant a workload was stopped on the platform
 	// fallback the moment it finished answering, whatever the agent asked for.
-	if err := r.addIdleTimeoutsForWorkloads(ctx, actual, idleTimeouts); err != nil {
-		return err
-	}
-	actions, err := ComputeActions(desired, actual, idleTimeouts, r.idle, time.Now().UTC())
-	if err != nil {
+	if err := r.addAgentPoliciesForWorkloads(ctx, actual, policies); err != nil {
 		return err
 	}
 	now := time.Now().UTC()
+	actions, err := ComputeActions(desired, actual, policies, agentPolicy{idleTimeout: r.idle}, now)
+	if err != nil {
+		return err
+	}
 	started := 0
 	for _, candidate := range actions.ToStart {
 		ok, err := r.shouldStartWorkload(ctx, candidate, now, agentUpdatedAt)
@@ -168,8 +176,32 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 		r.startWorkload(ctx, candidate)
 		started++
 	}
+	woken := 0
+	for _, workload := range actions.ToWake {
+		if err := r.wakeWorkload(ctx, workload); err != nil {
+			log.Printf("reconciler: %v", err)
+			continue
+		}
+		woken++
+	}
 	for _, workload := range actions.ToStop {
 		r.stopWorkload(ctx, workload)
+	}
+	hibernated := 0
+	// One question per runner per cycle, however many idle workloads it hosts.
+	capable := map[string]bool{}
+	for _, workload := range actions.ToHibernate {
+		ok, err := r.hibernateIdleWorkload(ctx, workload, capable, now)
+		if err != nil {
+			log.Printf("reconciler: %v", err)
+			continue
+		}
+		if ok {
+			hibernated++
+		}
+	}
+	for _, workload := range actions.Hibernated {
+		r.stopHibernatedIfInstanceGone(ctx, workload)
 	}
 	if r.zitiMgmt != nil {
 		if err := r.reconcileOrphanIdentities(ctx); err != nil {
@@ -182,10 +214,12 @@ func (r *Reconciler) reconcile(ctx context.Context) error {
 		}
 	}
 	log.Printf(
-		"reconciler: cycle complete - desired=%d actual=%d started=%d stopped=%d",
+		"reconciler: cycle complete - desired=%d actual=%d started=%d woken=%d hibernated=%d stopped=%d",
 		len(desired),
 		len(actual),
 		started,
+		woken,
+		hibernated,
 		len(actions.ToStop),
 	)
 	return nil
@@ -419,6 +453,11 @@ func (r *Reconciler) stopWorkloadWithContext(ctx context.Context, workload *runn
 	if workloadID == "" {
 		return fmt.Errorf("workload missing id")
 	}
+	// A hibernated workload stops through the same sequence: StopWorkload
+	// discards its persisted state, and there is no pull credential left to
+	// revoke -- that went when it fell asleep.
+	wasHibernated := workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED
+	r.hibernation.forget(workloadID)
 	instanceID := normalizeRunnerWorkloadID(workload.GetInstanceId())
 	if instanceID == "" {
 		r.markWorkloadFailed(ctx, workloadID, nil, runnersv1.WorkloadFailureReason_WORKLOAD_FAILURE_REASON_RUNTIME_LOST, "missing instance id", nil)
@@ -465,7 +504,9 @@ func (r *Reconciler) stopWorkloadWithContext(ctx context.Context, workload *runn
 	}
 	// Revoked alongside the OpenZiti identity: both are per-workload grants
 	// that outlive nothing.
-	r.revokePullCredential(ctx, workloadID)
+	if !wasHibernated {
+		r.revokePullCredential(ctx, workloadID)
+	}
 	if r.zitiMgmt != nil && workload.GetZitiIdentityId() != "" {
 		if err := r.deleteIdentity(ctx, workload.GetZitiIdentityId()); err != nil {
 			return fmt.Errorf("delete ziti identity %s after stopping workload %s: %w", workload.GetZitiIdentityId(), workloadID, err)
@@ -550,6 +591,12 @@ func runnerStatus(status runnerv1.WorkloadStatus) (runnersv1.WorkloadStatus, err
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED, nil
 	case runnerv1.WorkloadStatus_WORKLOAD_STATUS_FAILED:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED, nil
+	case runnerv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATING:
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATING, nil
+	case runnerv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED:
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED, nil
+	case runnerv1.WorkloadStatus_WORKLOAD_STATUS_WAKING:
+		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_WAKING, nil
 	default:
 		return runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED, fmt.Errorf("unknown runner workload status: %v", status)
 	}

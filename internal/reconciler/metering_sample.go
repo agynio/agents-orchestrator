@@ -32,10 +32,16 @@ const (
 	labelRunnerID                = "runner_id"
 	labelFlavor                  = "flavor"
 	labelIdentityID              = "identity_id"
+	labelIdentityType            = "identity_type"
 	labelAgentInstanceID         = "agent_instance_id"
 	labelEnvironmentID           = "environment_id"
 	resourceWorkload             = "workload"
 	resourceVolume               = "volume"
+	// resourceSnapshot is the persisted state of a hibernated workload:
+	// storage billed in place of the flavor while it sleeps.
+	resourceSnapshot             = "snapshot"
+	identityTypeAgent            = "agent"
+	identityTypeSandbox          = "sandbox"
 	kindRAM                      = "ram"
 	kindStorage                  = "storage"
 	unitGBSecondsLabel           = "gb_seconds"
@@ -326,6 +332,22 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sources
 	if err != nil {
 		return nil, nil, err
 	}
+	// A sleeping workload costs what its persisted state occupies and nothing
+	// else. The compute interval ends at the pause; once that tail is sampled,
+	// the interval bills the snapshot's storage instead, up to the stop or the
+	// tick. A wake resets last_metering_sampled_at and clears hibernated_at,
+	// so compute resumes from the wake and never covers the sleep.
+	asleep := false
+	if hibernatedAt := workload.GetHibernatedAt(); hibernatedAt != nil {
+		pausedAt := hibernatedAt.AsTime().UTC()
+		if pausedAt.After(intervalStart) {
+			if pausedAt.Before(intervalEnd) {
+				intervalEnd = pausedAt
+			}
+		} else {
+			asleep = true
+		}
+	}
 	update := &runnersv1.SampledAtEntry{Id: workloadID, SampledAt: timestamppb.New(intervalEnd)}
 
 	duration := intervalEnd.Sub(intervalStart)
@@ -340,6 +362,16 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sources
 	baseLabels, err := workloadLabels(workload, workloadID, sources)
 	if err != nil {
 		return nil, nil, err
+	}
+	if asleep {
+		record, err := snapshotStorageRecord(workload, workloadID, orgID, baseLabels, intervalStart, intervalEnd, duration)
+		if err != nil {
+			return nil, nil, err
+		}
+		if record == nil {
+			return nil, update, nil
+		}
+		return []*meteringv1.UsageRecord{record}, update, nil
 	}
 
 	// Compute is billed by the flavor the workload occupies, for as long as it
@@ -372,6 +404,33 @@ func sampleWorkloadMetering(workload *runnersv1.Workload, now time.Time, sources
 		Unit:           meteringv1.Unit_UNIT_FLAVOR_SECONDS,
 		Value:          value,
 	}}, update, nil
+}
+
+// snapshotStorageRecord bills a sleeping workload's persisted state: GB-seconds
+// of the snapshot size the runner reported with hibernated, keyed on the
+// interval start so a retry revises the same event rather than adding one.
+// runner_id accompanies it for the same reason it accompanies a flavor: what a
+// gigabyte of snapshot costs is the runner's store's business.
+func snapshotStorageRecord(workload *runnersv1.Workload, workloadID, orgID string, baseLabels map[string]string, intervalStart, intervalEnd time.Time, duration time.Duration) (*meteringv1.UsageRecord, error) {
+	value, err := microGBSeconds(workload.GetSnapshotSizeBytes(), duration)
+	if err != nil {
+		return nil, fmt.Errorf("workload %s snapshot gb seconds: %w", workloadID, err)
+	}
+	if value <= 0 {
+		return nil, nil
+	}
+	labels := copyLabels(baseLabels)
+	labels[labelResource] = resourceSnapshot
+	labels[labelKind] = kindStorage
+	return &meteringv1.UsageRecord{
+		OrgId:          orgID,
+		IdempotencyKey: meteringKey(resourceSnapshot, workloadID, unitGBSecondsLabel, kindStorage, intervalStart),
+		Producer:       meteringProducer,
+		Timestamp:      timestamppb.New(intervalEnd),
+		Labels:         labels,
+		Unit:           meteringv1.Unit_UNIT_GB_SECONDS,
+		Value:          value,
+	}, nil
 }
 
 func sampleVolumeMetering(volume *runnersv1.Volume, now time.Time, sources labelSources) (*meteringv1.UsageRecord, *runnersv1.SampledAtEntry, error) {
@@ -475,6 +534,7 @@ func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind run
 		labels[labelOwnerKind] = "sandbox"
 		labels[labelSandboxID] = sandboxID
 		labels[labelIdentityID] = sandboxID
+		labels[labelIdentityType] = identityTypeSandbox
 		sandbox := sources.sandboxes[sandboxID]
 		if sandbox.ownerID != "" {
 			labels[labelSandboxOwnerID] = sandbox.ownerID
@@ -497,6 +557,7 @@ func applyOwnerLabels(labels map[string]string, resourceID string, ownerKind run
 		labels[labelThreadID] = cleanThreadID
 		labels[labelAgentID] = cleanAgentID
 		labels[labelIdentityID] = cleanAgentID
+		labels[labelIdentityType] = identityTypeAgent
 		// identity_id is the class here and the instance in the LLM Proxy's
 		// records, so neither alone ranks a class and an instance on one axis.
 		if cleanInstanceID != "" {

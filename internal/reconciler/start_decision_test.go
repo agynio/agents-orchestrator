@@ -315,11 +315,7 @@ func (f startDecisionFixture) list(_ context.Context, req *runnersv1.ListWorkloa
 	}
 	statuses := req.GetStatuses()
 	switch {
-	case matchStatuses(statuses, []runnersv1.WorkloadStatus{
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
-	}):
+	case matchStatuses(statuses, liveWorkloadStatuses):
 		return &runnersv1.ListWorkloadsByAgentInstanceResponse{Workloads: f.active}, nil
 	case matchStatuses(statuses, []runnersv1.WorkloadStatus{
 		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,

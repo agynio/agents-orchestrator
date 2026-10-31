@@ -90,6 +90,10 @@ env:
     value: "organizations:50051"
   - name: IMAGE_PROXY_ADDRESS
     value: "image-proxy:50051"
+  # Read before a workload is hibernated: an active port exposure keeps it
+  # awake. In-cluster name, like the other service addresses.
+  - name: EXPOSE_ADDRESS
+    value: "expose:50051"
   # Derived from the one domain an installation declares. The Image Proxy is
   # the only path a workload's images are pulled by, so leaving this empty
   # disables every catalog image reference rather than falling back to one.

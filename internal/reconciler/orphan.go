@@ -53,15 +53,11 @@ func activeZitiIdentities(workloads []*runnersv1.Workload) map[string]struct{} {
 	return active
 }
 
-// listActiveSandboxWorkloads lists every non-terminal sandbox workload. Unlike
-// the agent listing it is not scoped by agent organizations: a sandbox may run
-// in an organization that has no agent at all.
+// listActiveSandboxWorkloads lists every non-terminal sandbox workload,
+// hibernated ones included: their identity is in use the moment they wake.
+// Unlike the agent listing it is not scoped by agent organizations: a sandbox
+// may run in an organization that has no agent at all.
 func (r *Reconciler) listActiveSandboxWorkloads(ctx context.Context) ([]*runnersv1.Workload, error) {
-	statuses := []runnersv1.WorkloadStatus{
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING,
-	}
 	pageToken := ""
 	var workloads []*runnersv1.Workload
 	for {
@@ -69,7 +65,7 @@ func (r *Reconciler) listActiveSandboxWorkloads(ctx context.Context) ([]*runners
 			PageSize:  activeWorkloadPageSize,
 			PageToken: pageToken,
 			Filter: &runnersv1.ListWorkloadsFilter{
-				StatusIn:    statuses,
+				StatusIn:    liveWorkloadStatuses,
 				OwnerKindIn: []runnersv1.RuntimeOwnerKind{runnersv1.RuntimeOwnerKind_RUNTIME_OWNER_KIND_SANDBOX},
 			},
 		})

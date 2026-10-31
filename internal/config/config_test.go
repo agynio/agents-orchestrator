@@ -58,6 +58,9 @@ func TestFromEnvDefaultsNonZiti(t *testing.T) {
 	if cfg.IdleTimeout != 5*time.Minute {
 		t.Fatalf("expected idle timeout %q, got %q", 5*time.Minute, cfg.IdleTimeout)
 	}
+	if cfg.ExposeAddress != "expose:50051" {
+		t.Fatalf("expected expose address %q, got %q", "expose:50051", cfg.ExposeAddress)
+	}
 	if cfg.MeteringServiceAddress != "metering:50051" {
 		t.Fatalf("expected metering service address %q, got %q", "metering:50051", cfg.MeteringServiceAddress)
 	}

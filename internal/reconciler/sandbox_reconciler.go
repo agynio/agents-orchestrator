@@ -83,13 +83,20 @@ func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.San
 		if plan.activeWorkload == nil {
 			return r.startSandboxWorkloadAttempt(ctx, plan)
 		}
-		if err := r.reconcileActiveSandboxWorkload(ctx, plan); err != nil {
-			return err
+		// A connect found it asleep: EnsureSandboxRunning asks for a start,
+		// and the start of a hibernated workload is a wake -- the same shells,
+		// with their processes still running.
+		if plan.activeWorkload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED {
+			return r.wakeWorkload(ctx, plan.activeWorkload)
 		}
-		return nil
-	case agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING:
+		return r.reconcileActiveSandboxWorkload(ctx, plan)
+	case agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING, agentsv1.SandboxStatus_SANDBOX_STATUS_HIBERNATED:
 		if plan.activeWorkload == nil {
-			if plan.sandbox.WorkloadId != nil {
+			// Nothing live behind the record. A running sandbox that never had
+			// a workload starts one; one that lost it -- or a hibernated one
+			// whose persisted state is gone -- is stopped, and the next connect
+			// restarts it on its volumes.
+			if plan.sandbox.WorkloadId != nil || sandbox.GetStatus() == agentsv1.SandboxStatus_SANDBOX_STATUS_HIBERNATED {
 				return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
 			}
 			return r.startSandboxWorkloadAttempt(ctx, plan)
@@ -97,13 +104,15 @@ func (r *Reconciler) reconcileSandbox(ctx context.Context, sandbox *agentsv1.San
 		if err := r.reconcileActiveSandboxWorkload(ctx, plan); err != nil {
 			return err
 		}
-		if sandboxIdle(sandbox, plan.activeWorkload, now) {
-			if err := r.stopSandboxWorkload(ctx, plan.activeWorkload); err != nil {
-				return err
-			}
-			return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
+		// Asleep, or on its way into or out of sleep: nothing is attached by
+		// definition, and the sandbox's own TTL above bounds the sleep.
+		if isFrozenWorkloadStatus(plan.activeWorkload.GetStatus()) {
+			return nil
 		}
-		return nil
+		if !sandboxIdle(sandbox, plan.activeWorkload, now) {
+			return nil
+		}
+		return r.sleepIdleSandbox(ctx, plan, now)
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED:
 		// A stopped sandbox must always converge to no running workload, whether it
 		// was stopped explicitly or by the idle timeout. Idleness is irrelevant here:
@@ -262,11 +271,46 @@ func (r *Reconciler) reconcileActiveSandboxWorkload(ctx context.Context, plan *s
 	switch workload.GetStatus() {
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING:
 		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING, workload.GetMeta().GetId(), false)
+	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_HIBERNATED:
+		// Asleep in place: the record keeps the workload the next connect wakes.
+		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_HIBERNATED, workload.GetMeta().GetId(), false)
 	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED:
 		return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED, "", true)
 	default:
 		return nil
 	}
+}
+
+// sleepIdleSandbox is what the idle timeout does to a sandbox. On a runner that
+// can hibernate, the workload is put to sleep at the point the k8s-runner path
+// would stop it, and everything in it is kept for the connect that wakes it;
+// on one that cannot, it is stopped. An exposed port keeps a workload awake, so
+// there the idle timeout stops it as on a runner that cannot hibernate; a
+// hibernation that failed recently leaves it running until the retry.
+func (r *Reconciler) sleepIdleSandbox(ctx context.Context, plan *sandboxWorkloadPlan, now time.Time) error {
+	workload := plan.activeWorkload
+	if workload.GetStatus() == runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING {
+		hibernates, err := r.runnerHibernates(ctx, workload.GetRunnerId(), nil)
+		if err != nil {
+			return err
+		}
+		if hibernates {
+			outcome, err := r.hibernateWorkload(ctx, workload, now)
+			if err != nil {
+				return err
+			}
+			switch outcome {
+			case hibernatedWorkload:
+				return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_HIBERNATED, workload.GetMeta().GetId(), false)
+			case hibernateDeferred, hibernateKeptAwakeByInbox:
+				return nil
+			}
+		}
+	}
+	if err := r.stopSandboxWorkload(ctx, workload); err != nil {
+		return err
+	}
+	return r.updateSandboxRuntimeState(ctx, plan.sandbox, agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED, "", true)
 }
 
 func (r *Reconciler) startSandboxWorkloadAttempt(ctx context.Context, plan *sandboxWorkloadPlan) error {
@@ -650,17 +694,8 @@ func sandboxIdle(sandbox *agentsv1.Sandbox, workload *runnersv1.Workload, now ti
 	return now.Sub(activityAt) > idleTimeout
 }
 
+// isActiveWorkloadStatus is the sandbox plan's reading of a live record: a
+// hibernated workload is the one the next connect wakes, not one to replace.
 func isActiveWorkloadStatus(status runnersv1.WorkloadStatus) bool {
-	switch status {
-	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_STARTING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_RUNNING,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPING:
-		return true
-	case runnersv1.WorkloadStatus_WORKLOAD_STATUS_UNSPECIFIED,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_STOPPED,
-		runnersv1.WorkloadStatus_WORKLOAD_STATUS_FAILED:
-		return false
-	default:
-		return false
-	}
+	return isLiveWorkloadStatus(status)
 }

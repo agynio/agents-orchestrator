@@ -22,13 +22,20 @@ type ImageProxyClient interface {
 // every catalog image resolves to the same proxy host, the auths key selects
 // which credential, and the request path selects which image.
 func (r *Reconciler) mintPullCredential(ctx context.Context, workloadID string, assembled *assembler.AssembleResult) ([]*runnerv1.ImagePullCredential, error) {
-	if r.imageProxy == nil || r.imageProxyHost == "" || len(assembled.GrantedImageIDs) == 0 {
+	return r.mintPullCredentialFor(ctx, workloadID, assembled.OrganizationID, assembled.GrantedImageIDs)
+}
+
+// mintPullCredentialFor is the grant itself: one credential for one workload,
+// scoped to the images it may pull. The start mints it, and so does the wake
+// of a hibernated workload, whose first credential was revoked when it slept.
+func (r *Reconciler) mintPullCredentialFor(ctx context.Context, workloadID string, organizationID string, imageIDs []string) ([]*runnerv1.ImagePullCredential, error) {
+	if r.imageProxy == nil || r.imageProxyHost == "" || len(imageIDs) == 0 {
 		return nil, nil
 	}
 	minted, err := r.imageProxy.MintPullCredential(ctx, &imageproxyv1.MintPullCredentialRequest{
 		WorkloadId:     workloadID,
-		ImageIds:       assembled.GrantedImageIDs,
-		OrganizationId: assembled.OrganizationID,
+		ImageIds:       imageIDs,
+		OrganizationId: organizationID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mint pull credential for workload %s: %w", workloadID, err)
@@ -57,20 +64,9 @@ func (r *Reconciler) revokePullCredential(ctx context.Context, workloadID string
 // mintSandboxPullCredential is the sandbox counterpart: same grant, same
 // scoping, different assemble result.
 func (r *Reconciler) mintSandboxPullCredential(ctx context.Context, workloadID string, assembled *assembler.SandboxAssembleResult) ([]*runnerv1.ImagePullCredential, error) {
-	if r.imageProxy == nil || r.imageProxyHost == "" || len(assembled.GrantedImageIDs) == 0 {
-		return nil, nil
-	}
-	minted, err := r.imageProxy.MintPullCredential(ctx, &imageproxyv1.MintPullCredentialRequest{
-		WorkloadId:     workloadID,
-		ImageIds:       assembled.GrantedImageIDs,
-		OrganizationId: assembled.OrganizationID,
-	})
+	credentials, err := r.mintPullCredentialFor(ctx, workloadID, assembled.OrganizationID, assembled.GrantedImageIDs)
 	if err != nil {
-		return nil, fmt.Errorf("mint pull credential for sandbox workload %s: %w", workloadID, err)
+		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	return []*runnerv1.ImagePullCredential{{
-		Registry: r.imageProxyHost,
-		Username: minted.GetUsername(),
-		Password: minted.GetPassword(),
-	}}, nil
+	return credentials, nil
 }
