@@ -785,7 +785,7 @@ func TestReconcileWorkloadsStopsOrphan(t *testing.T) {
 	}
 }
 
-func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminators(t *testing.T) {
+func TestReconcileWorkloadsMarksMissingOnLostRunner(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
 	workloadID := "workload-1"
@@ -822,6 +822,7 @@ func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminators(t *testing.T) {
 		Agents:       agents,
 		Assembler:    newTestAssembler(uuid.New(), false),
 	})
+	reconciler.absences.since[runnerID] = time.Now().UTC().Add(-runnerLostAfter)
 	if err := reconciler.reconcileWorkloads(ctx); err != nil {
 		t.Fatalf("reconcile workloads: %v", err)
 	}
@@ -839,7 +840,7 @@ func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminators(t *testing.T) {
 	}
 }
 
-func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminatorsListError(t *testing.T) {
+func TestReconcileWorkloadsMarksMissingOnLostRunnerListError(t *testing.T) {
 	ctx := context.Background()
 	runnerID := "runner-1"
 	workloadID := "workload-1"
@@ -881,6 +882,7 @@ func TestReconcileWorkloadsMarksMissingRunnerOnNoTerminatorsListError(t *testing
 		Agents:       agents,
 		Assembler:    newTestAssembler(uuid.New(), false),
 	})
+	reconciler.absences.since[runnerID] = time.Now().UTC().Add(-runnerLostAfter)
 	if err := reconciler.reconcileWorkloads(ctx); err != nil {
 		t.Fatalf("reconcile workloads: %v", err)
 	}

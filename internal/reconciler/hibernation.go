@@ -14,6 +14,7 @@ import (
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
 	"github.com/agynio/agents-orchestrator/internal/assembler"
+	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -303,7 +304,9 @@ func (r *Reconciler) instanceHasUnackedItems(ctx context.Context, agentInstanceI
 // complete when the runner reports running; reconciliation records it if the
 // report is missed. WakeWorkload failing fails the workload (wake_failed), so
 // that the next tick cold-starts the instance on its volumes -- one failure,
-// one short backoff.
+// one short backoff. A call the runner did not answer is no failure of the wake:
+// the record stays waking, what the runner holds is untouched, and
+// reconciliation tries again once the runner answers.
 func (r *Reconciler) wakeWorkload(ctx context.Context, workload *runnersv1.Workload) error {
 	workloadID := workload.GetMeta().GetId()
 	if workloadID == "" {
@@ -332,6 +335,9 @@ func (r *Reconciler) wakeWorkload(ctx context.Context, workload *runnersv1.Workl
 	workload.Status = waking
 	r.hibernation.wakeAttempted(workloadID)
 	if err := r.wakeRunnerWorkload(ctx, runnerClient, instanceID, credentials); err != nil {
+		if runnerdial.IsInconclusive(err) {
+			return fmt.Errorf("wake workload %s: left waking: %w", workloadID, err)
+		}
 		r.failWake(ctx, runnerClient, workload, instanceID, err.Error())
 		return fmt.Errorf("wake workload %s: %w", workloadID, err)
 	}

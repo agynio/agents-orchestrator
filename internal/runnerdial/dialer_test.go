@@ -3,6 +3,7 @@ package runnerdial
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/openziti/sdk-golang/ziti/edge"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -172,6 +175,31 @@ func TestIsNoTerminators(t *testing.T) {
 
 	for _, tt := range tests {
 		if got := IsNoTerminators(tt.err); got != tt.expected {
+			t.Fatalf("%s: expected %v, got %v", tt.name, tt.expected, got)
+		}
+	}
+}
+
+func TestIsInconclusive(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{name: "nil", err: nil, expected: false},
+		{name: "no terminators", err: errors.New("service runner-a has no terminators"), expected: true},
+		{name: "unavailable", err: status.Error(codes.Unavailable, "connection closed"), expected: true},
+		{name: "rpc deadline", err: status.Error(codes.DeadlineExceeded, "too slow"), expected: true},
+		{name: "rpc canceled", err: status.Error(codes.Canceled, "shutting down"), expected: true},
+		{name: "context deadline", err: fmt.Errorf("call: %w", context.DeadlineExceeded), expected: true},
+		{name: "context canceled", err: fmt.Errorf("call: %w", context.Canceled), expected: true},
+		{name: "runner refused", err: status.Error(codes.Internal, "restore failed"), expected: false},
+		{name: "runner does not hold it", err: status.Error(codes.NotFound, "no such workload"), expected: false},
+		{name: "other", err: errors.New("other"), expected: false},
+	}
+
+	for _, tt := range tests {
+		if got := IsInconclusive(tt.err); got != tt.expected {
 			t.Fatalf("%s: expected %v, got %v", tt.name, tt.expected, got)
 		}
 	}

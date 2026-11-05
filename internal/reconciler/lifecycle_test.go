@@ -1007,7 +1007,7 @@ func TestStopWorkloadDeletesIdentityAfterStop(t *testing.T) {
 	}
 }
 
-func TestStopWorkloadMarksMissingRunnerOnNoTerminators(t *testing.T) {
+func TestStopWorkloadMarksMissingOnLostRunner(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
 	testAssembler := newTestAssembler(agentID, true)
@@ -1036,6 +1036,7 @@ func TestStopWorkloadMarksMissingRunnerOnNoTerminators(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
+	reconciler.absences.since[runnerID] = time.Now().UTC().Add(-runnerLostAfter)
 	reconciler.stopWorkload(ctx, &runnersv1.Workload{
 		Meta:            &runnersv1.EntityMeta{Id: "workload-1"},
 		RunnerId:        runnerID,
@@ -1065,7 +1066,7 @@ func TestStopWorkloadMarksMissingRunnerOnNoTerminators(t *testing.T) {
 	}
 }
 
-func TestStopWorkloadMarksMissingRunnerOnNoTerminatorsStopError(t *testing.T) {
+func TestStopWorkloadMarksMissingOnLostRunnerStopError(t *testing.T) {
 	ctx := context.Background()
 	agentID := uuid.New()
 	testAssembler := newTestAssembler(agentID, true)
@@ -1109,6 +1110,7 @@ func TestStopWorkloadMarksMissingRunnerOnNoTerminatorsStopError(t *testing.T) {
 		Runners:      runners,
 		Assembler:    testAssembler,
 	})
+	reconciler.absences.since[runnerID] = time.Now().UTC().Add(-runnerLostAfter)
 	reconciler.stopWorkload(ctx, &runnersv1.Workload{
 		Meta:            &runnersv1.EntityMeta{Id: "workload-1"},
 		RunnerId:        runnerID,

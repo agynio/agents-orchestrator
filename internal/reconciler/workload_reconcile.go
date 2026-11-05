@@ -135,7 +135,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
-			if runnerdial.IsNoTerminators(err) {
+			if r.runnerLost(runnerID, err) {
 				for workloadID, workload := range trackedWorkloads {
 					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 						log.Printf("reconciler: warn: handle missing workload %s after runner dial failure: %v", workloadID, err)
@@ -148,7 +148,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 		}
 		resp, err := runnerClient.ListWorkloads(ctx, &runnerv1.ListWorkloadsRequest{})
 		if err != nil {
-			if runnerdial.IsNoTerminators(err) {
+			if r.runnerLost(runnerID, err) {
 				for workloadID, workload := range trackedWorkloads {
 					if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 						log.Printf("reconciler: warn: handle missing workload %s after runner list failure: %v", workloadID, err)
@@ -159,6 +159,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context) error {
 			log.Printf("reconciler: warn: list workloads for runner %s: %v", runnerID, err)
 			continue
 		}
+		r.absences.answered(runnerID)
 		runnerWorkloads := make(map[string]*runnerv1.WorkloadListItem)
 		for _, item := range resp.GetWorkloads() {
 			if item == nil {
@@ -447,7 +448,7 @@ func (r *Reconciler) recordHibernated(ctx context.Context, workload *runnersv1.W
 // hibernated: the wake did not take. WakeWorkload is tried again, and after
 // wakeAttempts of them the workload is failed and its instance cold-starts on
 // its volumes. A WakeWorkload that errors fails it at once, as it does in the
-// main loop.
+// main loop, and one the runner did not answer waits for the next pass.
 func (r *Reconciler) retryWake(ctx context.Context, runnerClient runnerv1.RunnerServiceClient, workload *runnersv1.Workload, instanceID string) error {
 	workloadID := workload.GetMeta().GetId()
 	if r.hibernation.wakeCount(workloadID) >= wakeAttempts {
@@ -460,6 +461,9 @@ func (r *Reconciler) retryWake(ctx context.Context, runnerClient runnerv1.Runner
 	}
 	r.hibernation.wakeAttempted(workloadID)
 	if err := r.wakeRunnerWorkload(ctx, runnerClient, instanceID, credentials); err != nil {
+		if runnerdial.IsInconclusive(err) {
+			return fmt.Errorf("wake workload %s: left waking: %w", workloadID, err)
+		}
 		r.failWake(ctx, runnerClient, workload, instanceID, err.Error())
 		return nil
 	}
