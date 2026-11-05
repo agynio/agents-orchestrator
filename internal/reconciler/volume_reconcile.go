@@ -11,7 +11,6 @@ import (
 	agentsv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/agents/v1"
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	runnersv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runners/v1"
-	"github.com/agynio/agents-orchestrator/internal/runnerdial"
 	"github.com/agynio/agents-orchestrator/internal/uuidutil"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -157,7 +156,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 		runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 		if err != nil {
-			if runnerdial.IsNoTerminators(err) {
+			if r.runnerLost(runnerID, err) {
 				for volumeID, volume := range trackedVolumes {
 					if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 						log.Printf("reconciler: warn: handle missing volume %s after runner dial failure: %v", volumeID, err)
@@ -170,7 +169,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 		}
 		resp, err := runnerClient.ListVolumes(ctx, &runnerv1.ListVolumesRequest{})
 		if err != nil {
-			if runnerdial.IsNoTerminators(err) {
+			if r.runnerLost(runnerID, err) {
 				for volumeID, volume := range trackedVolumes {
 					if err := r.handleMissingRunnerVolume(ctx, volume); err != nil {
 						log.Printf("reconciler: warn: handle missing volume %s after runner list failure: %v", volumeID, err)
@@ -181,6 +180,7 @@ func (r *Reconciler) reconcileVolumes(ctx context.Context) error {
 			log.Printf("reconciler: warn: list volumes for runner %s: %v", runnerID, err)
 			continue
 		}
+		r.absences.answered(runnerID)
 		runnerVolumes := make(map[string]*runnerv1.VolumeListItem)
 		for _, item := range resp.GetVolumes() {
 			if item == nil {

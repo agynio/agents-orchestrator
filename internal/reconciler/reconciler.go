@@ -49,6 +49,8 @@ type Reconciler struct {
 	expose exposeClient
 	// What this process remembers about hibernations and wakes between cycles.
 	hibernation *hibernationState
+	// Since when each runner has been without an OpenZiti terminator.
+	absences *runnerAbsences
 	// The identity this process acts as, for the callees that require a caller
 	// rather than serving an absent one as the platform.
 	platformIdentityID uuid.UUID
@@ -91,6 +93,7 @@ func New(cfg Config) *Reconciler {
 		meteringSampleInterval:    cfg.MeteringSampleInterval,
 		expose:                    cfg.Expose,
 		hibernation:               newHibernationState(),
+		absences:                  newRunnerAbsences(),
 		zitiMgmt:                  cfg.ZitiMgmt,
 		groups:                    cfg.Groups,
 		assembler:                 cfg.Assembler,
@@ -469,7 +472,7 @@ func (r *Reconciler) stopWorkloadWithContext(ctx context.Context, workload *runn
 	}
 	runnerClient, err := r.runnerDialer.Dial(ctx, runnerID)
 	if err != nil {
-		if runnerdial.IsNoTerminators(err) {
+		if r.runnerLost(runnerID, err) {
 			if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 				return fmt.Errorf("handle missing workload %s after runner dial failure: %w", workloadID, err)
 			}
@@ -486,7 +489,7 @@ func (r *Reconciler) stopWorkloadWithContext(ctx context.Context, workload *runn
 	}
 	workload.Status = stoppingStatus
 	if err := r.stopRunnerWorkload(ctx, runnerClient, instanceID); err != nil {
-		if runnerdial.IsNoTerminators(err) {
+		if r.runnerLost(runnerID, err) {
 			if err := r.handleMissingRunnerWorkload(ctx, workload); err != nil {
 				return fmt.Errorf("handle missing workload %s after runner stop failure: %w", workloadID, err)
 			}

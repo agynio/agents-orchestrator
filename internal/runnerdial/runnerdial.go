@@ -13,8 +13,10 @@ import (
 	runnerv1 "github.com/agynio/agents-orchestrator/.gen/go/agynio/api/runner/v1"
 	"github.com/openziti/sdk-golang/ziti/edge"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -201,6 +203,24 @@ func IsNoTerminators(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "no terminators")
+}
+
+// IsInconclusive reports whether a runner call ended without saying whether it
+// took: the overlay could not reach the runner, the connection went, or the
+// wait ran out. Nothing may be concluded from one, and it is safe to ask again.
+func IsInconclusive(err error) bool {
+	if err == nil {
+		return false
+	}
+	if IsNoTerminators(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
+		return true
+	default:
+		return false
+	}
 }
 
 func isAuthFailure(err error) bool {
